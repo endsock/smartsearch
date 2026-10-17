@@ -138,7 +138,12 @@ class XAIResponsesSearchProvider(BaseSearchProvider):
                             parser = OpenAICompatibleSearchProvider(
                                 self.api_url, self.api_key, self.model, api_mode="responses",
                             )
-                            return await parser._parse_responses_streaming_response(response, ctx)
+                            answer = await parser._parse_responses_streaming_response(response, ctx)
+                            if answer and not _SERIALIZED_SOURCES_PATTERN.search(answer):
+                                sources = self._extract_inline_urls(answer)
+                                if sources:
+                                    answer = f"{answer}\n\nsources({json.dumps(sources, ensure_ascii=False)})".strip()
+                            return answer
                     response = await client.post(
                         f"{self.api_url}/responses",
                         headers=headers,

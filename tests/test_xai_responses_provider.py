@@ -86,6 +86,29 @@ async def test_xai_responses_stream_matches_non_stream_sources(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_xai_stream_inline_urls_match_non_stream_sources(monkeypatch):
+    provider = XAIResponsesSearchProvider("https://api.x.ai/v1", "test-key", stream=True)
+    answer = "See HTTPS://example.org/source for details."
+    events = [
+        {"type": "response.output_text.delta", "delta": answer},
+        {"type": "response.completed", "response": {"status": "completed", "output": []}},
+    ]
+    original_client = httpx.AsyncClient
+
+    def handler(request):
+        return httpx.Response(200, headers={"Content-Type": "text/event-stream"},
+                              text="".join(f"data: {json.dumps(event)}\n\n" for event in events))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+
+    result = await provider.search("query")
+
+    assert result == await provider._parse_response(output_text_response(answer))
+    assert result.endswith('sources([{"url": "https://example.org/source"}])')
+    assert split_answer_and_sources(result) == (answer, [{"url": "https://example.org/source"}])
+
+
+@pytest.mark.asyncio
 async def test_xai_responses_parse_output_text_and_url_citations():
     provider = XAIResponsesSearchProvider("https://api.x.ai/v1", "test-key", "test-model", ["web_search"])
     response = DummyResponse(

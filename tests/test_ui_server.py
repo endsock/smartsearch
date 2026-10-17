@@ -187,6 +187,19 @@ def test_state_reports_environment_shadowing(running, monkeypatch):
     assert payload["sources"]["EXA_API_KEY"] == "environment"
 
 
+@pytest.mark.parametrize("path", ["/api/state", "/api/status"])
+def test_state_reports_invalid_xai_reasoning_effort(running, monkeypatch, path):
+    _httpd, runtime = running
+    monkeypatch.setenv("XAI_REASONING_EFFORT", "ultra")
+
+    response, raw = request(runtime, "GET", path, token=runtime.token)
+
+    assert response.status == 200
+    payload = json.loads(raw)
+    assert payload["values"]["XAI_REASONING_EFFORT"] == "ultra"
+    assert any("XAI_REASONING_EFFORT" in error for error in payload["resolved"]["config_parameter_errors"])
+
+
 def test_state_makes_no_network_calls(running, monkeypatch):
     _httpd, runtime = running
 

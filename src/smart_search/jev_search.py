@@ -177,20 +177,16 @@ class ChannelExecutor:
         elif provider == "context7":
             results = await self._context7(query)
         elif provider in {"xai-responses", "openai-compatible"}:
-            from .utils import extract_unique_urls
-
             configs = svc._main_search_provider_configs(model_override=self.model, providers=provider)
             if self.stream is not None:
                 configs[0]["stream"] = self.stream
             data = await svc._search_model_channel(configs[0], query, self.platform, deadline=self.client.deadline,
                                                   fallback=self.fallback, model_override=self.model)
             self.model_results[channel["id"]] = data
+            if data.get("error_type") == "evidence_error":
+                return []
             raw = _check_data(data)["content"]
             answer, sources = svc.split_answer_and_sources(raw)
-            if not sources and not extract_unique_urls(raw):
-                data["attempts"][-1].update(status="empty", result_count=0, error_type="evidence_error",
-                                           error="Search model answer contained no source URLs")
-                return []
             results = [{"title": "Search model response", "content": answer, "kind": "model_answer"}]
             # An answer's prose is not silently attributed to each cited page.
             results.extend({**source, "content": source.get("description") or source.get("title") or source.get("url", ""), "kind": "citation"} for source in sources)

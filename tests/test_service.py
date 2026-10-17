@@ -719,6 +719,18 @@ def test_xai_reasoning_effort_validation(monkeypatch, tmp_path, value):
     assert service.config.xai_reasoning_effort == ""
 
 
+@pytest.mark.parametrize("value", ["ultra", " ULTRA "])
+def test_invalid_xai_reasoning_effort_is_reported_not_raised(monkeypatch, tmp_path, value):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("XAI_REASONING_EFFORT", value)
+
+    info = service.config.get_config_info()
+
+    assert info["XAI_REASONING_EFFORT"] == value
+    assert any("XAI_REASONING_EFFORT" in error for error in info["config_parameter_errors"])
+    assert info["config_status"].startswith("config_error")
+
+
 def test_xai_tools_validation(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
 

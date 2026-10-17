@@ -325,6 +325,105 @@ async def test_model_answer_without_sources_uses_same_capability_fallback(monkey
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["openai-compatible", "xai-responses"])
+async def test_model_answer_rejects_think_only_urls(monkeypatch, provider):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+
+    async def search(self, query, platform="", ctx=None):
+        return "<think>参考 https://example.com/x</think>我先检索"
+
+    provider_type = service.OpenAICompatibleSearchProvider if provider == "openai-compatible" else service.XAIResponsesSearchProvider
+    monkeypatch.setattr(provider_type, "search", search)
+    result = await service.search("Find this source", providers=provider, fallback="off")
+
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
+    assert result["content"] == ""
+    assert result["sources"] == []
+    assert result["provider_attempts"][0]["status"] == "empty"
+    assert result["provider_attempts"][0]["error_type"] == "evidence_error"
+    assert service._provider_health_status(provider)["consecutive_failures"] == 0
+    assert service._OPENAI_COMPATIBLE_MODEL_BREAKERS == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fallback,backup_has_sources", [("auto", True), ("auto", False), ("off", True)])
+async def test_source_free_model_tries_configured_fallback(monkeypatch, fallback, backup_has_sources):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "primary-model")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_FALLBACK_MODELS", "fallback-model")
+    called, successes = [], []
+    record_success = service._record_openai_model_success
+
+    def success(api_url, model, api_mode):
+        successes.append(model)
+        record_success(api_url, model, api_mode)
+
+    async def search(self, query, platform="", ctx=None):
+        called.append(self.model)
+        self.last_transport_attempts = [{"transport": "non_stream", "status": "ok", "result_count": 1}]
+        if self.model == "fallback-model" and backup_has_sources:
+            return 'Retrieved answer.\n\nsources([{"url":"https://example.org/source"}])'
+        return "我先检索权威来源。"
+
+    monkeypatch.setattr(service, "_record_openai_model_success", success)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", search)
+    result = await service.search("Find this source", providers="openai-compatible", fallback=fallback)
+
+    expected_ok = fallback == "auto" and backup_has_sources
+    assert called == (["primary-model", "fallback-model"] if fallback == "auto" else ["primary-model"])
+    assert result["ok"] is expected_ok
+    assert result["error_type"] == ("" if expected_ok else "evidence_error")
+    assert successes == (["fallback-model"] if expected_ok else [])
+    assert service._OPENAI_COMPATIBLE_MODEL_BREAKERS == {}
+    attempts = result["provider_attempts"]
+    assert [item["model"] for item in attempts] == called
+    for attempt in attempts[:1] if expected_ok else attempts:
+        assert attempt["status"] == "empty"
+        assert attempt["error_type"] == "evidence_error"
+        assert attempt["error"] == "Search model answer contained no source URLs"
+        assert attempt["result_count"] == 0
+    if expected_ok:
+        assert result["model"] == "fallback-model"
+        assert attempts[-1]["status"] == "ok"
+    else:
+        assert service._provider_health_status("openai-compatible")["consecutive_failures"] == 0
+
+
+@pytest.mark.asyncio
+async def test_source_free_xai_fallback_reports_openai_model_metadata(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_MODEL", "xai-model")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "relay-model")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "responses")
+    called = []
+
+    async def search(self, query, platform="", ctx=None):
+        called.append(self.model)
+        if self.model == "xai-model":
+            return "我先检索权威来源。"
+        return 'Retrieved answer.\n\nsources([{"url":"https://example.org/source"}])'
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", search)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", search)
+    result = await service.search("Find this source")
+
+    assert called == ["xai-model", "relay-model"]
+    assert result["ok"] is True
+    assert result["provider"] == "openai-compatible"
+    assert result["model"] == "relay-model"
+    assert result["primary_api_mode"] == "responses"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["local", "jev"])
 @pytest.mark.parametrize("stream", [None, False, True])
 @pytest.mark.parametrize("effort", ["", "HIGH"])

@@ -61,7 +61,7 @@ from .sciverse_schema import (
     normalize_sciverse_semantic_payload,
 )
 from .sources import merge_sources, new_session_id, split_answer_and_sources
-from .utils import search_prompt
+from .utils import extract_unique_urls, search_prompt
 
 
 _AVAILABLE_MODELS_CACHE: dict[tuple[str, str], list[str]] = {}
@@ -1707,6 +1707,11 @@ async def _search_model_channel(
             content = await asyncio.wait_for(provider.search(query, platform), max(0.001, deadline - time.monotonic()))
             if not content:
                 raise ProviderCallError("network_error", "Search model returned an empty response")
+            answer, sources = split_answer_and_sources(content)
+            if not sources and not extract_unique_urls(answer):
+                status, error_type, error = "empty", "evidence_error", "Search model answer contained no source URLs"
+                result.update(error_type=error_type, error=error)
+                continue
             status = "ok"
             result.update(ok=True, content=content, model=candidate["model"], primary_api_mode=candidate["mode"],
                           error_type="", error="")
@@ -1722,6 +1727,8 @@ async def _search_model_channel(
                 attempts.append(_attempt("main_search", candidate["provider"], status, started,
                                          result_count=1 if status == "ok" else 0,
                                          error_type=error_type, error=error, extra=extra))
+            elif error_type == "evidence_error":
+                attempts[-1].update(status=status, result_count=0, error_type=error_type, error=error)
         if result["ok"]:
             break
     return result

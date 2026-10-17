@@ -1139,6 +1139,11 @@ class Config:
             except ValueError as exc:
                 config_parameter_errors.append(str(exc))
             jev_info[key] = self._mask_if_secret(key, str(value)) if "KEY" in key else value
+        xai_reasoning_effort = self._get_config_value("XAI_REASONING_EFFORT", "")
+        try:
+            xai_reasoning_effort = self.xai_reasoning_effort
+        except ValueError as exc:
+            config_parameter_errors.append(str(exc))
         xai_configured = self.provider_enabled("xai-responses") and bool(self.xai_api_key)
         openai_configured = self.provider_enabled("openai-compatible") and bool(self.openai_compatible_api_url and self.openai_compatible_api_key)
         explicit_main_configured = xai_configured or openai_configured
@@ -1217,7 +1222,7 @@ class Config:
             "XAI_API_KEY": self._mask_api_key(self.xai_api_key) if self.xai_api_key else tr('未配置'),
             "XAI_MODEL": self.xai_model,
             "XAI_TOOLS": self.xai_tools_raw,
-            "XAI_REASONING_EFFORT": self.xai_reasoning_effort,
+            "XAI_REASONING_EFFORT": xai_reasoning_effort,
             "OPENAI_COMPATIBLE_API_URL": self.openai_compatible_api_url or tr('未配置'),
             "OPENAI_COMPATIBLE_API_KEY": self._mask_api_key(self.openai_compatible_api_key) if self.openai_compatible_api_key else tr('未配置'),
             "OPENAI_COMPATIBLE_MODEL": self.openai_compatible_model,

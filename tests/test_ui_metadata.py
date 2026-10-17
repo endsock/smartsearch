@@ -72,7 +72,6 @@ def test_field_help_and_routing_endpoint_examples_reach_the_frontends():
 @pytest.mark.parametrize(
     "key,allowed_attr",
     [
-        ("XAI_REASONING_EFFORT", "_ALLOWED_XAI_REASONING_EFFORTS"),
         ("OPENAI_COMPATIBLE_API_MODE", "_ALLOWED_OPENAI_COMPATIBLE_API_MODES"),
         ("SMART_SEARCH_VALIDATION_LEVEL", "_ALLOWED_VALIDATION_LEVELS"),
         ("SMART_SEARCH_FALLBACK_MODE", "_ALLOWED_FALLBACK_MODES"),
@@ -86,6 +85,15 @@ def test_enum_choices_track_the_config_layer(key, allowed_attr):
     if key == "SMART_SEARCH_INTENT_ROUTER":
         expected = {service.normalize_router_mode(value) for value in expected}
     assert set(FIELDS_BY_KEY[key].choices) == expected
+
+
+def test_xai_reasoning_effort_is_optional_text():
+    field = FIELDS_BY_KEY["XAI_REASONING_EFFORT"]
+    assert field.kind == "text"
+    assert field.choices == ()
+    assert field.default == ""
+    assert "low / medium / high" in field.help_zh
+    assert "low / medium / high" in field.help_en
 
 
 def test_provider_ids_are_real():
