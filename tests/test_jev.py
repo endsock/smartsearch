@@ -870,6 +870,73 @@ async def test_slow_channel_is_cancelled_while_other_evidence_is_retained(monkey
     assert cancelled.is_set()
 
 
+@pytest.mark.asyncio
+async def test_research_cancels_straggler_after_first_nonempty_result(monkeypatch, configured):
+    from smart_search import jev_search
+
+    monkeypatch.setattr(jev_search, "STRAGGLER_GRACE_SECONDS", 0.1)
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
+    scripted_jev(monkeypatch, [{"exa:search", "zhipu:search"}], [{"useful": 0.95, "sufficient": 0.95}])
+    cancelled = asyncio.Event()
+
+    async def exa(*args, **kwargs):
+        return {"ok": True, "results": [hit("Fast useful evidence")]}
+
+    async def zhipu(*args, **kwargs):
+        try:
+            await asyncio.sleep(30)
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(service, "exa_search", exa)
+    monkeypatch.setattr(service, "zhipu_search", zhipu)
+    result = await asyncio.wait_for(run_loop("question"), 1)
+
+    assert result["ok"]
+    assert "Fast useful evidence" in result["content"]
+    assert cancelled.is_set()
+    assert {item["provider"]: item["status"] for item in result["provider_attempts"]} == {"exa": "ok", "zhipu": "cancelled"}
+
+
+@pytest.mark.asyncio
+async def test_research_cancellation_during_straggler_wait_keeps_evidence(monkeypatch, configured):
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
+    scripted_jev(monkeypatch, [{"exa:search", "zhipu:search"}], [])
+    waiting = asyncio.Event()
+    cancelled = asyncio.Event()
+    original_wait = asyncio.wait
+
+    async def wait_for_channels(*args, **kwargs):
+        if "timeout" in kwargs:
+            waiting.set()
+        return await original_wait(*args, **kwargs)
+
+    async def exa(*args, **kwargs):
+        return {"ok": True, "results": [hit("Fast useful evidence")]}
+
+    async def zhipu(*args, **kwargs):
+        try:
+            await asyncio.sleep(30)
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(asyncio, "wait", wait_for_channels)
+    monkeypatch.setattr(service, "exa_search", exa)
+    monkeypatch.setattr(service, "zhipu_search", zhipu)
+    task = asyncio.create_task(run_loop("question"))
+    await asyncio.wait_for(waiting.wait(), 1)
+    task.cancel()
+    result = await asyncio.wait_for(task, 1)
+
+    assert result["ok"] is False
+    assert result["error_type"] == "cancelled"
+    assert result["routing_decision"]["stop_reason"] == "cancelled"
+    assert result["partial_success"] is True
+    assert "Fast useful evidence" in result["content"]
+    assert {item["provider"]: item["status"] for item in result["provider_attempts"]} == {"exa": "ok", "zhipu": "cancelled"}
+    assert cancelled.is_set()
+
+
 def stub_doctor_probes(monkeypatch, *, rejected=False):
     async def probe(*args, **kwargs):
         return {"status": "ok", "message": "fixture"}

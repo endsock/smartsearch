@@ -15,6 +15,10 @@ from .provider_descriptions import PROVIDER_DESCRIPTIONS
 from .provider_errors import ProviderCallError, classify_provider_exception
 
 
+FALLBACK_RESERVE_RATIO = 0.75
+STRAGGLER_GRACE_SECONDS = 15.0
+
+
 def available_channels(svc: Any, query: str, evidence: list[dict], providers: str = "auto", *, queries: list[dict] | None = None, include_cooldown: bool = False) -> list[dict]:
     """Only configured, enabled, allowed operations enter the model's state."""
     provider_filter = svc._parse_provider_filter(providers)
@@ -461,9 +465,31 @@ async def search(
             attempted.update(item["id"] for item in selected)
             phase_start = time.monotonic()
             retrieval_timeout = budget.remaining_seconds() * (0.8 if is_research and judge_available else 1.0)
+            if not is_research and fallback != "off" and any(
+                item["id"] not in attempted and item["capability"] == selected[0]["capability"]
+                for item in candidates
+            ):
+                retrieval_timeout = budget.remaining_seconds() * FALLBACK_RESERVE_RATIO
             before = len(evidence)
             round_attempt_start = len(attempts)
-            await asyncio.gather(*(execute_one(item, retrieval_timeout) for item in selected))
+            if is_research:
+                tasks = {asyncio.create_task(execute_one(item, retrieval_timeout)) for item in selected}
+                pending = tasks
+                try:
+                    while pending:
+                        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                        if any(not task.cancelled() and task.result() for task in done):
+                            if pending:
+                                _, pending = await asyncio.wait(
+                                    pending, timeout=max(STRAGGLER_GRACE_SECONDS, time.monotonic() - phase_start)
+                                )
+                            break
+                finally:
+                    for task in pending:
+                        task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+            else:
+                await asyncio.gather(*(execute_one(item, retrieval_timeout) for item in selected))
             if not is_research and not evidence and fallback != "off":
                 alternatives = [item for item in candidates if item["id"] not in attempted
                                 and item["capability"] == selected[0]["capability"]]

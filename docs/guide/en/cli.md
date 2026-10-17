@@ -209,6 +209,8 @@ The CLI equivalents remain: `smart-search setup`, `smart-search config set KEY V
 
 Smoke output includes `status` (`healthy`, `degraded`, or `failed`) and explicit `skipped_cases`. A healthy or degraded smoke report remains `ok: true` with exit code `0`; only failed smoke is non-zero.
 
+When `search` returns `error_type: "timeout"`, inspect `timeout_phase` and `provider_attempts` first. Retry the same search at most once with `--extra-sources 1`. If it times out again, switch to source-first commands such as `exa-search`, fetch the relevant pages, and label the evidence mode as `source_mode: "fallback"` or equivalent prose. Agents must set their command execution timeout at least 30 seconds above the smart-search total budget (at least 330 seconds for the default 300 seconds), or run the command in the background; otherwise the agent can kill smart-search before it returns structured results.
+
 Useful examples:
 
 ```powershell

@@ -865,3 +865,57 @@ def test_short_deadline_still_shrinks_every_timeout_component():
     assert timeout.read <= 2.0
     assert timeout.connect <= 2.0
     assert timeout.write <= 2.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("delay,expected_requests", [(0.1, 1), (0, 4)])
+async def test_openai_retry_stops_after_slow_failure(monkeypatch, stream, delay, expected_requests):
+    import smart_search.providers.openai_compatible as provider_mod
+
+    monkeypatch.setattr(provider_mod, "SLOW_FAILURE_SECONDS", 0.05)
+    monkeypatch.setenv("SMART_SEARCH_RETRY_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("SMART_SEARCH_RETRY_MULTIPLIER", "0")
+    requests = []
+    original_client = httpx.AsyncClient
+
+    async def handler(request):
+        requests.append(request)
+        if delay:
+            await asyncio.sleep(delay)
+        return httpx.Response(503)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "test-model", stream=stream)
+    execute = provider._execute_stream_with_retry if stream else provider._execute_completion_with_retry
+    with pytest.raises(httpx.HTTPStatusError):
+        await execute({}, {"stream": stream})
+
+    assert len(requests) == expected_requests
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_done_returns_without_eof(monkeypatch):
+    import smart_search.providers.openai_compatible as provider_mod
+
+    monkeypatch.setattr(provider_mod, "_STREAM_BREAKERS", {})
+    never = asyncio.Event()
+
+    class OpenEndedStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
+            yield b'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+            yield b'data: [DONE]\n\n'
+            await never.wait()
+
+    async def handler(request):
+        return httpx.Response(200, headers={"Content-Type": "text/event-stream"}, stream=OpenEndedStream())
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "done-test-model", stream=True)
+
+    result = await asyncio.wait_for(provider.search("query"), 2)
+
+    assert result == "Hello world"
+    assert [attempt["transport"] for attempt in provider.last_transport_attempts] == ["stream"]

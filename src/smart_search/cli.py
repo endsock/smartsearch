@@ -2404,7 +2404,7 @@ async def _run_async_impl(args: argparse.Namespace) -> int:
         data = await service.route_calibrate(models=args.models)
         return _print_result("route-calibrate", data, args.format, args.output)
     if args.command == "fetch":
-        data = await service.fetch(args.url)
+        data = await service.fetch(args.url, timeout_seconds=args.timeout)
         return _print_result("fetch", data, args.format, args.output)
     if args.command == "map":
         data = await service.map_site(
@@ -2969,6 +2969,13 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_parser = sub.add_parser("fetch", aliases=COMMAND_ALIASES["fetch"], help="Fetch a URL as markdown.")
     fetch_parser.set_defaults(command="fetch")
     fetch_parser.add_argument("url")
+    fetch_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Total fetch budget in seconds; overrides SMART_SEARCH_TIMEOUT_SECONDS.",
+    )
     _add_format_args(fetch_parser)
 
     map_parser = sub.add_parser("map", aliases=COMMAND_ALIASES["map"], help="Map a website structure.")

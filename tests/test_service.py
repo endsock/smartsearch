@@ -1766,6 +1766,34 @@ async def test_search_model_errors_keep_taxonomy_and_redact_credentials(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_fetch_deadline_times_out_and_skips_next_provider(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-secret")
+    cancelled = asyncio.Event()
+
+    async def slow_tavily(url):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def forbidden_firecrawl(url, ctx=None):
+        raise AssertionError("Firecrawl must not start after the fetch deadline")
+
+    monkeypatch.setattr(service, "call_tavily_extract", slow_tavily)
+    monkeypatch.setattr(service, "call_firecrawl_scrape", forbidden_firecrawl)
+    result = await asyncio.wait_for(service.fetch("https://example.com", timeout_seconds=0.3), 1)
+
+    assert result["ok"] is False
+    assert result["error_type"] == "timeout"
+    assert cancelled.is_set()
+    assert [item["provider"] for item in result["provider_attempts"]] == ["tavily", "firecrawl"]
+    assert result["provider_attempts"][0]["error_type"] == "timeout"
+    assert result["provider_attempts"][1]["status"] == "skipped"
+    assert result["provider_attempts"][1]["error"] == "fetch deadline exhausted"
+
+
+@pytest.mark.asyncio
 async def test_fetch_prefers_tavily(monkeypatch):
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
 

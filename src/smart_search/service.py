@@ -1874,6 +1874,8 @@ async def _run_web_fetch_fallback(
     url: str,
     fallback: str = "auto",
     preferred_order: list[str] | None = None,
+    *,
+    deadline: float | None = None,
 ) -> tuple[dict[str, Any] | None, list[dict]]:
     attempts: list[dict] = []
     providers = []
@@ -1900,12 +1902,17 @@ async def _run_web_fetch_fallback(
 
     for provider in providers:
         start = time.time()
+        remaining = deadline - time.monotonic() if deadline is not None else None
+        if remaining is not None and remaining <= 0:
+            attempts.append(_attempt("web_fetch", provider, "skipped", start,
+                                     error_type="timeout", error="fetch deadline exhausted"))
+            break
         activity.progress("web_fetch", provider)
         try:
             if provider == "tavily":
-                content = await call_tavily_extract(url)
+                content = await call_tavily_extract(url) if deadline is None else await asyncio.wait_for(call_tavily_extract(url), remaining)
             elif provider == "jina":
-                data = await jina_fetch(url)
+                data = await jina_fetch(url) if deadline is None else await asyncio.wait_for(jina_fetch(url), remaining)
                 content = data.get("content") if data.get("ok") else None
                 if not data.get("ok"):
                     status = _attempt_status_for_result(data)
@@ -1913,7 +1920,7 @@ async def _run_web_fetch_fallback(
                     attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
                     continue
             elif provider == "zhipu-mcp-reader":
-                data = await zhipu_mcp_reader(url)
+                data = await zhipu_mcp_reader(url) if deadline is None else await asyncio.wait_for(zhipu_mcp_reader(url), remaining)
                 content = data.get("content") if data.get("ok") else None
                 if not data.get("ok"):
                     status = _attempt_status_for_result(data)
@@ -1921,7 +1928,7 @@ async def _run_web_fetch_fallback(
                     attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
                     continue
             elif provider == "tinyfish":
-                data = await call_tinyfish_fetch(url)
+                data = await call_tinyfish_fetch(url) if deadline is None else await asyncio.wait_for(call_tinyfish_fetch(url), remaining)
                 content = data.get("content") if data.get("ok") else None
                 if not data.get("ok"):
                     status = _attempt_status_for_result(data)
@@ -1929,7 +1936,7 @@ async def _run_web_fetch_fallback(
                     attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
                     continue
             else:
-                content = await call_firecrawl_scrape(url)
+                content = await call_firecrawl_scrape(url) if deadline is None else await asyncio.wait_for(call_firecrawl_scrape(url), remaining)
             if content and content.strip():
                 _record_provider_result(provider, "ok")
                 attempts.append(_attempt("web_fetch", provider, "ok", start, result_count=1))
@@ -2281,9 +2288,14 @@ async def route_calibrate(models: str = "") -> dict[str, Any]:
     }
 
 
-async def fetch(url: str) -> dict[str, Any]:
+async def fetch(url: str, timeout_seconds: float | None = None) -> dict[str, Any]:
     start = time.time()
-    fetch_result, attempts = await _run_web_fetch_fallback(url)
+    try:
+        effective = _resolve_search_timeout(timeout_seconds)
+        budget = SearchBudget(effective)
+    except ValueError as exc:
+        return {"ok": False, "url": url, "error_type": "parameter_error", "error": str(exc), "elapsed_ms": _elapsed_ms(start)}
+    fetch_result, attempts = await _run_web_fetch_fallback(url, deadline=budget.deadline)
     if fetch_result:
         return {
             **fetch_result,
@@ -2318,6 +2330,8 @@ async def fetch(url: str) -> dict[str, Any]:
         else:
             error = "All extract providers returned empty content"
             error_type = "network_error"
+    if any(attempt.get("error_type") == "timeout" for attempt in attempts):
+        error_type = "timeout"
     return {
         "ok": False,
         "url": url,

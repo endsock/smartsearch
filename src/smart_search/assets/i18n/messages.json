@@ -7435,6 +7435,10 @@
     "最高项",
     "Top"
   ],
+  "Total fetch budget in seconds; overrides SMART_SEARCH_TIMEOUT_SECONDS.": [
+    "抓取总时间预算，单位秒；覆盖 SMART_SEARCH_TIMEOUT_SECONDS。",
+    "Total fetch budget in seconds; overrides SMART_SEARCH_TIMEOUT_SECONDS."
+  ],
   "Total search budget in seconds; overrides SMART_SEARCH_TIMEOUT_SECONDS.": [
     "搜索总时间预算，单位秒；覆盖 SMART_SEARCH_TIMEOUT_SECONDS。",
     "Total search budget in seconds; overrides SMART_SEARCH_TIMEOUT_SECONDS."

@@ -201,6 +201,8 @@ ssh -L 8765:127.0.0.1:8765 用户@主机      # 然后在本地打开打印出�
 
 `smoke` 输出会给出 `status`（`healthy`、`degraded` 或 `failed`）和明确的 `skipped_cases`。健康或降级报告仍为 `ok: true`、退出码 `0`；只有失败才非零。
 
+`search` 返回 `error_type: "timeout"` 时，先查看 `timeout_phase` 和 `provider_attempts`。同一条搜索最多再试 1 次，并加上 `--extra-sources 1`；再次超时就改用 `exa-search` 等 source-first 命令，抓取相关页面，并用 `source_mode: "fallback"` 或等价文字标注证据模式。调用 smart-search 的 Agent 必须把命令执行超时设得比 smart-search 的总时限长至少 30 秒（默认 300 秒时至少 330 秒），或放到后台执行，否则 Agent 可能在 smart-search 返回结构化结果前将它终止。
+
 示例：
 
 ```powershell

@@ -263,3 +263,28 @@ async def test_xai_expired_deadline_fails_before_any_request():
 
     with pytest.raises(asyncio.TimeoutError):
         await provider.search("expired deadline")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delay,expected_requests", [(0.1, 1), (0, 4)])
+async def test_xai_retry_stops_after_slow_failure(monkeypatch, delay, expected_requests):
+    import smart_search.providers.openai_compatible as provider_mod
+
+    monkeypatch.setattr(provider_mod, "SLOW_FAILURE_SECONDS", 0.05)
+    monkeypatch.setenv("SMART_SEARCH_RETRY_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("SMART_SEARCH_RETRY_MULTIPLIER", "0")
+    requests = []
+    original_client = httpx.AsyncClient
+
+    async def handler(request):
+        requests.append(request)
+        if delay:
+            await asyncio.sleep(delay)
+        return httpx.Response(503)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    provider = XAIResponsesSearchProvider("https://api.x.ai/v1", "test-key", "test-model", [])
+    with pytest.raises(httpx.HTTPStatusError):
+        await provider.search("query")
+
+    assert len(requests) == expected_requests

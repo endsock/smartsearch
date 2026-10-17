@@ -11,7 +11,7 @@ import httpx
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt
 
 from .base import BaseSearchProvider
-from .openai_compatible import _StopAtDeadline, _WaitWithRetryAfter, _is_retryable_exception, get_local_time_info
+from .openai_compatible import _StopAfterSlowFailure, _StopAtDeadline, _WaitWithRetryAfter, _is_retryable_exception, get_local_time_info
 from ..config import config
 from ..logger import log_info
 from ..utils import search_prompt
@@ -61,7 +61,7 @@ class XAIResponsesSearchProvider(BaseSearchProvider):
         )
 
     def _retry_stop(self):
-        stop = stop_after_attempt(config.retry_max_attempts + 1)
+        stop = stop_after_attempt(config.retry_max_attempts + 1) | _StopAfterSlowFailure(self)
         if self._search_deadline_monotonic is not None:
             return stop | _StopAtDeadline(self._search_deadline_monotonic)
         return stop
@@ -118,6 +118,7 @@ class XAIResponsesSearchProvider(BaseSearchProvider):
                 reraise=True,
             ):
                 with attempt:
+                    self._attempt_started_at = time.monotonic()
                     response = await client.post(
                         f"{self.api_url}/responses",
                         headers=headers,

@@ -178,7 +178,7 @@
 别名：`f`
 
 ```text
-用法：smart-search fetch [-h] [--lang {auto,zh,en}]
+用法：smart-search fetch [-h] [--lang {auto,zh,en}] [--timeout SECONDS]
                       [--format {json,markdown,content}] [--output OUTPUT]
                       url
 
@@ -188,6 +188,7 @@
 选项:
   -h, --help            显示此帮助并退出
   --lang {auto,zh,en}   本次调用的界面语言，不改变已保存的偏好。
+  --timeout SECONDS     抓取总时间预算，单位秒；覆盖 SMART_SEARCH_TIMEOUT_SECONDS。
   --format {json,markdown,content}
   --output OUTPUT       将渲染后的输出写入文件。
 ```

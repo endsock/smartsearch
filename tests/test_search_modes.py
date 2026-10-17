@@ -200,6 +200,34 @@ async def test_ordinary_deadline_cancels_retrieval(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_ordinary_search_reserves_time_for_same_capability_fallback(monkeypatch):
+    monkeypatch.setenv("TYPESAFE_API_KEY", "jev-test")
+    monkeypatch.setenv("CONTEXT7_API_KEY", "context7-test")
+    monkeypatch.setenv("EXA_API_KEY", "exa-test")
+
+    async def judge(self, state, questions, timeout):
+        return response(questions, {f"channel_{i}": 0.99 if item["provider"] == "context7" else 0.01
+                                   for i, item in enumerate(state["available_channels"])})
+
+    async def library(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    async def exa(*args, **kwargs):
+        return {"ok": True, "results": [{"url": "https://example.org/docs", "content": "Fallback documentation"}]}
+
+    monkeypatch.setattr(JevClient, "_request", judge)
+    monkeypatch.setattr(service, "context7_library", library)
+    monkeypatch.setattr(service, "exa_search", exa)
+    result = await asyncio.wait_for(service.search("React API docs", fallback="auto", timeout_seconds=0.4), 1)
+
+    assert result["ok"]
+    assert "Fallback documentation" in result["content"]
+    assert [item["provider"] for item in result["provider_attempts"]] == ["context7", "exa"]
+    assert result["provider_attempts"][0]["error_type"] == "timeout"
+    assert result["provider_attempts"][1]["status"] == "ok"
+
+
+@pytest.mark.asyncio
 async def test_selected_model_keeps_configured_failure_fallback(monkeypatch):
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example/v1")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test")

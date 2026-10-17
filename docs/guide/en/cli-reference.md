@@ -201,7 +201,7 @@ Parser defaults: `--models` = ``; `--format` = `json`; `--output` = ``.
 Aliases: `f`
 
 ```text
-usage: smart-search fetch [-h] [--lang {auto,zh,en}]
+usage: smart-search fetch [-h] [--lang {auto,zh,en}] [--timeout SECONDS]
                           [--format {json,markdown,content}] [--output OUTPUT]
                           url
 
@@ -212,6 +212,8 @@ options:
   -h, --help            show this help message and exit
   --lang {auto,zh,en}   Interface language for this call; does not change the
                         saved preference.
+  --timeout SECONDS     Total fetch budget in seconds; overrides
+                        SMART_SEARCH_TIMEOUT_SECONDS.
   --format {json,markdown,content}
   --output OUTPUT       Write rendered output to a file.
 ```

@@ -137,20 +137,18 @@ When a search succeeds but `provider_notices` reports a degraded optional provid
 
 ## Timeout Retry Policy
 
-When `smart-search search` returns `ok: false` with `error_type: "timeout"`, the command's deadline was reached. Inspect `timeout_phase` and `phase_attempts` before retrying: partial results can remain in `content`; ordinary search has no automatic optional source phase.
+When `smart-search search` returns `ok: false` with `error_type: "timeout"`, inspect `timeout_phase` and `provider_attempts` first. Partial results can remain in `content`; ordinary search has no automatic optional source phase.
 
-1. Retry up to 3 total attempts with `--timeout 300`, waiting about 5 seconds between attempts.
-2. Use `--format json` and `--output PATH` for each attempt; after each attempt, inspect the saved JSON and stop on the first `"ok": true`.
-3. Use `--extra-sources 1` during retry attempts to limit the selected channel result count.
-4. `SMART_SEARCH_TIMEOUT_SECONDS` supplies the persistent 300-second default; use the CLI's `--timeout` only for an explicit one-call override. Do not wrap `smart-search` in a shell-level `timeout` command because shell termination can prevent structured failure JSON.
-5. Do not rely on `SMART_SEARCH_RETRY_*` settings; search command timeouts are surfaced by the CLI result contract and should be handled by the agent workflow.
-6. If all attempts time out, fall back to source-first evidence:
+1. Retry the same search at most once, adding `--extra-sources 1` to limit the selected channel result count.
+2. Use `--format json` and `--output PATH` for each attempt; inspect the saved JSON and stop on `"ok": true`.
+3. Set the agent's command execution timeout at least 30 seconds longer than the smart-search total budget, or run the command in the background. With the default 300-second budget, the agent timeout must be at least 330 seconds; otherwise the agent can kill smart-search before it returns structured results. `SMART_SEARCH_TIMEOUT_SECONDS` supplies the default; `--timeout` overrides one call.
+4. If the retry also times out, switch to source-first evidence:
    - Run `exa-search` with the original query.
    - Run `exa-search --include-domains` when likely official domains are known.
    - `fetch` the top 1-2 relevant URLs before making claim-level statements.
    - Mark the final answer as `source_mode: "fallback"` or state that it was assembled from fetched sources after the original search failed.
 
-Agent timeout handling contract: `smart-search search ... --timeout 300 --extra-sources 1 --format json --output PATH` is the retry shape; it is not a shell-level `timeout` wrapper. `SMART_SEARCH_RETRY_*` settings are not the contract for this path. After repeated search timeout failures, switch to source-first fallback with `exa-search`, `exa-search --include-domains`, and fetched evidence. Final answers assembled through that fallback should explicitly label the evidence mode, for example `source_mode: "fallback"` or equivalent prose.
+Agent timeout handling contract: on `error_type: "timeout"`, inspect `timeout_phase` and `provider_attempts`, then retry the same search at most once with `--extra-sources 1`, for example `smart-search search ... --timeout 300 --extra-sources 1 --format json --output PATH`. Set the agent's command execution timeout at least 30 seconds above the smart-search total budget (at least 330 seconds for the default 300 seconds), or run it in the background, so the agent does not kill it before structured results return. If the retry also times out, switch to source-first fallback with `exa-search`, `exa-search --include-domains`, and fetched evidence, and label the evidence mode as `source_mode: "fallback"` or equivalent prose.
 
 ## Guardrails
 

@@ -241,6 +241,12 @@ def test_search_help_exposes_timeout(capsys):
     assert "--no-stream" in out
 
 
+def test_fetch_parser_accepts_timeout():
+    args = cli.build_parser().parse_args(["fetch", "https://example.com", "--timeout", "5"])
+
+    assert args.timeout == 5.0
+
+
 def test_diagnose_openai_compatible_defaults_to_markdown(monkeypatch, capsys):
     async def fake_diagnose(timeout_seconds=30.0):
         return {
@@ -379,7 +385,7 @@ def test_search_content_format_outputs_content_only(monkeypatch, capsys):
 
 
 def test_fetch_content_format_matches_markdown_body(monkeypatch, capsys):
-    async def fake_fetch(url):
+    async def fake_fetch(url, timeout_seconds=None):
         return {"ok": True, "url": url, "content": "# 中文页面"}
 
     monkeypatch.setattr(cli.service, "fetch", fake_fetch)
@@ -592,7 +598,7 @@ def test_search_alias_uses_canonical_command(monkeypatch, capsys):
 
 
 def test_fetch_alias_uses_canonical_command(monkeypatch, capsys):
-    async def fake_fetch(url):
+    async def fake_fetch(url, timeout_seconds=None):
         return {"ok": True, "url": url, "content": "Page"}
 
     monkeypatch.setattr(cli.service, "fetch", fake_fetch)
@@ -994,7 +1000,7 @@ def test_config_error_exit_code(monkeypatch, capsys):
 
 
 def test_network_error_exit_code(monkeypatch, capsys):
-    async def fake_fetch(url):
+    async def fake_fetch(url, timeout_seconds=None):
         return {"ok": False, "error_type": "network_error", "error": "upstream timeout", "url": url}
 
     monkeypatch.setattr(cli.service, "fetch", fake_fetch)
