@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import time
 import uuid
 
@@ -64,31 +65,49 @@ def hashes_at(dest, names):
     return hashes
 
 
+def _owner_identity(owner: str) -> str:
+    # mise keeps one directory per version; its tool directory identifies the installation.
+    for parent in Path(owner).parents:
+        if parent.name == "npm-konbakuyomu-smart-search" and parent.parent.name == "installs":
+            return str(parent)
+    return owner
+
+
+def _version_key(value) -> tuple[int, int, int] | None:
+    if isinstance(value, str):
+        match = re.match(r"^(\d+)\.(\d+)\.(\d+)", value)
+        if match:
+            return tuple(int(part) for part in match.groups())
+    return None
+
+
 def cli_owner():
     """Identify the installation, independent of its product version or config profile."""
     import sys
     if os.getenv(skills.PACKAGE_ROOT_ENV):
-        return str(Path(os.environ[skills.PACKAGE_ROOT_ENV]).resolve())
+        return _owner_identity(str(Path(os.environ[skills.PACKAGE_ROOT_ENV]).resolve()))
     if getattr(sys, "frozen", False):
         from .desktop_cli import tools_directory
         root = tools_directory()
         if Path(sys.executable).resolve().is_relative_to(root / "standalone/versions"):
-            return str(root / "standalone")
-        return str(Path(sys.executable).resolve())
-    return str(Path(__file__).resolve().parent)
+            return _owner_identity(str(root / "standalone"))
+        return _owner_identity(str(Path(sys.executable).resolve()))
+    return _owner_identity(str(Path(__file__).resolve().parent))
 
 
 def register(installed, files, *, directory=None):
     directory = Path(directory) if directory else state_directory()
     if not installed:
         return
+    from .cli import _get_version
     from .config import config
     with file_lock(directory / "state.json"):
         state = load(directory)
         managed = state.setdefault("managed", {})
         for row in installed:
             managed[row["target"]] = {"path": row["path"], "files": hashes_at(Path(row["path"]), files),
-                                      "owner": cli_owner(), "config_dir": str(config.config_file.parent)}
+                                      "owner": cli_owner(), "config_dir": str(config.config_file.parent),
+                                      "cli_version": _get_version()}
         state.setdefault("auto_check", True)
         save(state, directory)
 
@@ -129,7 +148,11 @@ def _maintain_locked(directory, force):
         try:
             if not isinstance(receipt, dict) or not isinstance(receipt.get("path"), str):
                 raise ValueError("Invalid managed Skill receipt")
-            if receipt.get("owner", owner) != owner:
+            if _owner_identity(receipt.get("owner", owner)) != owner:
+                continue
+            receipt_version, current_version = _version_key(receipt.get("cli_version")), _version_key(version)
+            # An older CLI never overwrites Skills written by a newer one.
+            if receipt_version is not None and current_version is not None and receipt_version > current_version:
                 continue
             config_dir = receipt.get("config_dir")
             if config_dir is not None and (not isinstance(config_dir, str) or not Path(config_dir).is_absolute()):
@@ -148,6 +171,7 @@ def _maintain_locked(directory, force):
                     continue
                 changed = skills._write_skill_files(dest, files, directory / "backups", backup_prefix=target + "-")
                 receipt["files"] = hashes_at(dest, files)
+                receipt["cli_version"] = version
             results.append({"target": target, "status": "updated", **changed})
         except (OSError, ValueError, TypeError):
             results.append({"target": target, "status": "needs_attention"})

@@ -110,6 +110,50 @@ async def test_cli_upgrade_maintains_only_opted_in_unmodified_targets(tmp_path, 
 
 
 @pytest.mark.asyncio
+async def test_cli_upgrade_maintains_receipts_from_older_mise_version(tmp_path, monkeypatch):
+    manager, _ = isolated(tmp_path, monkeypatch)
+    await sync(manager, ["codex"])
+    tool = tmp_path / "mise/installs/npm-konbakuyomu-smart-search"
+    with maintenance.file_lock(manager.directory / "state.json"):
+        state = maintenance.load(manager.directory)
+        state["managed"]["codex"]["owner"] = str(tool / "1.0.0/node_modules/@konbakuyomu/smart-search")
+        maintenance.save(state, manager.directory)
+    monkeypatch.setenv("SMART_SEARCH_PACKAGE_ROOT", str(tool / "1.0.1/node_modules/@konbakuyomu/smart-search"))
+    monkeypatch.setattr(skills, "_local_skill_files", lambda _: [("SKILL.md", b"new bootstrap")])
+    monkeypatch.setattr(cli, "_get_version", lambda: "1.0.1")
+    state = maintenance.maintain(directory=manager.directory, force=True)
+    codex = skills.target_path("codex", manager.environment.home, {}) / "SKILL.md"
+    assert codex.read_bytes() == b"new bootstrap"
+    assert {row["target"]: row["status"] for row in state["maintenance"]}["codex"] == "updated"
+    assert maintenance.load(manager.directory)["managed"]["codex"]["cli_version"] == "1.0.1"
+
+
+@pytest.mark.asyncio
+async def test_older_cli_does_not_overwrite_newer_skill_files(tmp_path, monkeypatch):
+    manager, _ = isolated(tmp_path, monkeypatch)
+    await sync(manager, ["codex"])
+    monkeypatch.setattr(skills, "_local_skill_files", lambda _: [("SKILL.md", b"new bootstrap")])
+    monkeypatch.setattr(cli, "_get_version", lambda: "1.0.1")
+    maintenance.maintain(directory=manager.directory, force=True)
+    monkeypatch.setattr(cli, "_get_version", lambda: "1.0.0")
+    monkeypatch.setattr(skills, "_local_skill_files", lambda _: [("SKILL.md", b"old bootstrap")])
+    maintenance.maintain(directory=manager.directory, force=True)
+    codex = skills.target_path("codex", manager.environment.home, {}) / "SKILL.md"
+    assert codex.read_bytes() == b"new bootstrap"
+
+
+def test_mise_versions_share_one_skill_owner(tmp_path, monkeypatch):
+    tool = tmp_path / "mise/installs/npm-konbakuyomu-smart-search"
+    monkeypatch.setenv("SMART_SEARCH_PACKAGE_ROOT", str(tool / "1.0.0/node_modules/@konbakuyomu/smart-search"))
+    assert maintenance.cli_owner() == str(tool.resolve())
+    monkeypatch.setenv("SMART_SEARCH_PACKAGE_ROOT", str(tool / "1.0.1/node_modules/.mise/@konbakuyomu+smart-search@1.0.1/node_modules/@konbakuyomu/smart-search"))
+    assert maintenance.cli_owner() == str(tool.resolve())
+    package = tmp_path / "npm/lib/node_modules/@konbakuyomu/smart-search"
+    monkeypatch.setenv("SMART_SEARCH_PACKAGE_ROOT", str(package))
+    assert maintenance.cli_owner() == str(package.resolve())
+
+
+@pytest.mark.asyncio
 async def test_disabling_maintenance_survives_cli_upgrade(tmp_path, monkeypatch):
     manager, _ = isolated(tmp_path, monkeypatch)
     await sync(manager, ["codex"])
