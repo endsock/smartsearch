@@ -50,8 +50,10 @@ smart-search search 'React useEffect cleanup 什么时候执行？' --timeout 90
 
 ## 深入搜索执行行为
 
-1. 候选集合只包含已配置且启用的 provider，受 `--providers`、`TAVILY_ENABLED`、`SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` 和 provider cooldown 约束。传给 Jev 的只有能力描述、问题、结果和操作历史，没有渠道密钥。
-2. Jev 对候选操作批量进行独立 Noul 判断；程序验证概率、排序并限制数量。不满足阈值时不会伪称 Jev 选中了最高分渠道；允许 fallback 时按固定能力规则执行并标记降级。未知响应 ID 不会成为工具调用。已有 `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` 会作为用户偏好传入，相同概率优先已有偏好；偏好不是概率乘数，也不会突破能力边界。Exa 的新闻发现、Grok 通用检索和 Context7 文档等专长一并提供给判断。
+每个服务商的搜索、抓取等操作都在 `src/smart_search/provider_descriptions.py` 中维护中英文简介和“擅长／不适合”的副介绍。`provider_profiles` 状态接口向 macOS、Windows 和 Web UI 提供同一份文本，界面按语言分开展示两段；Jev 始终只收到对应操作的英文简介和副介绍。文案说明当前适配器实际调用的能力边界，不把服务商其他功能自动视为已启用。
+
+1. 候选集合只包含已配置且启用的 provider，受 `--providers`、`TAVILY_ENABLED`、`SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` 和 provider cooldown 约束。传给 Jev 的候选项包含对应操作的英文自然语言描述、能力、实际 query 或 URL、用户偏好顺序；另有问题、证据和操作历史，没有渠道密钥。
+2. Jev 对候选操作批量进行独立 Noul 判断；程序验证概率、排序并限制数量。不满足阈值时不会伪称 Jev 选中了最高分渠道；允许 fallback 时按固定能力规则执行并标记降级。未知响应 ID 不会成为工具调用。已有 `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` 会作为用户偏好传入，相同概率优先已有偏好；偏好不是概率乘数，也不会突破能力边界。
 3. 同轮操作并发，单个渠道失败不丢弃其他渠道结果。Context7 会检索库、判断正确的库 ID，再获取实际文档，不把库介绍当成答案。
 4. Jev 判断累计证据是否有用、是否足够，并标记直接答案、细节、时效、权威性、交叉验证等缺口。夹杂无关结果本身不会触发补搜。判断预览按序列化后的总大小限制在 20,000 字符内；长页复用分段器选取查询词相关片段，大量结果采用首尾有限采样，并明确记录截断及遗漏。预览不是全文保证，不能假定未见内容已经回答问题。
 5. 不足时从尚未执行的动作再次选择：已有计划子问题、有限缺口检索词、另一引擎、发现 URL 后阅读正文。同一引擎可以使用不同 query；完全相同的 provider/操作/query/URL 不重复。Jev 判断候选，不生成自由文本查询；原问题仍用于最终证据判断。
