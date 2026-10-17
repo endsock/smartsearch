@@ -190,12 +190,9 @@ struct ConfigField: Identifiable, Hashable {
         if !placeholder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return placeholder }
         if !defaultValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return defaultValue }
         switch key {
-        case "OPENAI_COMPATIBLE_MODEL", "INTENT_CLASSIFIER_MODEL": return "gpt-4o"
+        case "OPENAI_COMPATIBLE_MODEL": return "gpt-4o"
         case "OPENAI_COMPATIBLE_FALLBACK_MODELS": return "gpt-4o,deepseek-chat"
         case "JINA_RESPOND_WITH": return "readerlm-v2"
-        case "INTENT_EMBEDDING_API_URL": return "https://api.siliconflow.cn/v1/embeddings"
-        case "INTENT_EMBEDDING_MODEL": return "Qwen/Qwen3-Embedding-8B"
-        case "INTENT_CLASSIFIER_API_URL": return "https://api.example.com/v1/chat/completions"
         case "SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS": return "exa,tavily"
         case "SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS": return "anysearch,sciverse"
         default: break
@@ -261,7 +258,21 @@ struct ProviderFieldGroup: Identifiable {
         return available.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
-    var strengths: [String] { profile.array("strengths").compactMap(\.stringValue) }
+    var purposeDescriptions: [String] {
+        localizedDescriptions("")
+    }
+
+    var purposeGuidance: [String] {
+        localizedDescriptions("guidance_")
+    }
+
+    private func localizedDescriptions(_ prefix: String) -> [String] {
+        let descriptions = profile["descriptions"]?.objectValue ?? [:]
+        return ["search", "fetch", "site_map", "synthesis"].compactMap { operation in
+            let translations = descriptions[operation]?.objectValue ?? [:]
+            return translations[prefix + Localization.language]?.stringValue ?? translations[prefix + "en"]?.stringValue
+        }
+    }
     var isExperimental: Bool { profile.bool("experimental") == true }
     var isExplicitOnly: Bool { profile.bool("explicit_only") == true }
     var isRoutingDisabled: Bool { profile.bool("route_enabled") == false }

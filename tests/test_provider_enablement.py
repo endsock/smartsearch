@@ -56,7 +56,7 @@ async def test_disabled_primary_is_removed_before_model_resolution(configured_pr
     assert [item["provider"] for item in configs] == ["openai-compatible"]
     config.set_config_value("OPENAI_COMPATIBLE_ENABLED", "false")
     assert not service._main_search_provider_configs()
-    result = await service.search("test query")
+    result = await service.search("test query", providers="xai,openai")
     assert result["ok"] is False and result["error_type"] == "config_error"
 
 
@@ -75,7 +75,8 @@ async def test_docs_fallback_skips_disabled_provider(configured_providers, monke
 
     monkeypatch.setattr(service, "context7_library", context7)
     monkeypatch.setattr(service, "exa_search", exa)
-    sources, attempts = await service._run_docs_search_fallback("pytest")
+    result = await service.search("pytest API docs", providers="context7,exa")
+    sources, attempts = result["sources"], result["provider_attempts"]
     assert calls == ["exa"]
     assert sources[0]["url"] == "https://docs.pytest.org/"
     assert [item["provider"] for item in attempts] == ["exa"]

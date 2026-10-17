@@ -48,6 +48,13 @@ smart-search --version
 
 新版 npm 包按操作系统和 CPU 架构安装自带运行时的 CLI。Python 解释器和依赖已在发布时打包；安装或首次运行不会寻找、下载或配置用户 Python。CLI 启动时隔离 Python、venv、Conda 和 PyInstaller 环境变量。
 
+npm 包自带运行环境，不使用本机 Python、虚拟环境或 Conda。偏好 uv 的用户可从源码安装：
+```sh
+uv tool install git+https://github.com/konbakuyomu/smartsearch.git
+```
+需要固定 Python 版本时，在安装命令后加 `--python 3.13`；uv 会自行下载该版本，与本机嵌入式 Python 无关。
+升级使用 `uv tool upgrade smart-search`。这种方式不经过 npm，App 的 CLI 更新入口不会管理它。
+
 前置条件：
 
 - 已安装 Node.js 18+ / npm。
@@ -134,7 +141,7 @@ smart-search ui
 
 它能做什么：
 
-- 三步向导，只问你真正需要的那三类能力，填够了实时指示器就转绿
+- 按用途配置渠道，至少一个可用渠道即可，Jev 可选
 - 所有配置项按服务商分组，密钥一律掩码显示，明文不会发给浏览器
 - 每个服务商一个「测试」按钮，验证已保存的 key 是否还有效。每点一次都是一次真实 API 请求，所以不点就不测
 - 哪些服务商在冷却中，以及一键解除
@@ -190,7 +197,7 @@ ssh -L 8765:127.0.0.1:8765 用户@主机      # 然后在本地打开打印出�
 | `sciverse-relations` | `sv-relations` | 用 `unique_id` 查询 Sciverse 引用/参考文献/相关工作 |
 | `context7-library` | `c7`、`ctx7` | 查 Context7 库候选 |
 | `context7-docs` | `c7d`、`c7docs`、`ctx7-docs` | 抓 Context7 文档 |
-| `route-calibrate` | `route-cal`、`rcal` | 评测 embedding 路由模型并推荐 threshold/margin |
+| `route-calibrate` | `route-cal`、`rcal` | 退役兼容命令，不发远程请求 |
 | `doctor` | `d` | 配置和连通性检查 |
 | `setup` | `init` | 配置向导 |
 | `config` | `cfg` | 本机配置读写 |
@@ -201,12 +208,13 @@ ssh -L 8765:127.0.0.1:8765 用户@主机      # 然后在本地打开打印出�
 
 `smoke` 输出会给出 `status`（`healthy`、`degraded` 或 `failed`）和明确的 `skipped_cases`。健康或降级报告仍为 `ok: true`、退出码 `0`；只有失败才非零。
 
+`search` 返回 `error_type: "timeout"` 时，先查看 `timeout_phase` 和 `provider_attempts`。同一条搜索最多再试 1 次，并加上 `--extra-sources 1`；再次超时就改用 `exa-search` 等 source-first 命令，抓取相关页面，并用 `source_mode: "fallback"` 或等价文字标注证据模式。调用 smart-search 的 Agent 必须把命令执行超时设得比 smart-search 的总时限长至少 30 秒（默认 300 秒时至少 330 秒），或放到后台执行，否则 Agent 可能在 smart-search 返回结构化结果前将它终止。
+
 示例：
 
 ```powershell
 smart-search search "query" --validation balanced --extra-sources 3 --timeout 300 --format json --output result.json
 smart-search route "React useEffect API docs" --format markdown
-smart-search route-calibrate --models "Qwen/Qwen3-Embedding-8B" --format markdown
 smart-search research "query" --budget deep --fallback auto --format json --output research.json
 smart-search search "query" --stream --format json
 smart-search search "query" --no-stream --format json
@@ -245,13 +253,13 @@ smart-search route "React useEffect cleanup function docs" --format markdown
 
 Status: OK
 Query: `React useEffect cleanup function docs`
-Mode: `hybrid`
+Mode: `jev`
 Executed search: NO
 Required capabilities: `docs_search`
 Confidence: `0.82`
 Engines: `rules`
 Degraded: YES
-Degraded reason: embeddings not configured; classifier not configured
+Executed search: NO; provider_selection: not_executed
 
 ## Reasons
 - rules matched docs/API/library terms

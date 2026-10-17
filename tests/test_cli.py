@@ -241,6 +241,12 @@ def test_search_help_exposes_timeout(capsys):
     assert "--no-stream" in out
 
 
+def test_fetch_parser_accepts_timeout():
+    args = cli.build_parser().parse_args(["fetch", "https://example.com", "--timeout", "5"])
+
+    assert args.timeout == 5.0
+
+
 def test_diagnose_openai_compatible_defaults_to_markdown(monkeypatch, capsys):
     async def fake_diagnose(timeout_seconds=30.0):
         return {
@@ -379,7 +385,7 @@ def test_search_content_format_outputs_content_only(monkeypatch, capsys):
 
 
 def test_fetch_content_format_matches_markdown_body(monkeypatch, capsys):
-    async def fake_fetch(url):
+    async def fake_fetch(url, timeout_seconds=None):
         return {"ok": True, "url": url, "content": "# 中文页面"}
 
     monkeypatch.setattr(cli.service, "fetch", fake_fetch)
@@ -537,11 +543,11 @@ def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
     assert "responses ok" in out
     assert "Tavily ok" in out
     assert "## Intent Router" in out
-    assert "| classifier_configured | YES |" in out
-    assert "| embedding_preset | qwen3-embedding-8b |" in out
-    assert "Embedding Preset Recommendation" in out
-    assert "smart-search config set INTENT_EMBEDDING_THRESHOLD 0.475" in out
-    assert "intent-mini" in out
+    assert "classifier_configured" not in out
+    assert "embedding_preset" not in out
+    assert "Embedding Preset Recommendation" not in out
+    assert "INTENT_EMBEDDING_THRESHOLD" not in out
+    assert "intent-mini" not in out
 
 
 def test_doctor_content_outputs_non_empty_summary(monkeypatch, capsys):
@@ -571,7 +577,7 @@ def test_doctor_content_outputs_non_empty_summary(monkeypatch, capsys):
     assert out.strip()
     assert "Doctor FAIL" in out
     assert "Minimum profile: FAIL" in out
-    assert "Embedding preset recommendation: threshold=0.475 margin=0.053" in out
+    assert "Embedding preset recommendation" not in out
     assert "Missing required capability" in out
 
 
@@ -592,7 +598,7 @@ def test_search_alias_uses_canonical_command(monkeypatch, capsys):
 
 
 def test_fetch_alias_uses_canonical_command(monkeypatch, capsys):
-    async def fake_fetch(url):
+    async def fake_fetch(url, timeout_seconds=None):
         return {"ok": True, "url": url, "content": "Page"}
 
     monkeypatch.setattr(cli.service, "fetch", fake_fetch)
@@ -994,7 +1000,7 @@ def test_config_error_exit_code(monkeypatch, capsys):
 
 
 def test_network_error_exit_code(monkeypatch, capsys):
-    async def fake_fetch(url):
+    async def fake_fetch(url, timeout_seconds=None):
         return {"ok": False, "error_type": "network_error", "error": "upstream timeout", "url": url}
 
     monkeypatch.setattr(cli.service, "fetch", fake_fetch)
@@ -1050,6 +1056,22 @@ def test_gbk_stdout_keeps_json_parseable_with_chinese_and_unencodable_unicode(mo
     assert "\\u2060" in out
     assert "\\ud83d\\udcc5" in out
     assert json.loads(out)["content"] == "中文A\u2060B📅"
+
+
+@pytest.mark.parametrize("effort", ["", "HIGH"])
+def test_doctor_displays_xai_reasoning_effort(monkeypatch, capsys, effort):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_REASONING_EFFORT", effort)
+
+    async def connected(provider_config):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(cli.service, "_safe_test_main_provider_connection", connected)
+
+    code = cli.main(["doctor", "--format", "json"])
+
+    assert code == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["XAI_REASONING_EFFORT"] == effort.lower()
 
 
 def test_real_doctor_ignores_legacy_primary_env_and_returns_config_exit(monkeypatch, capsys):
@@ -1808,11 +1830,11 @@ def test_setup_non_interactive_autofills_qwen3_8b_embedding_preset(monkeypatch, 
     data = json.loads(capsys.readouterr().out)
 
     assert code == cli.EXIT_OK
-    assert saved["INTENT_EMBEDDING_API_URL"] == "https://api.siliconflow.cn/v1/embeddings"
+    assert "INTENT_EMBEDDING_API_URL" not in saved
     assert saved["INTENT_EMBEDDING_MODEL"] == "Qwen/Qwen3-Embedding-8B"
-    assert saved["INTENT_EMBEDDING_THRESHOLD"] == "0.475"
-    assert saved["INTENT_EMBEDDING_MARGIN"] == "0.053"
-    assert "warnings" not in data
+    assert "INTENT_EMBEDDING_THRESHOLD" not in saved
+    assert "INTENT_EMBEDDING_MARGIN" not in saved
+    assert "no longer used" in data["warnings"][0]
     assert "embed-test-secret" not in json.dumps(data)
 
 
@@ -1842,7 +1864,7 @@ def test_setup_non_interactive_keeps_explicit_embedding_thresholds(monkeypatch, 
     assert code == cli.EXIT_OK
     assert saved["INTENT_EMBEDDING_THRESHOLD"] == "0.42"
     assert saved["INTENT_EMBEDDING_MARGIN"] == "0.07"
-    assert saved["INTENT_EMBEDDING_API_URL"] == "https://api.siliconflow.cn/v1/embeddings"
+    assert "INTENT_EMBEDDING_API_URL" not in saved
 
 
 def test_setup_non_interactive_does_not_apply_qwen3_8b_preset_to_other_models(monkeypatch, tmp_path, capsys):
@@ -1920,8 +1942,7 @@ def test_setup_non_interactive_warns_when_qwen3_8b_existing_thresholds_mismatch(
     assert code == cli.EXIT_OK
     assert saved == {"INTENT_EMBEDDING_MODEL": "Qwen/Qwen3-Embedding-8B"}
     assert "warnings" in data
-    assert any("INTENT_EMBEDDING_THRESHOLD" in warning and "0.475" in warning for warning in data["warnings"])
-    assert any("INTENT_EMBEDDING_MARGIN" in warning and "0.053" in warning for warning in data["warnings"])
+    assert any("no longer used" in warning for warning in data["warnings"])
 
 
 def test_setup_non_interactive_warns_without_overwriting_env_embedding_thresholds(monkeypatch, tmp_path, capsys):
@@ -1948,11 +1969,9 @@ def test_setup_non_interactive_warns_without_overwriting_env_embedding_threshold
 
     assert code == cli.EXIT_OK
     assert saved == {
-        "INTENT_EMBEDDING_API_URL": "https://api.siliconflow.cn/v1/embeddings",
         "INTENT_EMBEDDING_MODEL": "Qwen/Qwen3-Embedding-8B",
     }
-    assert any("INTENT_EMBEDDING_THRESHOLD" in warning and "0.475" in warning for warning in data["warnings"])
-    assert any("INTENT_EMBEDDING_MARGIN" in warning and "0.053" in warning for warning in data["warnings"])
+    assert any("no longer used" in warning for warning in data["warnings"])
 
 
 def test_setup_non_interactive_rejects_legacy_flags(capsys):
@@ -2385,7 +2404,7 @@ def test_setup_guided_zh_groups_minimum_capabilities(monkeypatch, capsys):
     assert captured.out.lstrip().startswith("{")
     assert "Smart Search" in captured.err
     assert "不知道怎么填" in captured.err
-    assert "main_search + docs_search + web_fetch" in captured.err
+    assert "one enabled retrieval channel" in captured.err or "至少一个可用检索渠道" in captured.err
     assert "[1/3" in captured.err
     assert "main_search" in captured.err
     assert "pool.example.com" not in captured.out
@@ -2481,11 +2500,11 @@ def test_setup_guided_en_reports_missing_minimum(monkeypatch, capsys):
     assert code == cli.EXIT_OK
     assert saved == {}
     assert data["minimum_profile_ok"] is False
-    assert data["minimum_profile_missing"] == ["main_search", "docs_search", "web_fetch"]
+    assert data["minimum_profile_missing"] == ["retrieval"]
     assert "Smart Search setup wizard" in captured.err
     assert "If unsure" in captured.err
-    assert "main_search + docs_search + web_fetch" in captured.err
-    assert "[MISSING] main_search primary search" in captured.err
+    assert "one enabled retrieval channel" in captured.err or "至少一个可用检索渠道" in captured.err
+    assert "[OPTIONAL] main_search primary search" in captured.err
     assert "will fail closed" in captured.err
     assert "your-relay.example.com" not in captured.out
 
@@ -2537,7 +2556,7 @@ def test_setup_guided_main_search_can_save_openai_compatible_peer(monkeypatch, c
         "OPENAI_COMPATIBLE_API_KEY": "relay-test-secret",
     }
     assert data["capability_status"]["main_search"]["configured"] == ["openai-compatible"]
-    assert data["minimum_profile_missing"] == ["docs_search", "web_fetch"]
+    assert data["minimum_profile_missing"] == []
     assert "relay-test-secret" not in captured.out
     assert "relay-test-secret" not in captured.err
 
@@ -2570,100 +2589,33 @@ def test_setup_guided_main_search_can_save_both_peer_providers(monkeypatch, caps
     assert data["capability_status"]["main_search"]["fallback_chain"] == ["xai-responses", "openai-compatible"]
 
 
-def test_setup_guided_can_configure_intent_router(monkeypatch, capsys):
-    saved = {}
-    answers = iter([
-        "skip",
-        "skip",
-        "skip",
-        "skip",
-        "n",
-        "y",
-        "hybrid",
-        "y",
-        "https://api.example.com/v1/embeddings",
-        "embed-model",
-        "y",
-        "https://classifier.example.com/v1/chat/completions",
-        "intent-mini",
-        "30",
-    ])
-    secrets = iter(["embed-test-secret", "classifier-test-secret"])
-
-    def fake_config_set(key, value):
-        saved[key] = value
-        return {"ok": True, "key": key, "value": "***", "config_file": "C:/tmp/config.json"}
-
-    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
-    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
-    monkeypatch.setattr(cli.service, "config_list", lambda show_secrets=False: {"ok": True, "values": saved.copy()})
-    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
-    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: next(secrets))
-
-    code = cli.main(["setup", "--skip-skills", "--lang", "en"])
-    captured = capsys.readouterr()
-
-    assert code == cli.EXIT_OK
-    assert json.loads(captured.out)["minimum_profile_ok"] is False
-    assert saved == {
-        "SMART_SEARCH_INTENT_ROUTER": "hybrid",
-        "INTENT_EMBEDDING_API_URL": "https://api.example.com/v1/embeddings",
-        "INTENT_EMBEDDING_API_KEY": "embed-test-secret",
-        "INTENT_EMBEDDING_MODEL": "embed-model",
-        "INTENT_CLASSIFIER_API_URL": "https://classifier.example.com/v1/chat/completions",
-        "INTENT_CLASSIFIER_API_KEY": "classifier-test-secret",
-        "INTENT_CLASSIFIER_MODEL": "intent-mini",
-        "INTENT_ROUTER_TIMEOUT_SECONDS": "30",
-    }
-    assert "smart intent routing" in captured.err
-    assert "embeddings semantic routing" in captured.err
-    assert "classifier model routing" in captured.err
-    assert "embed-test-secret" not in captured.out
-    assert "embed-test-secret" not in captured.err
-    assert "classifier-test-secret" not in captured.out
-    assert "classifier-test-secret" not in captured.err
+def test_setup_guided_configures_jev_without_retired_prompts(monkeypatch, capsys):
+    values = {}
+    monkeypatch.setattr(cli, "_prompt_yes_no", lambda prompt, default=False: "intent routing" in prompt)
+    monkeypatch.setattr(cli, "_prompt_select", lambda *args: "jev")
+    monkeypatch.setattr(cli, "_prompt_value", lambda key, *args, **kwargs: "jev-test-secret" if key == "TYPESAFE_API_KEY" else "")
+    cli._prompt_intent_router(values, {}, "en")
+    assert values["SMART_SEARCH_INTENT_ROUTER"] == "jev"
+    assert not any(key.startswith("INTENT_") for key in values)
+    output = capsys.readouterr().err
+    assert "jev-test-secret" not in output
+    assert "embeddings" not in output
+    assert "classifier" not in output
+    assert values["TYPESAFE_API_KEY"] == "jev-test-secret"
 
 
-def test_setup_guided_autofills_qwen3_8b_embedding_preset(monkeypatch, capsys):
-    saved = {}
-    answers = iter([
-        "skip",
-        "skip",
-        "skip",
-        "skip",
-        "n",
-        "y",
-        "hybrid",
-        "y",
-        "",
-        "",
-        "n",
-        "30",
-    ])
-    secrets = iter(["embed-test-secret"])
-
-    def fake_config_set(key, value):
-        saved[key] = value
-        return {"ok": True, "key": key, "value": "***", "config_file": "C:/tmp/config.json"}
-
-    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
-    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
-    monkeypatch.setattr(cli.service, "config_list", lambda show_secrets=False: {"ok": True, "values": saved.copy()})
-    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
-    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: next(secrets))
-
-    code = cli.main(["setup", "--skip-skills", "--lang", "en"])
-    captured = capsys.readouterr()
-
-    assert code == cli.EXIT_OK
-    assert saved["INTENT_EMBEDDING_API_URL"] == "https://api.siliconflow.cn/v1/embeddings"
-    assert saved["INTENT_EMBEDDING_API_KEY"] == "embed-test-secret"
-    assert saved["INTENT_EMBEDDING_MODEL"] == "Qwen/Qwen3-Embedding-8B"
-    assert saved["INTENT_EMBEDDING_THRESHOLD"] == "0.475"
-    assert saved["INTENT_EMBEDDING_MARGIN"] == "0.053"
-    assert "Recommended preset" in captured.err
-    assert "embed-test-secret" not in captured.out
-    assert "embed-test-secret" not in captured.err
+def test_setup_guided_configures_local_without_retired_prompts(monkeypatch, capsys):
+    values = {}
+    monkeypatch.setattr(cli, "_prompt_yes_no", lambda prompt, default=False: "intent routing" in prompt)
+    monkeypatch.setattr(cli, "_prompt_select", lambda *args: "local")
+    monkeypatch.setattr(cli, "_prompt_value", lambda key, *args, **kwargs: "jev-test-secret" if key == "TYPESAFE_API_KEY" else "")
+    cli._prompt_intent_router(values, {}, "en")
+    assert values["SMART_SEARCH_INTENT_ROUTER"] == "local"
+    assert not any(key.startswith("INTENT_") for key in values)
+    output = capsys.readouterr().err
+    assert "jev-test-secret" not in output
+    assert "embeddings" not in output
+    assert "classifier" not in output
 
 
 def test_setup_interactive_uses_resolved_language(monkeypatch, capsys):
@@ -2755,112 +2707,21 @@ def test_route_command_outputs_json_markdown_and_content(monkeypatch, capsys):
     markdown = capsys.readouterr().out
     assert markdown.startswith("# Intent Route")
     assert "Required capabilities: `docs_search`" in markdown
-    assert "Embedding threshold: `0.74` (default)" in markdown
-    assert "Embedding Preset Recommendation" in markdown
-    assert "smart-search config set INTENT_EMBEDDING_THRESHOLD 0.475" in markdown
+    assert "Embedding threshold" not in markdown
+    assert "Embedding Preset Recommendation" not in markdown
+    assert "INTENT_EMBEDDING_THRESHOLD" not in markdown
     assert "rules matched docs/API/library terms" in markdown
 
     assert cli.main(["route", "React useEffect API docs", "--format", "content"]) == cli.EXIT_OK
     content = capsys.readouterr().out
     assert "capabilities=docs_search" in content
     assert "mode=hybrid" in content
-    assert "threshold=0.74(default)" in content
-    assert "embedding_preset_recommendation=threshold=0.475 margin=0.053" in content
+    assert "threshold=" not in content
+    assert "embedding_preset_recommendation" not in content
 
 
-def test_route_calibrate_command_outputs_json_markdown_and_content(monkeypatch, capsys):
-    async def fake_route_calibrate(models=""):
-        return {
-            "ok": True,
-            "metric": "semantic_macro_f1",
-            "primary_metric": "semantic_macro_f1",
-            "models": [item.strip() for item in models.split(",") if item.strip()],
-            "dataset_size": 100,
-            "recommended_model": "good-model",
-            "recommended_threshold": 0.71,
-            "recommended_margin": 0.06,
-            "failed_models": ["bad-model"],
-            "model_results": [
-                {
-                    "model": "good-model",
-                    "ok": True,
-                    "dimension": 1024,
-                    "latency_ms": 12.3,
-                    "semantic_macro_f1": 0.95,
-                    "full_route_macro_f1": 0.9,
-                    "recommended_threshold": 0.71,
-                    "recommended_margin": 0.06,
-                    "semantic_failures": [
-                        {
-                            "id": "none-01",
-                            "query": "普通问题",
-                            "expected": "none",
-                            "predicted": "docs_search",
-                            "top_capability": "docs_search",
-                            "top_score": 0.77,
-                            "margin": 0.02,
-                        }
-                    ],
-                },
-                {
-                    "model": "bad-model",
-                    "ok": False,
-                    "error_type": "provider_error",
-                    "error": "model unavailable",
-                    "dimension": 0,
-                    "latency_ms": 0,
-                    "semantic_macro_f1": 0,
-                    "full_route_macro_f1": 0,
-                },
-            ],
-        }
-
-    monkeypatch.setattr(cli.service, "route_calibrate", fake_route_calibrate)
-
-    assert cli.main(["route-calibrate", "--models", "good-model,bad-model", "--format", "json"]) == cli.EXIT_OK
-    json_data = json.loads(capsys.readouterr().out)
-    assert json_data["recommended_model"] == "good-model"
-    assert json_data["failed_models"] == ["bad-model"]
-
-    assert cli.main(["route-cal", "--models", "good-model,bad-model", "--format", "markdown"]) == cli.EXIT_OK
-    markdown = capsys.readouterr().out
-    assert markdown.startswith("# Route Calibration")
-    assert "good-model" in markdown
-    assert "bad-model" in markdown
-    assert not markdown.lstrip().startswith("{")
-
-    assert cli.main(["rcal", "--models", "good-model,bad-model", "--format", "content"]) == cli.EXIT_OK
-    content = capsys.readouterr().out
-    assert "Route calibration OK" in content
-    assert "recommended=good-model" in content
-    assert not content.lstrip().startswith("{")
 
 
-def test_route_calibrate_provider_error_uses_network_exit(monkeypatch, capsys):
-    async def fake_route_calibrate(models=""):
-        return {
-            "ok": False,
-            "error_type": "provider_error",
-            "error": "No embedding model could be calibrated. See model_results for per-model errors.",
-            "metric": "semantic_macro_f1",
-            "primary_metric": "semantic_macro_f1",
-            "models": ["bad-model"],
-            "dataset_size": 100,
-            "recommended_model": "",
-            "failed_models": ["bad-model"],
-            "model_results": [
-                {"model": "bad-model", "ok": False, "error_type": "provider_error", "error": "model unavailable"}
-            ],
-        }
-
-    monkeypatch.setattr(cli.service, "route_calibrate", fake_route_calibrate)
-
-    code = cli.main(["route-calibrate", "--models", "bad-model", "--format", "content"])
-
-    assert code == cli.EXIT_NETWORK_ERROR
-    out = capsys.readouterr().out
-    assert "Route calibration FAIL" in out
-    assert "failed=bad-model" in out
 
 
 def test_smoke_command_uses_service(monkeypatch, capsys):
@@ -3617,3 +3478,10 @@ def test_doctor_reports_providers_on_cooldown(monkeypatch, capsys):
 
     assert cli.main(["doctor", "--format", "content"]) == cli.EXIT_OK
     assert "Providers on cooldown: zhipu" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("format", ["json", "markdown", "content"])
+def test_retired_calibration_is_clear_and_does_not_connect(format, capsys):
+    code = cli.main(["route-calibrate", "--format", format])
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert "retired" in capsys.readouterr().out.lower()

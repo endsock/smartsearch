@@ -66,6 +66,7 @@ smart-search setup
 ```
 
 新版 npm CLI 只需要 Node.js 18+ / npm；平台包自带 Python 运行时，不使用用户安装的 Python。安装方法、语言设置和命令示例见 [CLI 使用指南](https://github.com/konbakuyomu/smartsearch/blob/main/docs/guide/zh-CN/cli.md)。
+使用 uv 从源码安装或固定 Python 版本，见 [CLI 安装](https://github.com/konbakuyomu/smartsearch/blob/main/docs/guide/zh-CN/cli.md#cli-安装)。
 
 ## 需要详细说明？
 

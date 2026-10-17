@@ -9,7 +9,7 @@ import math
 import re
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -31,6 +31,10 @@ JEV_DEFAULTS = {
     "SMART_SEARCH_JEV_FILTER_RESULTS": "false",
     "SMART_SEARCH_JEV_FILTER_THRESHOLD": "0.1",
     "SMART_SEARCH_JEV_SYNTHESIZE": "false",
+    "SMART_SEARCH_JEV_SYNTHESIS_API_URL": "",
+    "SMART_SEARCH_JEV_SYNTHESIS_API_KEY": "",
+    "SMART_SEARCH_JEV_SYNTHESIS_MODEL": "",
+    "SMART_SEARCH_JEV_SYNTHESIS_API_MODE": "chat-completions",
 }
 
 
@@ -68,10 +72,19 @@ def validate_jev_value(key: str, value: Any) -> Any:
         if not math.isfinite(number) or not low <= number <= high:
             raise ValueError(source_message('Invalid {0}: expected a finite number between {1} and {2}.', key, low, high))
         return number
-    if key == "TYPESAFE_API_URL":
+    if key == "SMART_SEARCH_JEV_SYNTHESIS_API_MODE":
+        mode = text.lower() or "chat-completions"
+        if mode not in {"chat-completions", "responses"}:
+            raise ValueError(source_message('Invalid {0}: expected chat-completions or responses.', key))
+        return mode
+    if key in {"TYPESAFE_API_URL", "SMART_SEARCH_JEV_SYNTHESIS_API_URL"}:
+        if not text and key == "SMART_SEARCH_JEV_SYNTHESIS_API_URL":
+            return ""
         parsed = urlsplit(text)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-            raise ValueError(source_message('Invalid TYPESAFE_API_URL: expected an HTTP(S) base URL without credentials or query parameters.'))
+            if key == "TYPESAFE_API_URL":
+                raise ValueError(source_message('Invalid TYPESAFE_API_URL: expected an HTTP(S) base URL without credentials or query parameters.'))
+            raise ValueError(source_message('Invalid {0}: expected an HTTP(S) base URL without credentials or query parameters.', key))
         return text.rstrip("/")
     if key == "TYPESAFE_MODEL" and not text:
         raise ValueError(source_message('Invalid TYPESAFE_MODEL: expected a model name.'))
@@ -80,7 +93,7 @@ def validate_jev_value(key: str, value: Any) -> Any:
 
 @dataclass(frozen=True)
 class JevSettings:
-    api_key: str
+    api_key: str = field(repr=False)
     api_url: str
     model: str
     timeout: float
@@ -92,6 +105,21 @@ class JevSettings:
     filter_results: bool
     filter_threshold: float
     synthesis_mode: str
+    synthesis_api_url: str
+    synthesis_api_key: str = field(repr=False)
+    synthesis_model: str
+    synthesis_api_mode: str
+
+    def dedicated_synthesis_config(self) -> dict[str, str] | None:
+        if not any((self.synthesis_api_url, self.synthesis_api_key, self.synthesis_model)):
+            return None
+        if not all((self.synthesis_api_url, self.synthesis_api_key, self.synthesis_model)):
+            raise ValueError(source_message('Jev synthesis requires API URL, API key, and model when dedicated synthesis is configured.'))
+        return {
+            "provider": "jev-synthesis", "api_url": self.synthesis_api_url,
+            "api_key": self.synthesis_api_key, "model": self.synthesis_model,
+            "mode": "openai-compatible", "api_mode": self.synthesis_api_mode,
+        }
 
     @classmethod
     def from_config(cls, cfg: Any) -> JevSettings:
@@ -103,6 +131,10 @@ class JevSettings:
             route_threshold=values["SMART_SEARCH_JEV_ROUTE_THRESHOLD"], sufficiency_threshold=values["SMART_SEARCH_JEV_SUFFICIENCY_THRESHOLD"],
             filter_results=values["SMART_SEARCH_JEV_FILTER_RESULTS"], filter_threshold=values["SMART_SEARCH_JEV_FILTER_THRESHOLD"],
             synthesis_mode=values["SMART_SEARCH_JEV_SYNTHESIZE"],
+            synthesis_api_url=values["SMART_SEARCH_JEV_SYNTHESIS_API_URL"],
+            synthesis_api_key=values["SMART_SEARCH_JEV_SYNTHESIS_API_KEY"],
+            synthesis_model=values["SMART_SEARCH_JEV_SYNTHESIS_MODEL"],
+            synthesis_api_mode=values["SMART_SEARCH_JEV_SYNTHESIS_API_MODE"],
         )
 
 
@@ -237,7 +269,7 @@ async def select_channels(client: JevClient, query: str, candidates: list[dict],
     questions = {
         f"channel_{index}": noul(
             f"Should available_channels[{index}] be called now to obtain evidence needed for question? "
-            "Consider question difficulty, language, freshness, each channel's capabilities, existing evidence, and failed attempts. "
+            "Consider question difficulty, language, freshness, each channel's English description, suitability guidance and capability, existing evidence, and failed attempts. "
             "Choose complementary channels when the question needs several kinds of evidence; prefer fewer for a simple question. "
             "Each action includes its actual query or URL and the user's preference rank; use preferences only for relevant capable actions. "
             "For follow-up searches target missing evidence using a new query, another provider, or page reading. "

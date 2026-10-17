@@ -21,6 +21,8 @@ _ssl_warning_emitted = False
 _STREAM_BREAKERS: dict[tuple[str, str, str], dict[str, Any]] = {}
 STREAM_BREAKER_FAILURE_THRESHOLD = 2
 STREAM_BREAKER_COOLDOWN_SECONDS = 600.0
+SLOW_FAILURE_SECONDS = 10.0
+MIN_RETRY_REMAINING_SECONDS = 5.0
 OPENAI_COMPATIBLE_API_MODES = frozenset({"chat-completions", "responses"})
 _OPENAI_COMPATIBLE_ENDPOINT_SUFFIXES = ("chat/completions", "responses")
 
@@ -106,6 +108,19 @@ class _StopAtDeadline(stop_base):
     def __call__(self, retry_state) -> bool:
         del retry_state
         return time.monotonic() >= self._deadline_monotonic
+
+
+class _StopAfterSlowFailure(stop_base):
+    def __init__(self, provider):
+        self._provider = provider
+
+    def __call__(self, retry_state) -> bool:
+        del retry_state
+        now = time.monotonic()
+        deadline = self._provider._search_deadline_monotonic
+        return now - self._provider._attempt_started_at >= SLOW_FAILURE_SECONDS or (
+            deadline is not None and deadline - now < MIN_RETRY_REMAINING_SECONDS
+        )
 
 
 class _WaitWithRetryAfter(wait_base):
@@ -198,7 +213,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
         )
 
     def _retry_stop(self):
-        stop = stop_after_attempt(config.retry_max_attempts + 1)
+        stop = stop_after_attempt(config.retry_max_attempts + 1) | _StopAfterSlowFailure(self)
         if self._search_deadline_monotonic is not None:
             return stop | _StopAtDeadline(self._search_deadline_monotonic)
         return stop
@@ -483,7 +498,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
 
             if line.startswith("data:"):
                 if line in ("data: [DONE]", "data:[DONE]"):
-                    continue
+                    break
                 try:
                     json_str = line[5:].lstrip()
                     data = json.loads(json_str)
@@ -682,6 +697,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 reraise=True,
             ):
                 with attempt:
+                    self._attempt_started_at = time.monotonic()
                     request_timeout = self._request_timeout()
                     async with client.stream(
                         "POST",
@@ -913,6 +929,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 reraise=True,
             ):
                 with attempt:
+                    self._attempt_started_at = time.monotonic()
                     request_timeout = self._request_timeout()
                     response = await client.post(
                         self._api_endpoint(),

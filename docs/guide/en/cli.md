@@ -48,6 +48,13 @@ smart-search --version
 
 The new npm package selects a self-contained CLI for your OS and CPU. Python and its dependencies are bundled at release time. Installation and first launch do not find, download or configure user Python. The launcher isolates Python, virtualenv, Conda and PyInstaller environment variables.
 
+The npm package bundles its runtime and does not use local Python, virtual environments, or Conda. If you prefer uv, install from source:
+```sh
+uv tool install git+https://github.com/konbakuyomu/smartsearch.git
+```
+To pin the Python version, append `--python 3.13` to the install command; uv downloads that version independently of your local embedded Python.
+Upgrade with `uv tool upgrade smart-search`. This installation bypasses npm and is not managed by the App's CLI update entry.
+
 Prerequisites:
 
 - Node.js 18+ / npm.
@@ -197,7 +204,7 @@ The CLI equivalents remain: `smart-search setup`, `smart-search config set KEY V
 | `sciverse-relations` | `sv-relations` | Experimental Sciverse citation/reference/related-work relations by `unique_id` |
 | `context7-library` | `c7`, `ctx7` | Resolve Context7 library candidates |
 | `context7-docs` | `c7d`, `c7docs`, `ctx7-docs` | Fetch Context7 docs |
-| `route-calibrate` | `route-cal`, `rcal` | Evaluate embedding router models and recommend threshold/margin |
+| `route-calibrate` | `route-cal`, `rcal` | Retired compatibility command; no remote calls |
 | `doctor` | `d` | Masked config and connectivity check |
 | `diagnose` | `diag` | Focused OpenAI-compatible troubleshooting report |
 | `setup` | `init` | Interactive or scripted setup |
@@ -209,12 +216,13 @@ The CLI equivalents remain: `smart-search setup`, `smart-search config set KEY V
 
 Smoke output includes `status` (`healthy`, `degraded`, or `failed`) and explicit `skipped_cases`. A healthy or degraded smoke report remains `ok: true` with exit code `0`; only failed smoke is non-zero.
 
+When `search` returns `error_type: "timeout"`, inspect `timeout_phase` and `provider_attempts` first. Retry the same search at most once with `--extra-sources 1`. If it times out again, switch to source-first commands such as `exa-search`, fetch the relevant pages, and label the evidence mode as `source_mode: "fallback"` or equivalent prose. Agents must set their command execution timeout at least 30 seconds above the smart-search total budget (at least 330 seconds for the default 300 seconds), or run the command in the background; otherwise the agent can kill smart-search before it returns structured results.
+
 Useful examples:
 
 ```powershell
 smart-search search "query" --validation balanced --extra-sources 3 --timeout 300 --format json --output result.json
 smart-search route "React useEffect API docs" --format markdown
-smart-search route-calibrate --models "Qwen/Qwen3-Embedding-8B" --format markdown
 smart-search research "query" --budget deep --fallback auto --format json --output research.json
 smart-search search "query" --stream --format json
 smart-search search "query" --no-stream --format json
@@ -256,13 +264,13 @@ smart-search route "React useEffect cleanup function docs" --format markdown
 
 Status: OK
 Query: `React useEffect cleanup function docs`
-Mode: `hybrid`
+Mode: `jev`
 Executed search: NO
 Required capabilities: `docs_search`
 Confidence: `0.82`
 Engines: `rules`
 Degraded: YES
-Degraded reason: embeddings not configured; classifier not configured
+Executed search: NO; provider_selection: not_executed
 
 ## Reasons
 - rules matched docs/API/library terms

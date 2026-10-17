@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from smart_search import cli
-from smart_search import service
+from smart_search import service, jev_search
 
 
 def _reset_config(monkeypatch, tmp_path):
@@ -18,6 +18,7 @@ def _reset_config(monkeypatch, tmp_path):
         "XAI_API_KEY",
         "XAI_MODEL",
         "XAI_TOOLS",
+        "XAI_REASONING_EFFORT",
         "OPENAI_COMPATIBLE_API_URL",
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_MODEL",
@@ -186,17 +187,7 @@ def test_current_model_rejects_invalid_openai_compatible_api_mode(monkeypatch, t
 def test_intent_router_config_defaults_and_saved_values(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
 
-    assert service.config.intent_router_mode == "hybrid"
-    assert service.config.intent_embedding_api_url == ""
-    assert service.config.intent_embedding_api_key is None
-    assert service.config.intent_embedding_model == ""
-    assert service.config.intent_embedding_threshold == 0.74
-    assert service.config.intent_embedding_margin == 0.05
-    assert service.config.intent_classifier_api_url == ""
-    assert service.config.intent_classifier_api_key is None
-    assert service.config.intent_classifier_model == ""
-    assert service.config.intent_router_timeout == 8.0
-
+    assert service.config.intent_router_mode == "jev"
     service.config_set("SMART_SEARCH_INTENT_ROUTER", "rules")
     service.config_set("INTENT_EMBEDDING_API_URL", "https://embed.example.com/v1/embeddings")
     service.config_set("INTENT_EMBEDDING_API_KEY", "embed-secret")
@@ -208,132 +199,49 @@ def test_intent_router_config_defaults_and_saved_values(monkeypatch, tmp_path):
     service.config_set("INTENT_CLASSIFIER_MODEL", "intent-mini")
     service.config_set("INTENT_ROUTER_TIMEOUT_SECONDS", "3.5")
 
-    assert service.config.intent_router_mode == "rules"
-    assert service.config.intent_embedding_api_url == "https://embed.example.com/v1/embeddings"
-    assert service.config.intent_embedding_api_key == "embed-secret"
-    assert service.config.intent_embedding_model == "embed-model"
-    assert service.config.intent_embedding_threshold == 0.62
-    assert service.config.intent_embedding_margin == 0.08
-    assert service.config.intent_classifier_api_url == "https://classifier.example.com/v1/chat/completions"
-    assert service.config.intent_classifier_api_key == "classifier-secret"
-    assert service.config.intent_classifier_model == "intent-mini"
-    assert service.config.intent_router_timeout == 3.5
+    assert service.config.intent_router_mode == "local"
+    saved = service.config.get_saved_config(masked=False)
+    assert saved["INTENT_EMBEDDING_API_KEY"] == "embed-secret"
+    assert saved["INTENT_CLASSIFIER_API_KEY"] == "classifier-secret"
+    assert saved["INTENT_EMBEDDING_THRESHOLD"] == "0.62"
+    assert saved["INTENT_ROUTER_TIMEOUT_SECONDS"] == "3.5"
+    assert not service.config.RETIRED_ROUTER_KEYS.intersection(service.config.get_config_info())
     saved = service.config_list()["values"]
     assert saved["INTENT_EMBEDDING_API_KEY"] != "embed-secret"
     assert saved["INTENT_CLASSIFIER_API_KEY"] != "classifier-secret"
 
 
-def test_intent_router_invalid_embedding_threshold_and_margin_are_reported(monkeypatch, tmp_path):
+def test_retired_embedding_values_do_not_block_active_configuration(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
     monkeypatch.setenv("INTENT_EMBEDDING_THRESHOLD", "1.2")
     monkeypatch.setenv("INTENT_EMBEDDING_MARGIN", "-0.1")
-
-    info = service.config.get_config_info()
-    status = service.intent_router_status()
-
-    assert info["INTENT_EMBEDDING_THRESHOLD"] == 0.74
-    assert info["INTENT_EMBEDDING_MARGIN"] == 0.05
-    assert any("Invalid INTENT_EMBEDDING_THRESHOLD" in error for error in info["config_parameter_errors"])
-    assert any("Invalid INTENT_EMBEDDING_MARGIN" in error for error in info["config_parameter_errors"])
-    assert status["ok"] is False
-    assert "Invalid INTENT_EMBEDDING_THRESHOLD" in status["error"]
-    assert "Invalid INTENT_EMBEDDING_MARGIN" in status["error"]
+    assert service.config.get_config_info()["config_parameter_errors"] == []
+    assert service.intent_router_status()["ok"]
 
 
-def test_intent_router_invalid_timeout_is_reported_in_config_info(monkeypatch, tmp_path):
+def test_retired_router_timeout_does_not_block_active_configuration(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
     monkeypatch.setenv("INTENT_ROUTER_TIMEOUT_SECONDS", "slow")
-
-    info = service.config.get_config_info()
-    status = service.intent_router_status()
-
-    assert info["INTENT_ROUTER_TIMEOUT_SECONDS"] == 8.0
-    assert any("Invalid INTENT_ROUTER_TIMEOUT_SECONDS" in error for error in info["config_parameter_errors"])
-    assert status["ok"] is False
-    assert "Invalid INTENT_ROUTER_TIMEOUT_SECONDS" in status["error"]
+    assert service.config.get_config_info()["config_parameter_errors"] == []
+    assert service.intent_router_status()["ok"]
 
 
-def test_intent_router_status_recommends_qwen3_8b_preset_until_thresholds_match(monkeypatch, tmp_path):
+def test_router_status_does_not_recommend_retired_presets(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
-    service.config_set("INTENT_EMBEDDING_API_URL", "https://api.siliconflow.cn/v1/embeddings")
-    service.config_set("INTENT_EMBEDDING_API_KEY", "embed-secret")
     service.config_set("INTENT_EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-8B")
-
     status = service.intent_router_status()
-
-    assert status["embedding_preset_id"] == "qwen3-embedding-8b"
-    assert status["embedding_preset_recommended"] is True
-    assert status["embedding_preset_threshold"] == "0.475"
-    assert status["embedding_preset_margin"] == "0.053"
-    assert status["embedding_preset_commands"] == [
-        "smart-search config set INTENT_EMBEDDING_THRESHOLD 0.475",
-        "smart-search config set INTENT_EMBEDDING_MARGIN 0.053",
-    ]
-
-    service.config_set("INTENT_EMBEDDING_THRESHOLD", "0.475")
-    service.config_set("INTENT_EMBEDDING_MARGIN", "0.053")
-    status = service.intent_router_status()
-
-    assert status["embedding_preset_recommended"] is False
-    assert status["embedding_preset_commands"] == []
-    assert status["embedding_preset_threshold_matches"] is True
-    assert status["embedding_preset_margin_matches"] is True
+    assert status["legacy_remote_routing"] == "retired"
+    assert not any(key.startswith("embedding_") for key in status)
+    assert service.config.get_saved_config()["INTENT_EMBEDDING_MODEL"] == "Qwen/Qwen3-Embedding-8B"
 
 
 @pytest.mark.asyncio
-async def test_route_calibrate_records_failed_model_without_aborting(monkeypatch, tmp_path):
+async def test_route_calibrate_is_a_non_network_compatibility_error(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
-    monkeypatch.setenv("INTENT_EMBEDDING_API_URL", "https://embed.example.com/v1/embeddings")
-    monkeypatch.setenv("INTENT_EMBEDDING_API_KEY", "embed-secret")
-    monkeypatch.setenv("INTENT_EMBEDDING_MODEL", "configured-model")
-
-    sample_dataset = [
-        {"id": "docs-01", "query": "React docs", "expected_capabilities": ["docs_search"], "expected_label": "docs_search"},
-        {"id": "web-01", "query": "today news", "expected_capabilities": ["web_search"], "expected_label": "web_search"},
-        {"id": "none-01", "query": "rewrite this sentence", "expected_capabilities": [], "expected_label": "none"},
-    ]
-    monkeypatch.setattr(service, "_route_calibration_dataset", lambda: sample_dataset)
-
-    async def fake_embed(self, inputs):
-        if self.config.intent_embedding_model == "bad-model":
-            raise RuntimeError("model unavailable")
-        vectors = {
-            "React docs": [1.0, 0.0, 0.0],
-            "today news": [0.0, 1.0, 0.0],
-            "rewrite this sentence": [0.0, 0.0, 1.0],
-        }
-        out = []
-        for value in inputs:
-            text = value.lower()
-            if value in vectors:
-                out.append(vectors[value])
-            elif "doc" in text or "api" in text or "sdk" in text or "react" in text:
-                out.append([1.0, 0.0, 0.0])
-            elif "today" in text or "latest" in text or "新闻" in text:
-                out.append([0.0, 1.0, 0.0])
-            elif "url" in text or "http" in text:
-                out.append([0.0, 0.0, 0.9])
-            else:
-                out.append([0.0, 0.0, 1.0])
-        return out
-
-    monkeypatch.setattr(service.IntentRouter, "_embed", fake_embed)
-
     result = await service.route_calibrate(models="good-model,bad-model")
-
-    assert result["ok"] is True
-    assert result["dataset_size"] == 3
-    assert result["recommended_model"] == "good-model"
-    assert result["failed_models"] == ["bad-model"]
-    good = result["model_results"][0]
-    bad = result["model_results"][1]
-    assert good["ok"] is True
-    assert good["dimension"] == 3
-    assert good["recommended_threshold"] is not None
-    assert "semantic_macro_f1" in good
-    assert bad["ok"] is False
-    assert bad["error_type"] == "provider_error"
-    assert "model unavailable" in bad["error"]
+    assert result["deprecated"]
+    assert not result["executed_remote"]
+    assert result["model_results"] == []
 
 
 def test_anysearch_config_defaults_and_saved_values(monkeypatch, tmp_path):
@@ -554,196 +462,39 @@ def _research_plan(query: str) -> dict:
     return service.build_deep_research_plan(query, budget="deep", evidence_dir="C:/tmp/smart-search-evidence/test")
 
 
-def test_context7_candidate_selection_prefers_relevant_react_library():
-    selected = service._select_context7_library_candidate(
-        [
-            {
-                "id": "/devopshq/artifactory-cleanup",
-                "title": "Artifactory Cleanup",
-                "description": "Delete old Artifactory artifacts.",
-                "trust_score": 99,
-            },
-            {
-                "id": "/reactjs/react.dev",
-                "title": "React",
-                "description": "Official React documentation for hooks and effects.",
-                "trust_score": 90,
-            },
-        ],
-        "React useEffect cleanup docs",
-    )
-
-    assert selected["id"] == "/reactjs/react.dev"
-
-
-def test_context7_candidate_selection_prefers_more_specific_react_ecosystem_library():
-    selected = service._select_context7_library_candidate(
-        [
-            {
-                "id": "/reactjs/react.dev",
-                "title": "React",
-                "description": "Official React documentation.",
-                "trust_score": 90,
-            },
-            {
-                "id": "/react-native/react-native",
-                "title": "React Native",
-                "description": "Official React Native documentation.",
-                "trust_score": 90,
-            },
-        ],
-        "React Native docs",
-    )
-
-    assert selected["id"] == "/react-native/react-native"
-
-
-def test_context7_candidate_selection_keeps_exact_title_and_id_match_after_conversational_prefix():
-    selected = service._select_context7_library_candidate(
-        [
-            {
-                "id": "/acme/needle",
-                "title": "Needle",
-                "description": "Needle reference documentation.",
-                "trust_score": 90,
-            }
-        ],
-        "Please could you show me Needle docs",
-    )
-
-    assert selected["id"] == "/acme/needle"
-
-
-@pytest.mark.parametrize(
-    ("library_id", "title", "query"),
-    [
-        ("/microsoft/csharp", "C#", "C# async API docs"),
-        ("/isocpp/cppreference", "C++", "C++ standard library docs"),
-    ],
-)
-def test_context7_candidate_selection_normalizes_symbolic_library_names(library_id, title, query):
-    selected = service._select_context7_library_candidate(
-        [
-            {
-                "id": library_id,
-                "title": title,
-                "description": f"{title} reference documentation.",
-                "trust_score": 90,
-            }
-        ],
-        query,
-    )
-
-    assert selected["id"] == library_id
-
-
-def test_context7_candidate_selection_rejects_description_only_high_trust_match():
-    selected = service._select_context7_library_candidate(
-        [
-            {
-                "id": "/acme/pruner",
-                "title": "Artifact Pruner",
-                "description": "React useEffect documentation and examples.",
-                "trust_score": 100,
-                "benchmark_score": 100,
-            }
-        ],
-        "React useEffect cleanup docs",
-    )
-
-    assert selected is None
-
-
 @pytest.mark.asyncio
 async def test_research_context7_docs_uses_selected_library(monkeypatch, tmp_path):
-    _configure_research_minimum(monkeypatch)
-    docs_calls = []
-
-    async def fake_context7_library(name, query=""):
-        return {
-            "ok": True,
-            "results": [
-                {
-                    "id": "/devopshq/artifactory-cleanup",
-                    "title": "Artifactory Cleanup",
-                    "description": "Cleanup tool.",
-                    "trust_score": 99,
-                },
-                {
-                    "id": "/reactjs/react.dev",
-                    "title": "React",
-                    "description": "Official React hooks documentation.",
-                    "trust_score": 90,
-                },
-            ],
-            "total": 2,
-        }
-
-    async def fake_context7_docs(library_id, query):
-        docs_calls.append(library_id)
-        return {"ok": True, "library_id": library_id, "content": "React useEffect cleanup docs"}
-
-    monkeypatch.setattr(service, "context7_library", fake_context7_library)
-    monkeypatch.setattr(service, "context7_docs", fake_context7_docs)
-
-    result = await service.research("React useEffect cleanup docs", evidence_dir=str(tmp_path))
-
-    assert result["ok"] is True
-    assert docs_calls == ["/reactjs/react.dev"]
-    assert result["stage_results"][0]["selected_library_id"] == "/reactjs/react.dev"
+    monkeypatch.setenv("CONTEXT7_API_KEY", "ctx-test")
+    async def libraries(*args, **kwargs):
+        return {"ok": True, "results": [
+            {"id": "/wrong/library", "title": "Unrelated"},
+            {"id": "/reactjs/react.dev", "title": "React"}]}
+    async def docs(library_id, query):
+        assert library_id == "/wrong/library"
+        return {"ok": True, "content": "React useEffect cleanup docs"}
+    monkeypatch.setattr(service, "context7_library", libraries)
+    monkeypatch.setattr(service, "context7_docs", docs)
+    result = await service.research("React useEffect API docs", budget="standard", evidence_dir=str(tmp_path))
+    assert result["ok"]
+    assert result["citations"][0]["url"] == "context7:/wrong/library"
+    assert result["degraded"]  # Retrieval succeeded; Jev verification was unavailable.
 
 
 @pytest.mark.asyncio
-async def test_research_falls_back_to_exa_when_context7_has_no_eligible_candidate(monkeypatch, tmp_path):
-    _configure_research_minimum(monkeypatch)
-
-    async def fake_context7_library(*args, **kwargs):
-        return {
-            "ok": True,
-            "results": [
-                {
-                    "id": "/acme/pruner",
-                    "title": "Artifact Pruner",
-                    "description": "React useEffect documentation and examples.",
-                    "trust_score": 100,
-                }
-            ],
-        }
-
-    async def should_not_fetch_context7_docs(*args, **kwargs):
-        raise AssertionError("an ineligible Context7 candidate must not fetch docs")
-
-    async def fake_exa_search(*args, **kwargs):
-        return {
-            "ok": True,
-            "results": [{"url": "https://react.dev/reference/react/useEffect", "title": "useEffect"}],
-        }
-
-    async def fake_web_search(*args, **kwargs):
-        return [], []
-
-    async def fake_fetch(url, fallback="auto", preferred_order=None):
-        return (
-            {"ok": True, "url": url, "provider": "jina", "content": "# useEffect\nFetched evidence."},
-            [service._attempt("web_fetch", "jina", "ok", time.time(), result_count=1)],
-        )
-
-    monkeypatch.setattr(service, "context7_library", fake_context7_library)
-    monkeypatch.setattr(service, "context7_docs", should_not_fetch_context7_docs)
-    monkeypatch.setattr(service, "exa_search", fake_exa_search)
-    monkeypatch.setattr(service, "_run_web_search_fallback", fake_web_search)
-    monkeypatch.setattr(service, "_run_web_fetch_fallback", fake_fetch)
-
-    result = await service.research("React useEffect API docs", evidence_dir=str(tmp_path))
-
-    docs_attempts = [attempt for attempt in result["provider_attempts"] if attempt["capability"] == "docs_search"]
-    assert result["ok"] is True
-    assert result["stage_results"][0]["selection_status"] == "no_eligible_candidate"
-    assert [(attempt["provider"], attempt["status"]) for attempt in docs_attempts] == [
-        ("context7", "empty"),
-        ("exa", "ok"),
-    ]
-    assert result["fallback_used"] is True
+async def test_research_keeps_discovery_metadata_for_fetch(monkeypatch, tmp_path):
+    monkeypatch.setenv("EXA_API_KEY", "exa-test")
+    monkeypatch.setenv("JINA_API_KEY", "jina-test")
+    async def exa(*args, **kwargs):
+        return {"ok": True, "results": [{"url": "https://react.dev/reference", "title": "React docs"}]}
+    async def fetch(url):
+        return {"ok": True, "content": "Fetched React API documentation"}
+    monkeypatch.setattr(service, "exa_search", exa)
+    monkeypatch.setattr(service, "jina_fetch", fetch)
+    result = await service.research("React API docs", budget="standard", evidence_dir=str(tmp_path))
+    assert result["ok"]
+    assert result["discovery_sources"][0]["kind"] == "discovery"
+    assert result["citations"] == [{"url": "https://react.dev/reference", "title": "https://react.dev/reference", "provider": "jina"}]
+    assert "Fetched React API documentation" in result["content"]
 
 
 @pytest.mark.asyncio
@@ -764,13 +515,19 @@ async def test_docs_search_falls_back_to_exa_when_context7_has_no_eligible_candi
             ],
         }
 
+    async def fake_context7_docs(library_id, query):
+        assert library_id == "/acme/pruner"
+        return {"ok": True, "content": ""}
+
     async def fake_exa_search(*args, **kwargs):
         return {"ok": True, "results": [{"url": "https://react.dev/reference/react/useEffect", "title": "useEffect"}]}
 
     monkeypatch.setattr(service, "context7_library", fake_context7_library)
+    monkeypatch.setattr(service, "context7_docs", fake_context7_docs)
     monkeypatch.setattr(service, "exa_search", fake_exa_search)
 
-    sources, attempts = await service._run_docs_search_fallback("React useEffect API docs")
+    result = await service.search("React useEffect API docs")
+    sources, attempts = result["sources"], result["provider_attempts"]
 
     assert sources[0]["provider"] == "exa"
     assert [(attempt["provider"], attempt["status"]) for attempt in attempts] == [
@@ -792,24 +549,25 @@ def test_research_provider_profiles_are_registered_with_capability_boundaries():
     assert profiles["anysearch"]["experimental"] is True
 
 
-def test_research_router_prefers_context7_for_docs_and_keeps_anysearch_out(monkeypatch):
-    _configure_research_minimum(monkeypatch)
+def test_provider_descriptions_cover_each_declared_operation_in_both_languages():
+    profiles = service.provider_profiles()
+    operation_for_capability = {
+        "main_search": "search", "docs_search": "search", "web_search": "search",
+        "vertical_search": "search", "web_fetch": "fetch", "site_map": "site_map",
+        "synthesis": "synthesis",
+    }
 
-    routes = service._research_capability_routes("React useEffect API docs", _research_plan("React useEffect API docs"), "auto")
+    for provider, profile in profiles.items():
+        capabilities = profile.get("capabilities") or [profile["capability"]]
+        operations = {operation_for_capability[capability] for capability in capabilities}
+        assert set(profile["descriptions"]) == operations, provider
+        for translations in profile["descriptions"].values():
+            assert set(translations) == {"en", "zh", "guidance_en", "guidance_zh"}, provider
+            assert all(text.strip() for text in translations.values()), provider
 
-    assert routes["signals"]["docs_api_intent"] is True
-    assert routes["capabilities"]["docs_search"]["providers"][:2] == ["context7", "exa"]
-    assert routes["capabilities"]["vertical_search"]["providers"] == []
 
 
-def test_research_router_uses_zhipu_for_chinese_current_policy(monkeypatch):
-    _configure_research_minimum(monkeypatch)
-    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
 
-    routes = service._research_capability_routes("今天国内 AI 政策最新公告", _research_plan("今天国内 AI 政策最新公告"), "auto")
-
-    assert routes["signals"]["current_or_locale_intent"] is True
-    assert routes["capabilities"]["web_search"]["providers"][0] == "zhipu"
 
 
 def test_research_router_favors_jina_for_known_url_pdf_and_firecrawl_for_dynamic(monkeypatch):
@@ -820,28 +578,8 @@ def test_research_router_favors_jina_for_known_url_pdf_and_firecrawl_for_dynamic
     assert service._research_fetch_order("抓取这个 dynamic javascript cloudflare 页面", "https://example.com/app")[0] == "firecrawl"
 
 
-def test_research_router_uses_anysearch_only_for_vertical_intent(monkeypatch):
-    _configure_research_minimum(monkeypatch)
-    monkeypatch.setenv("ANYSEARCH_API_KEY", "any-secret")
-
-    generic = service._research_capability_routes("React useEffect API docs", _research_plan("React useEffect API docs"), "auto")
-    vertical = service._research_capability_routes("CVE-2026 OpenSSL 漏洞影响范围", _research_plan("CVE-2026 OpenSSL 漏洞影响范围"), "auto")
-
-    assert generic["capabilities"]["vertical_search"]["providers"] == []
-    assert vertical["capabilities"]["vertical_search"]["providers"] == ["anysearch"]
 
 
-def test_research_overrides_cannot_move_provider_across_capability(monkeypatch):
-    _configure_research_minimum(monkeypatch)
-    monkeypatch.setenv("SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS", "jina,zhipu,unknown-provider")
-    monkeypatch.setenv("SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS", "tavily")
-
-    routes = service._research_capability_routes("今天国内 AI 新闻", _research_plan("今天国内 AI 新闻"), "auto")
-
-    assert "unknown-provider" in routes["invalid_provider_overrides"]
-    assert "jina" not in routes["capabilities"]["web_search"]["providers"]
-    assert "tavily" not in routes["capabilities"]["web_fetch"]["providers"]
-    assert routes["capabilities"]["web_fetch"]["providers"][0] == "jina"
 
 
 def test_research_fallback_detection_is_same_capability_only():
@@ -859,125 +597,70 @@ def test_research_fallback_detection_is_same_capability_only():
 
 
 @pytest.mark.asyncio
-async def test_research_executes_staged_evidence_only_workflow(monkeypatch, tmp_path):
-    _configure_research_minimum(monkeypatch)
-    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
-
-    async def fake_web_search(query, count=5, providers="auto", fallback="auto"):
-        return (
-            [{"url": "https://evidence.example.com/source", "title": "Source", "provider": "zhipu"}],
-            [service._attempt("web_search", "zhipu", "ok", time.time(), result_count=1)],
-        )
-
-    async def fake_fetch(url, fallback="auto", preferred_order=None):
-        return (
-            {"ok": True, "url": url, "provider": "jina", "content": "# Evidence\nFetched body only."},
-            [service._attempt("web_fetch", "jina", "ok", time.time(), result_count=1)],
-        )
-
-    monkeypatch.setattr(service, "_run_web_search_fallback", fake_web_search)
-    monkeypatch.setattr(service, "_run_web_fetch_fallback", fake_fetch)
-
-    result = await service.research("今天国内 AI 新闻", evidence_dir=str(tmp_path), fallback="auto")
-
-    assert result["ok"] is True
+async def test_research_executes_evidence_only_workflow(monkeypatch, tmp_path):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test")
+    async def discover(*args, **kwargs):
+        return [{"url": "https://evidence.example.com/source", "content": "Discovery snippet"}]
+    async def fetch(url):
+        return "Fetched body only."
+    monkeypatch.setattr(service, "call_tavily_search", discover)
+    monkeypatch.setattr(service, "call_tavily_extract", fetch)
+    result = await service.research("Find evidence", budget="standard", evidence_dir=str(tmp_path))
+    assert result["ok"]
     assert result["query_mode"] == "research"
-    assert result["route_policy_version"] == service.RESEARCH_ROUTE_POLICY_VERSION
-    assert result["evidence_items"][0]["url"] == "https://evidence.example.com/source"
-    assert result["citations"] == [{"url": "https://evidence.example.com/source", "title": "Source", "provider": "jina"}]
+    assert result["route_policy_version"] == "jev-v2"
     assert "Fetched body only" in result["final_answer"]
-    assert "zhipu" in [attempt["provider"] for attempt in result["provider_attempts"]]
+    assert "Discovery snippet" not in result["final_answer"]
     assert (tmp_path / "summary.json").exists()
 
 
 @pytest.mark.asyncio
-async def test_research_reports_degraded_gaps_without_citing_discovery_candidates(monkeypatch, tmp_path):
-    _configure_research_minimum(monkeypatch)
-    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
-
-    async def fake_web_search(query, count=5, providers="auto", fallback="auto"):
-        return (
-            [{"url": "https://candidate.example.com", "title": "Candidate", "provider": "zhipu"}],
-            [service._attempt("web_search", "zhipu", "ok", time.time(), result_count=1)],
-        )
-
-    async def fake_fetch(url, fallback="auto", preferred_order=None):
-        return (
-            None,
-            [
-                service._attempt("web_fetch", "jina", "empty", time.time()),
-                service._attempt("web_fetch", "tavily", "empty", time.time()),
-            ],
-        )
-
-    monkeypatch.setattr(service, "_run_web_search_fallback", fake_web_search)
-    monkeypatch.setattr(service, "_run_web_fetch_fallback", fake_fetch)
-
-    result = await service.research("今天国内 AI 新闻", evidence_dir=str(tmp_path), fallback="auto")
-
-    assert result["ok"] is False
-    assert result["degraded"] is True
+async def test_research_reports_gaps_without_citing_discovery(monkeypatch, tmp_path):
+    monkeypatch.setenv("EXA_API_KEY", "exa-test")
+    async def discover(*args, **kwargs):
+        return {"ok": True, "results": [{"url": "https://candidate.example.com", "content": "Snippet"}]}
+    monkeypatch.setattr(service, "exa_search", discover)
+    result = await service.research("Find sources", evidence_dir=str(tmp_path))
+    assert not result["ok"]
+    assert result["degraded"]
+    assert result["discovery_sources"]
     assert result["citations"] == []
     assert result["evidence_items"] == []
     assert result["gap_check"]["status"] == "failed"
-    assert result["fallback_used"] is True
-    assert "no fetched/read evidence" in result["gap_check"]["gaps"][-1]["reason"]
 
 
 @pytest.mark.asyncio
 async def test_research_fallback_off_limits_same_capability_fetch(monkeypatch, tmp_path):
-    _configure_research_minimum(monkeypatch)
-
-    async def fake_fetch(url, fallback="auto", preferred_order=None):
-        attempts = [service._attempt("web_fetch", preferred_order[0], "empty", time.time())]
-        return None, attempts
-
-    async def should_not_discover(*args, **kwargs):
-        raise AssertionError("known URL with fallback off should not need discovery after fetch failure")
-
-    monkeypatch.setattr(service, "_run_web_fetch_fallback", fake_fetch)
-    monkeypatch.setattr(service, "_run_web_search_fallback", should_not_discover)
-
-    result = await service.research("https://example.com/source", evidence_dir=str(tmp_path), fallback="off")
-
-    fetch_attempts = [attempt for attempt in result["provider_attempts"] if attempt["capability"] == "web_fetch"]
-    assert [attempt["provider"] for attempt in fetch_attempts] == ["jina"]
-    assert result["fallback_used"] is False
-    assert result["gap_check"]["status"] == "failed"
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("JINA_API_KEY", "jina-test")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test")
+    async def empty(url):
+        return {"ok": True, "content": ""}
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("fallback is disabled")
+    monkeypatch.setattr(service, "jina_fetch", empty)
+    monkeypatch.setattr(service, "call_tavily_extract", forbidden)
+    monkeypatch.setattr(service, "call_tavily_search", forbidden)
+    result = await service.research("https://example.com/source", budget="quick", evidence_dir=str(tmp_path), fallback="off")
+    assert not result["ok"]
+    assert [a["provider"] for a in result["provider_attempts"]] == ["jina"]
+    assert not result["fallback_used"]
 
 
 @pytest.mark.asyncio
-async def test_research_fallback_off_does_not_run_supplemental_exa(monkeypatch, tmp_path):
-    _configure_research_minimum(monkeypatch)
-    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
-
-    async def fake_context7_library(*args, **kwargs):
-        return {"ok": False, "error_type": "", "error": "", "results": []}
-
-    async def fail_exa(*args, **kwargs):
-        raise AssertionError("research --fallback off must not run supplemental Exa outside the selected route")
-
-    async def fake_web_search(query, count=5, providers="auto", fallback="auto"):
-        return (
-            [{"url": "https://official.example.com/source", "title": "Official", "provider": "zhipu"}],
-            [service._attempt("web_search", "zhipu", "ok", time.time(), result_count=1)],
-        )
-
-    async def fake_fetch(url, fallback="auto", preferred_order=None):
-        return (
-            {"ok": True, "url": url, "provider": preferred_order[0], "content": "# Evidence\nOfficial body."},
-            [service._attempt("web_fetch", preferred_order[0], "ok", time.time(), result_count=1)],
-        )
-
-    monkeypatch.setattr(service, "context7_library", fake_context7_library)
-    monkeypatch.setattr(service, "exa_search", fail_exa)
-    monkeypatch.setattr(service, "_run_web_search_fallback", fake_web_search)
-    monkeypatch.setattr(service, "_run_web_fetch_fallback", fake_fetch)
-
-    result = await service.research("React official API docs", evidence_dir=str(tmp_path), fallback="off")
-
-    assert result["ok"] is True
-    assert all(attempt["provider"] != "exa" for attempt in result["provider_attempts"])
+async def test_research_fallback_off_can_read_the_discovered_source(monkeypatch, tmp_path):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test")
+    async def discover(*args, **kwargs):
+        return [{"url": "https://official.example.com", "content": "Snippet"}]
+    async def fetch(url):
+        return "Official body"
+    monkeypatch.setattr(service, "call_tavily_search", discover)
+    monkeypatch.setattr(service, "call_tavily_extract", fetch)
+    result = await service.research("Find evidence", budget="quick", evidence_dir=str(tmp_path), fallback="off")
+    assert result["ok"]
+    assert [a["operation"] for a in result["provider_attempts"]] == ["search", "fetch"]
+    assert len(result["citations"]) == 1
 
 
 def test_legacy_main_search_config_keys_are_rejected(monkeypatch, tmp_path):
@@ -1012,6 +695,40 @@ def test_legacy_main_search_config_keys_are_ignored_from_saved_config(monkeypatc
     assert "SMART_SEARCH_API_URL" not in saved
     assert "SMART_SEARCH_API_KEY" not in saved
     assert saved["XAI_API_KEY"].startswith("xai-")
+
+
+@pytest.mark.parametrize("value", ["low", "Medium", " HIGH "])
+def test_xai_reasoning_effort_validation(monkeypatch, tmp_path, value):
+    config_file = _reset_config(monkeypatch, tmp_path)
+    assert service.config.xai_reasoning_effort == ""
+
+    saved = service.config_set("XAI_REASONING_EFFORT", value)
+
+    assert saved["ok"] is True
+    assert saved["value"] == value.strip().lower()
+    assert json.loads(config_file.read_text(encoding="utf-8"))["XAI_REASONING_EFFORT"] == value.strip().lower()
+    assert service.config.xai_reasoning_effort == value.strip().lower()
+
+    rejected = service.config_set("XAI_REASONING_EFFORT", "ultra")
+
+    assert rejected["ok"] is False
+    assert rejected["error_type"] == "parameter_error"
+    assert "Invalid XAI_REASONING_EFFORT" in rejected["error"]
+    assert service.config.xai_reasoning_effort == value.strip().lower()
+    assert service.config_set("XAI_REASONING_EFFORT", "")["ok"] is True
+    assert service.config.xai_reasoning_effort == ""
+
+
+@pytest.mark.parametrize("value", ["ultra", " ULTRA "])
+def test_invalid_xai_reasoning_effort_is_reported_not_raised(monkeypatch, tmp_path, value):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("XAI_REASONING_EFFORT", value)
+
+    info = service.config.get_config_info()
+
+    assert info["XAI_REASONING_EFFORT"] == value
+    assert any("XAI_REASONING_EFFORT" in error for error in info["config_parameter_errors"])
+    assert info["config_status"].startswith("config_error")
 
 
 def test_xai_tools_validation(monkeypatch, tmp_path):
@@ -1087,31 +804,22 @@ async def test_search_returns_sources(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_search_splits_primary_and_extra_sources(monkeypatch):
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.example.com/v1")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test-secret")
-    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-secret")
-
-    async def fake_search(self, query, platform="", ctx=None):
-        return 'Answer.\n\nsources([{"url":"https://primary.example.com","title":"Primary"}])'
-
-    async def fake_tavily_search(query, max_results=6):
-        return [{"url": "https://extra.example.com", "title": "Extra", "content": "candidate"}]
-
-    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
-    monkeypatch.setattr(service, "call_tavily_search", fake_tavily_search)
-    monkeypatch.setattr(service, "call_firecrawl_search", lambda *a, **k: None)
-
-    result = await service.search("what is example", extra_sources=1)
-
-    assert result["ok"] is True
-    assert result["sources_count"] == 2
-    assert result["primary_sources_count"] == 1
-    assert result["extra_sources_count"] == 1
-    assert result["primary_sources"][0]["url"] == "https://primary.example.com"
-    assert result["extra_sources"][0]["url"] == "https://extra.example.com"
-    assert result["extra_sources"][0]["provider"] == "tavily"
-    assert "not automatically used to verify generated content" in result["source_warning"]
+async def test_extra_sources_limits_results_without_an_extra_channel(monkeypatch):
+    monkeypatch.setenv("EXA_API_KEY", "exa-test")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test")
+    counts = []
+    async def exa(query, num_results=5, **kwargs):
+        counts.append(num_results)
+        return {"ok": True, "results": [{"url": "https://example.com", "content": "Source text"}]}
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("no extra channel after successful ordinary search")
+    monkeypatch.setattr(service, "exa_search", exa)
+    monkeypatch.setattr(service, "call_tavily_search", forbidden)
+    result = await service.search("API docs", extra_sources=2)
+    assert result["ok"]
+    assert counts == [2]
+    assert result["extra_sources"] == []
+    assert len(result["provider_attempts"]) == 1
 
 
 @pytest.mark.asyncio
@@ -1174,9 +882,8 @@ async def test_xai_inline_sources_flow_to_primary_source_rendering(monkeypatch, 
         "Read [the docs](https://docs.example.com/guide), then "
         "https://news.example.com/latest."
     )
-    assert result["primary_sources"] == [
-        {"url": "https://docs.example.com/guide"},
-        {"url": "https://news.example.com/latest"},
+    assert [item["url"] for item in result["primary_sources"]] == [
+        "https://docs.example.com/guide", "https://news.example.com/latest",
     ]
     assert result["sources"] == result["primary_sources"]
     assert "## Primary Sources" in rendered
@@ -1212,7 +919,7 @@ async def test_search_fallbacks_from_xai_responses_to_openai_compatible(monkeypa
     assert result["ok"] is True
     assert result["content"] == "Fallback answer."
     assert result["fallback_used"] is True
-    assert [a["provider"] for a in result["provider_attempts"][:2]] == ["xAI Responses", "OpenAI-compatible"]
+    assert [a["provider"] for a in result["provider_attempts"][:2]] == ["xai-responses", "openai-compatible"]
     assert [a["model"] for a in result["provider_attempts"][:2]] == ["xai-model", "relay-model"]
     assert result["provider"] == "openai-compatible"
     assert result["provider_attempts"][0]["status"] == "error"
@@ -1228,6 +935,7 @@ async def test_search_fallbacks_from_xai_responses_to_openai_compatible(monkeypa
 
 @pytest.mark.asyncio
 async def test_search_does_not_fake_openai_compatible_fallback_when_only_xai_configured(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
     monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
 
     async def failing_xai(self, query, platform="", ctx=None):
@@ -1245,7 +953,7 @@ async def test_search_does_not_fake_openai_compatible_fallback_when_only_xai_con
 
     assert result["ok"] is False
     assert result["fallback_used"] is False
-    assert [a["provider"] for a in result["provider_attempts"]] == ["xAI Responses"]
+    assert [a["provider"] for a in result["provider_attempts"]] == ["xai-responses"]
 
 
 @pytest.mark.asyncio
@@ -1257,7 +965,7 @@ async def test_search_accepts_only_openai_compatible_as_main_provider(monkeypatc
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
 
     async def fake_search(self, query, platform="", ctx=None):
-        return "Relay answer."
+        return "Relay answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
@@ -1279,7 +987,7 @@ async def test_search_passes_openai_compatible_responses_mode_and_mode_telemetry
     async def fake_search(self, query, platform="", ctx=None):
         captured["api_mode"] = self.api_mode
         captured["endpoint"] = self._api_endpoint()
-        return "Relay answer."
+        return "Relay answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
@@ -1328,7 +1036,7 @@ async def test_search_passes_openai_compatible_stream_config_and_cli_override(mo
 
     async def fake_search(self, query, platform="", ctx=None):
         captured["stream"] = self.stream
-        return "Relay answer."
+        return "Relay answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
@@ -1364,7 +1072,7 @@ async def test_search_openai_compatible_primary_model_falls_back_to_configured_m
         ]
         if self.model == "primary-model":
             return ""
-        return "Fallback answer."
+        return "Fallback answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
@@ -1404,6 +1112,7 @@ async def test_search_model_override_disables_configured_fallback_models(monkeyp
 
 @pytest.mark.asyncio
 async def test_search_fallback_off_disables_model_fallback_but_keeps_transport_attempts(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
     service.reset_runtime_breakers()
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
@@ -1435,7 +1144,7 @@ async def test_search_fallback_off_disables_model_fallback_but_keeps_transport_a
                 "fallback_from_transport": "stream",
             },
         ]
-        return "Rescued answer."
+        return "Rescued answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
@@ -1445,7 +1154,7 @@ async def test_search_fallback_off_disables_model_fallback_but_keeps_transport_a
     assert seen_models == ["primary-model"]
     assert result["transport_fallback_used"] is True
     assert result["model_fallback_used"] is False
-    assert result["fallback_used"] is False
+    assert result["fallback_used"] is True
     assert result["routing_decision"]["openai_compatible_model_fallback_enabled"] is False
 
 
@@ -1462,7 +1171,7 @@ async def test_search_model_breaker_skips_primary_model(monkeypatch):
 
     async def fake_search(self, query, platform="", ctx=None):
         seen_models.append(self.model)
-        return "Fallback answer."
+        return "Fallback answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
@@ -1577,9 +1286,8 @@ async def test_search_gives_fallback_remaining_budget_after_primary_hard_failure
     assert result["ok"] is True
     assert result["model"] == "fallback-model"
     assert result["model_fallback_used"] is True
-    assert len(seen_timeouts) == 2
-    assert seen_timeouts[0] >= 80
-    assert seen_timeouts[1] >= 80
+    assert len(result["provider_attempts"]) == 2
+    assert all(a["attempt_timeout_seconds"] >= 80 for a in result["provider_attempts"])
 
 
 @pytest.mark.asyncio
@@ -1675,7 +1383,7 @@ def test_anysearch_vertical_status_is_experimental_and_not_minimum_required(monk
     with_anysearch = service.validate_minimum_profile()
     assert with_anysearch["ok"] is True
     assert with_anysearch["missing"] == []
-    assert with_anysearch["required"] == ["main_search", "docs_search", "web_fetch"]
+    assert with_anysearch["required"] == ["retrieval"]
     assert with_anysearch["capability_status"]["vertical_search"]["configured"] == ["anysearch"]
 
 
@@ -1690,21 +1398,15 @@ def test_sciverse_vertical_status_is_explicit_only_and_not_default_route(monkeyp
     monkeypatch.delenv("ANYSEARCH_API_KEY", raising=False)
 
     result = service.validate_minimum_profile()
-    routes = service._research_capability_routes(
-        "CVE structured vertical search",
-        {"intent_signals": {}},
-        "auto",
-        capability_status=result["capability_status"],
-    )
+    channels = jev_search.available_channels(service, "CVE structured vertical search", [])
 
     assert result["ok"] is True
-    assert result["required"] == ["main_search", "docs_search", "web_fetch"]
+    assert result["required"] == ["retrieval"]
     vertical_status = result["capability_status"]["vertical_search"]
     assert vertical_status["configured"] == ["sciverse"]
     assert vertical_status["explicit_only"] == ["sciverse"]
     assert vertical_status["route_enabled"]["sciverse"] is False
-    assert routes["signals"]["vertical_intent"] is True
-    assert routes["capabilities"]["vertical_search"]["providers"] == []
+    assert all(item["provider"] != "sciverse" for item in channels)
 
 
 def test_jina_key_satisfies_web_fetch_but_anonymous_jina_does_not(monkeypatch):
@@ -1718,8 +1420,8 @@ def test_jina_key_satisfies_web_fetch_but_anonymous_jina_does_not(monkeypatch):
     monkeypatch.setenv("JINA_READER_API_URL", "https://r.jina.ai")
 
     without_key = service.validate_minimum_profile()
-    assert without_key["ok"] is False
-    assert "web_fetch" in without_key["missing"]
+    assert without_key["ok"] is True
+    assert without_key["missing"] == []
     assert "jina" not in without_key["capability_status"]["web_fetch"]["configured"]
 
     monkeypatch.setenv("JINA_API_KEY", "jina-test-secret")
@@ -1784,7 +1486,7 @@ async def test_zhipu_mcp_web_search_error_records_attempt_and_falls_back_same_ca
     assert web_attempts[0]["status"] == "error"
     assert web_attempts[0]["error_type"] == "provider_error"
     assert web_attempts[1]["status"] == "ok"
-    assert result["extra_sources"][0]["provider"] == "tavily"
+    assert result["sources"][0]["provider"] == "tavily"
 
 
 @pytest.mark.asyncio
@@ -1797,7 +1499,7 @@ async def test_search_provider_filter_can_select_openai_compatible(monkeypatch):
         raise AssertionError("xAI should be filtered out")
 
     async def fallback_openai(self, query, platform="", ctx=None):
-        return "Relay answer."
+        return "Relay answer. https://example.com/source"
 
     monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", should_not_run)
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fallback_openai)
@@ -1806,7 +1508,7 @@ async def test_search_provider_filter_can_select_openai_compatible(monkeypatch):
 
     assert result["ok"] is True
     assert result["routing_decision"]["main_search_chain"] == ["openai-compatible"]
-    assert [a["provider"] for a in result["provider_attempts"]] == ["OpenAI-compatible"]
+    assert [a["provider"] for a in result["provider_attempts"]] == ["openai-compatible"]
 
 
 @pytest.mark.asyncio
@@ -1831,89 +1533,48 @@ async def test_balanced_current_sports_queries_use_web_search_reinforcement(monk
     assert result["ok"] is True
     assert result["routing_decision"]["zh_current_intent"] is True
     assert result["routing_decision"]["web_current_intent"] is True
-    assert "web_search" in result["routing_decision"]["supplemental_paths"]
+    assert result["routing_decision"]["supplemental_paths"] == []
     assert any(attempt["capability"] == "web_search" and attempt["status"] == "ok" for attempt in result["provider_attempts"])
-    assert result["extra_sources"][0]["url"] == "https://sports.example.com"
+    assert result["sources"][0]["url"] == "https://sports.example.com"
 
 
 @pytest.mark.asyncio
 async def test_chinese_language_request_does_not_trigger_current_web_search(monkeypatch):
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
-    monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
-    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
-
-    async def fake_search(self, query, platform="", ctx=None):
-        return "Language answer."
-
-    async def should_not_run_web_search(query, count=5, providers="auto", fallback="auto"):
-        raise AssertionError("generic Chinese-language requests should not trigger current web_search")
-
-    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
-    monkeypatch.setattr(service, "_run_web_search_fallback", should_not_run_web_search)
-
-    result = await service.search("中文解释 Python 函数", validation="balanced")
-
-    assert result["ok"] is True
-    assert result["routing_decision"]["web_current_intent"] is False
-    assert "web_search" not in result["routing_decision"]["supplemental_paths"]
-    assert all(attempt["capability"] != "web_search" for attempt in result["provider_attempts"])
+    monkeypatch.setenv("EXA_API_KEY", "exa-test")
+    async def docs(*args, **kwargs):
+        return {"ok": True, "results": [{"url": "https://docs.python.org", "content": "Function documentation"}]}
+    monkeypatch.setattr(service, "exa_search", docs)
+    result = await service.search("中文解释 Python 函数")
+    assert result["ok"]
+    assert not result["routing_decision"]["web_current_intent"]
+    assert [a["capability"] for a in result["provider_attempts"]] == ["docs_search"]
 
 
 @pytest.mark.asyncio
 async def test_docs_query_routes_docs_without_current_web_search(monkeypatch):
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
-    monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
-    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
-
-    async def fake_search(self, query, platform="", ctx=None):
-        return "Docs answer."
-
-    async def fake_docs_search(query, providers="auto", fallback="auto"):
-        return [{"url": "context7:/reactjs/react.dev", "provider": "context7"}], [
-            {"capability": "docs_search", "provider": "context7", "status": "ok", "elapsed_ms": 1, "result_count": 1}
-        ]
-
-    async def should_not_run_web_search(query, count=5, providers="auto", fallback="auto"):
-        raise AssertionError("docs query should not trigger current web_search")
-
-    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
-    monkeypatch.setattr(service, "_run_docs_search_fallback", fake_docs_search)
-    monkeypatch.setattr(service, "_run_web_search_fallback", should_not_run_web_search)
-
-    result = await service.search("React useEffect API docs 中文解释", validation="balanced")
-
-    assert result["ok"] is True
-    assert result["routing_decision"]["docs_intent"] is True
-    assert result["routing_decision"]["web_current_intent"] is False
-    assert result["routing_decision"]["supplemental_paths"] == ["docs_search"]
-    assert any(attempt["capability"] == "docs_search" for attempt in result["provider_attempts"])
-    assert all(attempt["capability"] != "web_search" for attempt in result["provider_attempts"])
+    monkeypatch.setenv("EXA_API_KEY", "exa-test")
+    async def docs(*args, **kwargs):
+        return {"ok": True, "results": [{"url": "https://react.dev", "content": "Effect documentation"}]}
+    monkeypatch.setattr(service, "exa_search", docs)
+    result = await service.search("React useEffect API docs 中文解释")
+    assert result["ok"]
+    assert result["routing_decision"]["docs_intent"]
+    assert [a["capability"] for a in result["provider_attempts"]] == ["docs_search"]
 
 
 @pytest.mark.asyncio
-async def test_strict_still_uses_web_search_without_current_keyword(monkeypatch):
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
-    monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
-    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
-
-    async def fake_search(self, query, platform="", ctx=None):
-        return "Strict answer."
-
-    async def fake_tavily_search(query, max_results=6):
-        return [{"url": "https://strict.example.com", "title": "Strict", "content": "evidence"}]
-
-    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
-    monkeypatch.setattr(service, "call_tavily_search", fake_tavily_search)
-
+async def test_strict_does_not_add_searches_to_a_source_free_answer(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    async def answer(*args, **kwargs):
+        return "Unverified answer."
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", answer)
     result = await service.search("plain evergreen query", validation="strict")
-
-    assert result["ok"] is True
-    assert result["routing_decision"]["web_current_intent"] is False
-    assert "web_search" in result["routing_decision"]["supplemental_paths"]
-    assert any(attempt["capability"] == "web_search" and attempt["status"] == "ok" for attempt in result["provider_attempts"])
+    assert not result["ok"]
+    assert result["content"] == ""
+    assert result["error_type"] == "evidence_error"
+    assert not result["partial_success"]
+    assert len(result["provider_attempts"]) == 1
+    assert result["routing_decision"]["supplemental_paths"] == []
 
 
 @pytest.mark.asyncio
@@ -1942,13 +1603,14 @@ async def test_search_vertical_intent_uses_anysearch_when_configured(monkeypatch
 
     assert result["ok"] is True
     assert "vertical_search" in result["routing_decision"]["required_capabilities"]
-    assert "vertical_search" in result["routing_decision"]["supplemental_paths"]
+    assert result["routing_decision"]["supplemental_paths"] == []
     assert any(attempt["capability"] == "vertical_search" and attempt["provider"] == "anysearch" and attempt["status"] == "ok" for attempt in result["provider_attempts"])
-    assert any(source["provider"] == "anysearch" for source in result["extra_sources"])
+    assert any(source["provider"] == "anysearch" for source in result["sources"])
 
 
 @pytest.mark.asyncio
 async def test_search_respects_fallback_off_for_main_search(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
     monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
@@ -1968,7 +1630,19 @@ async def test_search_respects_fallback_off_for_main_search(monkeypatch):
 
     assert result["ok"] is False
     assert result["fallback_used"] is False
-    assert [a["provider"] for a in result["provider_attempts"]] == ["xAI Responses"]
+    assert [a["provider"] for a in result["provider_attempts"]] == ["xai-responses"]
+
+
+@pytest.mark.asyncio
+async def test_search_reports_invalid_xai_reasoning_effort_as_parameter_error(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.setenv("XAI_REASONING_EFFORT", "ultra")
+
+    result = await service.search("what is example")
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert "Invalid XAI_REASONING_EFFORT" in result["error"]
 
 
 @pytest.mark.asyncio
@@ -1987,6 +1661,7 @@ async def test_search_reports_invalid_xai_tools_as_parameter_error(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_search_reports_primary_provider_http_error(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
     monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
 
     async def failing_search(self, query, platform="", ctx=None):
@@ -2005,77 +1680,69 @@ async def test_search_reports_primary_provider_http_error(monkeypatch):
     assert result["ok"] is False
     assert result["error_type"] == "parameter_error"
     assert result["primary_api_mode"] == "xai-responses"
-    assert "xAI Responses HTTP 422" in result["error"]
+    assert "422" in result["error"]
     assert "bad tools" in result["error"]
     assert result["sources"] == []
     assert result["primary_sources"] == []
     assert result["extra_sources"] == []
 
 
-@pytest.mark.parametrize(
-    ("status_code", "error_type"),
-    [
-        (400, "parameter_error"),
-        (401, "auth_error"),
-        (403, "auth_error"),
-        (408, "timeout"),
-        (422, "parameter_error"),
-        (429, "rate_limited"),
-        (500, "network_error"),
-    ],
-)
-def test_primary_search_exception_uses_shared_error_taxonomy(status_code, error_type):
-    request = httpx.Request("POST", "https://provider.example.test")
-    response = httpx.Response(status_code, text="provider detail", request=request)
-    result = service._primary_search_exception_result(
-        time.time(),
-        "session-id",
-        "query",
-        "chat-completions",
-        "OpenAI-compatible",
-        httpx.HTTPStatusError("provider failed", request=request, response=response),
-    )
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code,error_type", [
+    (400, "parameter_error"), (401, "auth_error"), (403, "auth_error"),
+    (408, "timeout"), (422, "parameter_error"), (429, "rate_limited"),
+    (500, "network_error"), (None, "timeout"),
+])
+async def test_search_model_errors_keep_taxonomy_and_redact_credentials(monkeypatch, status_code, error_type):
+    api_key = "synthetic-model-secret"
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://provider.example.test/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", api_key)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "test-model")
 
-    assert result["error_type"] == error_type
-    assert result["error"].startswith(f"OpenAI-compatible HTTP {status_code}")
+    async def fail(*args, **kwargs):
+        detail = f"Authorization: Bearer upstream-secret; backend repeated {api_key}"
+        if status_code is None:
+            raise httpx.TimeoutException(detail)
+        request = httpx.Request("POST", "https://provider.example.test/v1/chat/completions")
+        response = httpx.Response(status_code, text=detail, request=request)
+        raise httpx.HTTPStatusError("provider failed", request=request, response=response)
 
-
-def test_primary_search_timeout_uses_shared_error_taxonomy():
-    result = service._primary_search_exception_result(
-        time.time(),
-        "session-id",
-        "query",
-        "chat-completions",
-        "OpenAI-compatible",
-        httpx.TimeoutException("slow request"),
-    )
-
-    assert result["error_type"] == "timeout"
-    assert result["error"] == "OpenAI-compatible slow request"
-
-
-def test_primary_search_exception_redacts_provider_credentials(monkeypatch):
-    api_key = "xai-test-secret"
-    monkeypatch.setenv("XAI_API_KEY", api_key)
-    request = httpx.Request("POST", "https://provider.example.test")
-    response = httpx.Response(
-        401,
-        text=f"Authorization: Bearer upstream-secret; backend repeated {api_key}",
-        request=request,
-    )
-    result = service._primary_search_exception_result(
-        time.time(),
-        "session-id",
-        "query",
-        "chat-completions",
-        "OpenAI-compatible",
-        httpx.HTTPStatusError("provider failed", request=request, response=response),
-    )
-
-    assert result["error_type"] == "auth_error"
-    assert "upstream-secret" not in result["error"]
-    assert api_key not in result["error"]
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fail)
+    result = await service.search("query", fallback="off")
+    assert not result["ok"] and result["error_type"] == error_type
+    assert result["provider_attempts"][0]["error_type"] == error_type
     assert "[REDACTED]" in result["error"]
+    assert api_key not in json.dumps(result)
+    assert "upstream-secret" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_fetch_deadline_times_out_and_skips_next_provider(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-secret")
+    cancelled = asyncio.Event()
+
+    async def slow_tavily(url):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def forbidden_firecrawl(url, ctx=None):
+        raise AssertionError("Firecrawl must not start after the fetch deadline")
+
+    monkeypatch.setattr(service, "call_tavily_extract", slow_tavily)
+    monkeypatch.setattr(service, "call_firecrawl_scrape", forbidden_firecrawl)
+    result = await asyncio.wait_for(service.fetch("https://example.com", timeout_seconds=0.3), 1)
+
+    assert result["ok"] is False
+    assert result["error_type"] == "timeout"
+    assert cancelled.is_set()
+    assert [item["provider"] for item in result["provider_attempts"]] == ["tavily", "firecrawl"]
+    assert result["provider_attempts"][0]["error_type"] == "timeout"
+    assert result["provider_attempts"][1]["status"] == "skipped"
+    assert result["provider_attempts"][1]["error"] == "fetch deadline exhausted"
 
 
 @pytest.mark.asyncio
@@ -2171,7 +1838,7 @@ async def test_search_known_url_uses_same_fetch_chain_as_fetch(monkeypatch):
     assert captured["url"] == "https://example.com/docs?x=1"
     attempts = [a for a in result["provider_attempts"] if a["capability"] == "web_fetch"]
     assert [a["provider"] for a in attempts] == ["jina"]
-    assert result["extra_sources"][0]["provider"] == "jina"
+    assert result["sources"][0]["provider"] == "jina"
 
 
 @pytest.mark.asyncio
@@ -2580,7 +2247,7 @@ async def test_doctor_redacts_secret_and_reports_config_error(monkeypatch):
     assert "✅" not in dumped
     assert result["ok"] is False
     assert result["error_type"] == "config_error"
-    assert result["primary_connection_test"]["status"] == "config_error"
+    assert result["primary_connection_test"]["status"] == "not_required"
 
 
 @pytest.mark.asyncio
@@ -2598,6 +2265,8 @@ async def test_diagnose_openai_compatible_reports_missing_config(monkeypatch, tm
 
 @pytest.mark.asyncio
 async def test_diagnose_openai_compatible_timeout_after_quick_chat(monkeypatch):
+    async def models(*args): return []
+    monkeypatch.setattr(service, "fetch_available_models", models)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
 
@@ -2630,6 +2299,8 @@ async def test_diagnose_openai_compatible_timeout_after_quick_chat(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_diagnose_openai_compatible_recommends_stream_when_only_stream_works(monkeypatch):
+    async def models(*args): return []
+    monkeypatch.setattr(service, "fetch_available_models", models)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
 
@@ -2658,6 +2329,8 @@ async def test_diagnose_openai_compatible_recommends_stream_when_only_stream_wor
 
 @pytest.mark.asyncio
 async def test_diagnose_openai_compatible_recommends_no_stream_when_stream_fails(monkeypatch):
+    async def models(*args): return []
+    monkeypatch.setattr(service, "fetch_available_models", models)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
 
@@ -2686,6 +2359,8 @@ async def test_diagnose_openai_compatible_recommends_no_stream_when_stream_fails
 
 @pytest.mark.asyncio
 async def test_diagnose_openai_compatible_reports_ok_when_both_search_shapes_work(monkeypatch):
+    async def models(*args): return []
+    monkeypatch.setattr(service, "fetch_available_models", models)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
 
@@ -2762,6 +2437,8 @@ async def test_diagnose_rejects_invalid_api_mode_without_probe(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_doctor_reports_invalid_validation_config(monkeypatch):
+    async def probe(*args): return {"status": "ok"}
+    monkeypatch.setattr(service, "_safe_test_main_provider_connection", probe)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.example.com/v1")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test-secret")
     monkeypatch.setenv("SMART_SEARCH_VALIDATION_LEVEL", "banana")
@@ -3155,7 +2832,7 @@ async def test_tavily_disabled_removes_capability_routes_and_blocks_network_boun
             raise AssertionError("Tavily disabled paths must not create an HTTP client")
 
     async def fake_primary_search(self, query, platform="", ctx=None):
-        return "Answer."
+        return "Answer. https://example.com/source"
 
     async def fake_primary_connection(api_url, api_key, model):
         return {"status": "ok", "message": "relay available"}
@@ -3166,7 +2843,7 @@ async def test_tavily_disabled_removes_capability_routes_and_blocks_network_boun
 
     capability_status = service.get_capability_status()
     plan = service.build_deep_research_plan("fetch https://example.com")
-    routes = service._research_capability_routes("fetch https://example.com", plan, "auto")
+    channels = jev_search.available_channels(service, "fetch https://example.com", [])
     search_result = await service.search("provider control", extra_sources=1, validation="fast")
     fetch_result = await service.fetch("https://example.com")
     map_result = await service.map_site("https://example.com")
@@ -3175,7 +2852,7 @@ async def test_tavily_disabled_removes_capability_routes_and_blocks_network_boun
 
     assert "tavily" not in capability_status["web_search"]["configured"]
     assert "tavily" not in capability_status["web_fetch"]["configured"]
-    assert "tavily" not in routes["capabilities"]["web_fetch"]["providers"]
+    assert "tavily" not in service._research_fetch_order("https://example.com")
     assert search_result["ok"] is True
     assert not any(attempt["provider"] == "tavily" for attempt in search_result["provider_attempts"])
     assert await service.call_tavily_search("query") is None
@@ -3226,7 +2903,8 @@ async def test_tavily_and_firecrawl_exceptions_are_error_attempts_while_empty_is
     monkeypatch.setattr(service, "call_tavily_search", rejected_tavily)
     monkeypatch.setattr(service, "call_firecrawl_search", empty_firecrawl)
 
-    sources, attempts = await service._run_web_search_fallback("query")
+    result = await service.search("latest news")
+    sources, attempts = result["sources"], result["provider_attempts"]
 
     assert sources == []
     assert [(attempt["provider"], attempt["status"], attempt["error_type"]) for attempt in attempts] == [
@@ -3236,33 +2914,19 @@ async def test_tavily_and_firecrawl_exceptions_are_error_attempts_while_empty_is
 
 
 @pytest.mark.asyncio
-async def test_extra_source_failures_are_recorded_without_hiding_them(monkeypatch):
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
-    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
-    monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-test-secret")
-
-    async def fake_primary_search(self, query, platform="", ctx=None):
-        return "Answer."
-
-    async def failing_tavily(query, max_results=6):
+async def test_channel_failure_and_empty_fallback_are_recorded(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test")
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-test")
+    async def fail(*args, **kwargs):
         raise service.ProviderCallError("rate_limited", "Tavily rate limited")
-
-    async def empty_firecrawl(query, limit=14):
-        return None
-
-    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
-    monkeypatch.setattr(service, "call_tavily_search", failing_tavily)
-    monkeypatch.setattr(service, "call_firecrawl_search", empty_firecrawl)
-
-    result = await service.search("provider telemetry", extra_sources=2, validation="fast")
-
-    web_attempts = [attempt for attempt in result["provider_attempts"] if attempt["capability"] == "web_search"]
-    assert result["ok"] is True
-    assert [(attempt["provider"], attempt["status"], attempt["error_type"]) for attempt in web_attempts] == [
-        ("tavily", "error", "rate_limited"),
-        ("firecrawl", "empty", ""),
-    ]
+    async def empty(*args, **kwargs):
+        return []
+    monkeypatch.setattr(service, "call_tavily_search", fail)
+    monkeypatch.setattr(service, "call_firecrawl_search", empty)
+    result = await service.search("latest news")
+    assert not result["ok"]
+    assert [(a["provider"], a["status"]) for a in result["provider_attempts"]] == [("tavily", "error"), ("firecrawl", "empty")]
+    assert result["error_type"] == "rate_limited"
 
 
 @pytest.mark.asyncio
@@ -3272,7 +2936,7 @@ async def test_search_timeout_config_precedence_and_default(monkeypatch, tmp_pat
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
 
     async def fake_primary_search(self, query, platform="", ctx=None):
-        return "Answer."
+        return "Answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
 
@@ -3308,105 +2972,52 @@ async def test_search_rejects_non_positive_timeout_before_provider_work(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_router_shared_cap_preserves_main_search_reserve(monkeypatch):
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
-    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "hybrid")
-    monkeypatch.setenv("INTENT_EMBEDDING_API_URL", "https://embed.example.com/v1/embeddings")
-    monkeypatch.setenv("INTENT_EMBEDDING_API_KEY", "embed-test-secret")
-    monkeypatch.setenv("INTENT_EMBEDDING_MODEL", "embed-model")
-    monkeypatch.setenv("INTENT_ROUTER_TIMEOUT_SECONDS", "0.2")
-
-    async def slow_remote_route(self, query, *, validation_level="", mode="", allow_remote=True, plan_intent_signals=None):
-        if allow_remote:
-            await asyncio.sleep(1)
-        return service.build_rules_route(query, validation_level=validation_level, mode="rules")
-
-    async def fake_primary_search(self, query, platform="", ctx=None):
-        return "Main answer."
-
-    monkeypatch.setattr(service.IntentRouter, "route", slow_remote_route)
-    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
-
-    result = await service.search("router budget", validation="fast", timeout_seconds=0.6)
-
-    router_attempt = next(attempt for attempt in result["phase_attempts"] if attempt["phase"] == "router")
-    main_attempt = next(attempt for attempt in result["phase_attempts"] if attempt["phase"] == "main_search")
-    assert result["ok"] is True
-    assert result["timeout_phase"] == "router"
-    assert router_attempt["status"] == "timeout"
-    assert main_attempt["status"] == "ok"
-    assert result["routing_decision"]["main_search_reserve_seconds"] == 0.4
-
-
-@pytest.mark.asyncio
-async def test_optional_extra_timeout_keeps_primary_result_and_completed_sources(monkeypatch):
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
-    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
-    monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-test-secret")
-    cancelled = False
-
-    async def fake_primary_search(self, query, platform="", ctx=None):
-        return "Primary answer."
-
-    async def fast_tavily(query, max_results=6):
-        return [{"url": "https://tavily.example.com", "title": "Tavily", "content": "complete"}]
-
-    async def slow_firecrawl(query, limit=14):
-        nonlocal cancelled
-        try:
-            await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            cancelled = True
-            raise
-        return []
-
-    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
-    monkeypatch.setattr(service, "call_tavily_search", fast_tavily)
-    monkeypatch.setattr(service, "call_firecrawl_search", slow_firecrawl)
-
-    result = await service.search("optional budget", validation="fast", extra_sources=2, timeout_seconds=0.2)
-
-    extra_attempt = next(attempt for attempt in result["phase_attempts"] if attempt["phase"] == "extra_sources")
-    assert result["ok"] is True
-    assert result["content"] == "Primary answer."
-    assert result["partial_success"] is True
-    assert result["timeout_phase"] == "extra_sources"
-    assert extra_attempt["status"] == "timeout"
-    assert extra_attempt["pending_providers"] == ["firecrawl"]
-    assert [item["provider"] for item in result["extra_sources"]] == ["tavily"]
-    assert cancelled is True
-
-
-@pytest.mark.asyncio
-async def test_strict_optional_timeout_keeps_generated_content_and_evidence_error(monkeypatch):
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
-
-    async def fake_primary_search(self, query, platform="", ctx=None):
-        return "Generated content without citations."
-
-    async def slow_web_search(query, count=5, providers="auto", fallback="auto"):
+async def test_jev_timeout_leaves_the_remaining_budget_for_local_search(monkeypatch):
+    from smart_search.jev import JevClient
+    monkeypatch.setenv("TYPESAFE_API_KEY", "jev-test")
+    monkeypatch.setenv("SMART_SEARCH_JEV_TIMEOUT_SECONDS", "0.02")
+    monkeypatch.setenv("EXA_API_KEY", "exa-test")
+    async def slow(*args, **kwargs):
         await asyncio.sleep(1)
-        return [], []
+    async def search(*args, **kwargs):
+        return {"ok": True, "results": [{"url": "https://example.com", "content": "Retrieved"}]}
+    monkeypatch.setattr(JevClient, "_request", slow)
+    monkeypatch.setattr(service, "exa_search", search)
+    result = await service.search("find source", timeout_seconds=0.3)
+    assert result["ok"]
+    assert result["degraded"]
+    assert result["timeout_phase"] == "selection"
+    assert result["deadline_remaining_ms"] > 0
 
-    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
-    monkeypatch.setattr(service, "_run_web_search_fallback", slow_web_search)
 
-    result = await service.search("strict optional budget", validation="strict", timeout_seconds=0.2)
+@pytest.mark.asyncio
+async def test_normal_search_does_not_wait_for_unselected_extra_channels(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-test")
+    async def answer(*args, **kwargs):
+        return 'Primary answer.\n\nsources([{"url":"https://example.com/source"}])'
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("no optional extra search")
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", answer)
+    monkeypatch.setattr(service, "call_firecrawl_search", forbidden)
+    result = await service.search("general question", extra_sources=2, timeout_seconds=0.2)
+    assert result["ok"]
+    assert result["content"] == "Primary answer."
+    assert result["timeout_phase"] == ""
+    assert len(result["provider_attempts"]) == 1
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
-    assert result["content"] == "Generated content without citations."
-    assert result["partial_success"] is True
-    assert result["timeout_phase"] == "supplemental"
-    assert any(
-        attempt["phase"] == "supplemental"
-        and attempt["capability"] == "web_search"
-        and attempt["status"] == "timeout"
-        for attempt in result["phase_attempts"]
-    )
+
+@pytest.mark.asyncio
+async def test_strict_keeps_partial_content_without_optional_work(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    async def answer(*args, **kwargs):
+        return "Generated content without citations."
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", answer)
+    result = await service.search("strict evidence", validation="strict", timeout_seconds=0.2)
+    assert not result["ok"]
+    assert result["content"] == ""
+    assert not result["partial_success"]
+    assert result["timeout_phase"] == ""
 
 
 @pytest.mark.asyncio
@@ -3424,10 +3035,9 @@ async def test_terminal_main_deadline_preserves_phase_telemetry(monkeypatch):
 
     assert result["ok"] is False
     assert result["error_type"] == "timeout"
-    assert result["timeout_phase"] == "main_search"
-    assert result["timed_out_phases"] == ["main_search"]
-    assert any(attempt["phase"] == "router" for attempt in result["phase_attempts"])
-    assert any(attempt["phase"] == "main_search" and attempt["status"] == "timeout" for attempt in result["phase_attempts"])
+    assert result["timeout_phase"] == "retrieval"
+    assert result["timed_out_phases"] == ["retrieval"]
+    assert any(attempt["phase"] == "retrieval" and attempt["status"] == "timeout" for attempt in result["phase_attempts"])
 
 
 @pytest.mark.asyncio
@@ -3440,7 +3050,7 @@ async def test_main_provider_timeout_keeps_remaining_budget_for_peer_failover(mo
         raise asyncio.TimeoutError("xAI transport timeout")
 
     async def recover_openai(self, query, platform="", ctx=None):
-        return "Peer fallback answer."
+        return 'Peer fallback answer.\n\nsources([{"url":"https://example.com/source"}])'
 
     monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", timeout_xai)
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", recover_openai)
@@ -3449,34 +3059,27 @@ async def test_main_provider_timeout_keeps_remaining_budget_for_peer_failover(mo
 
     assert result["ok"] is True
     assert result["content"] == "Peer fallback answer."
-    assert [attempt["provider"] for attempt in result["provider_attempts"]] == ["xAI Responses", "OpenAI-compatible"]
+    assert [attempt["provider"] for attempt in result["provider_attempts"]] == ["xai-responses", "openai-compatible"]
     assert result["provider_attempts"][0]["error_type"] == "timeout"
 
 
 @pytest.mark.asyncio
-async def test_extra_source_collection_cancels_children_when_search_is_cancelled():
-    budget = service.SearchBudget(10)
-    execution = service.SearchExecutionState(budget)
-    started = asyncio.Event()
-    cancelled = asyncio.Event()
-
-    async def hanging_source():
+async def test_shared_search_cancels_children_when_search_is_cancelled(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test")
+    started, cancelled = asyncio.Event(), asyncio.Event()
+    async def hanging(*args, **kwargs):
         started.set()
         try:
             await asyncio.Event().wait()
-        except asyncio.CancelledError:
+        finally:
             cancelled.set()
-            raise
-
-    collection = asyncio.create_task(
-        service._collect_extra_source_calls([("tavily", hanging_source)], budget, execution)
-    )
+    monkeypatch.setattr(service, "call_tavily_search", hanging)
+    task = asyncio.create_task(service.search("latest news"))
     await started.wait()
-    collection.cancel()
-
-    with pytest.raises(asyncio.CancelledError):
-        await collection
-
+    task.cancel()
+    result = await task
+    assert result["error_type"] == "cancelled"
+    assert result["routing_decision"]["stop_reason"] == "cancelled"
     assert cancelled.is_set()
 
 
@@ -3497,8 +3100,8 @@ async def test_failing_zhipu_is_skipped_on_the_next_run_instead_of_retried(monke
     monkeypatch.setattr(service, "zhipu_search", failing_zhipu)
     monkeypatch.setattr(service, "call_tavily_search", working_tavily)
 
-    _, first_attempts = await service._run_web_search_fallback("query")
-    _, second_attempts = await service._run_web_search_fallback("query")
+    first_attempts = (await service.search("latest news"))["provider_attempts"]
+    second_attempts = (await service.search("latest news"))["provider_attempts"]
 
     assert [(item["provider"], item["status"]) for item in first_attempts] == [("zhipu", "error"), ("tavily", "ok")]
     assert [(item["provider"], item["status"]) for item in second_attempts] == [("zhipu", "skipped"), ("tavily", "ok")]
@@ -3519,16 +3122,16 @@ async def test_soft_failure_needs_two_runs_before_it_is_skipped(monkeypatch):
 
     monkeypatch.setattr(service, "zhipu_search", flaky_zhipu)
 
-    first = (await service._run_web_search_fallback("query"))[1]
-    second = (await service._run_web_search_fallback("query"))[1]
-    third = (await service._run_web_search_fallback("query"))[1]
+    first = (await service.search("latest news"))["provider_attempts"]
+    second = (await service.search("latest news"))["provider_attempts"]
+    third = (await service.search("latest news"))["provider_attempts"]
 
     assert [item["status"] for item in first] == ["error"]
     assert [item["status"] for item in second] == ["error"]
-    # The whole chain is cooling, so the soft failure is probed once per window.
-    assert [item["status"] for item in third] == ["error"]
+    # Automatic selection respects cooldown until expiry or explicit reset.
+    assert [item["status"] for item in third] == ["skipped"]
     assert third[0]["provider_health"]["state"] == "cooldown"
-    assert calls["n"] == 3
+    assert calls["n"] == 2
 
 
 @pytest.mark.asyncio
@@ -3542,8 +3145,8 @@ async def test_a_single_hard_failure_provider_is_not_probed_again(monkeypatch):
 
     monkeypatch.setattr(service, "zhipu_search", dead_zhipu)
 
-    await service._run_web_search_fallback("query")
-    attempts = (await service._run_web_search_fallback("query"))[1]
+    await service.search("latest news")
+    attempts = (await service.search("latest news"))["provider_attempts"]
 
     assert [item["status"] for item in attempts] == ["skipped"]
     assert calls["n"] == 1
@@ -3561,7 +3164,7 @@ async def test_empty_results_never_open_a_cooldown(monkeypatch):
     monkeypatch.setattr(service, "zhipu_search", empty_zhipu)
 
     for _ in range(3):
-        attempts = (await service._run_web_search_fallback("query"))[1]
+        attempts = (await service.search("latest news"))["provider_attempts"]
         assert [item["status"] for item in attempts] == ["empty"]
     assert calls["n"] == 3
     assert service.provider_health_status()["cooldown_providers"] == []
@@ -3579,12 +3182,14 @@ async def test_recovered_provider_clears_its_own_cooldown(monkeypatch):
 
     monkeypatch.setattr(service, "zhipu_search", recovering_zhipu)
 
-    await service._run_web_search_fallback("query")
-    await service._run_web_search_fallback("query")
+    await service.search("latest news")
+    await service.search("latest news")
     assert service.provider_health_status()["cooldown_providers"] == ["zhipu"]
 
     state["fail"] = False
-    sources, attempts = await service._run_web_search_fallback("query")
+    service.reset_provider_health(["zhipu"])
+    result = await service.search("latest news")
+    sources, attempts = result["sources"], result["provider_attempts"]
 
     assert sources
     assert [item["status"] for item in attempts] == ["ok"]
@@ -3599,12 +3204,12 @@ async def test_rekeying_a_provider_clears_its_cooldown(monkeypatch):
         return {"ok": False, "error_type": "auth_error", "error": "HTTP 401"}
 
     monkeypatch.setattr(service, "zhipu_search", dead_zhipu)
-    await service._run_web_search_fallback("query")
-    assert (await service._run_web_search_fallback("query"))[1][0]["status"] == "skipped"
+    await service.search("latest news")
+    assert (await service.search("latest news"))["provider_attempts"][0]["status"] == "skipped"
 
     monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-new-secret")
 
-    assert (await service._run_web_search_fallback("query"))[1][0]["status"] == "error"
+    assert (await service.search("latest news"))["provider_attempts"][0]["status"] == "error"
 
 
 @pytest.mark.asyncio
@@ -3612,15 +3217,20 @@ async def test_search_reports_one_notice_per_degraded_provider(monkeypatch):
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
     monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-test-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test")
 
     async def fake_primary_search(self, query, platform="", ctx=None):
         return "Answer."
+
+    async def tavily(*args, **kwargs):
+        return [{"url": "https://example.com", "content": "Fallback source"}]
 
     async def dead_zhipu(query, count=10, **kwargs):
         return {"ok": False, "error_type": "auth_error", "error": "HTTP 401: invalid api key"}
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
     monkeypatch.setattr(service, "zhipu_search", dead_zhipu)
+    monkeypatch.setattr(service, "call_tavily_search", tavily)
 
     first = await service.search("最新消息", validation="balanced")
     second = await service.search("最新消息", validation="balanced")
@@ -3645,7 +3255,7 @@ async def test_cooldown_can_be_disabled_by_config(monkeypatch):
     monkeypatch.setattr(service, "zhipu_search", dead_zhipu)
 
     for _ in range(3):
-        attempts = (await service._run_web_search_fallback("query"))[1]
+        attempts = (await service.search("latest news"))["provider_attempts"]
         assert [item["status"] for item in attempts] == ["error"]
     assert calls["n"] == 3
 
@@ -3719,16 +3329,6 @@ def test_invalid_provider_cooldown_env_is_reported_not_raised(monkeypatch, tmp_p
     assert info["config_status"].startswith("config_error")
 
 
-@pytest.mark.asyncio
-async def test_main_search_reserve_scales_with_the_larger_default_budget(monkeypatch, tmp_path):
-    _reset_config(monkeypatch, tmp_path)
-
-    budget = service.SearchBudget(service.config.search_timeout)
-
-    assert service.config.search_timeout == 300.0
-    # 2/3 of a 300s budget stays under the 240s cap, so routing may use the rest.
-    assert budget.main_reserve_seconds() == pytest.approx(200.0)
-    assert budget.router_cap_seconds(8.0) == pytest.approx(8.0, abs=0.5)
 
 
 @pytest.mark.asyncio
@@ -3740,7 +3340,7 @@ async def test_main_search_shares_its_deadline_with_the_xai_provider(monkeypatch
     async def fake_xai_search(self, query, platform="", ctx=None):
         seen["deadline"] = self._search_deadline_monotonic
         seen["read_timeout"] = self._request_timeout().read
-        return "Answer."
+        return "Answer. https://example.com/source"
 
     monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", fake_xai_search)
 

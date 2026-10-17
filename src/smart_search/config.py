@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .state_files import file_lock
 from .jev import JEV_DEFAULTS, JevSettings, validate_jev_value
+from .intent_router import ALLOWED_INTENT_ROUTER_MODES, normalize_router_mode
 
 _snapshot = ContextVar("smart_search_config_snapshot", default=None)
 
@@ -26,7 +27,7 @@ class Config:
     _DEFAULT_VALIDATION_LEVEL = "balanced"
     _DEFAULT_FALLBACK_MODE = "auto"
     _DEFAULT_MINIMUM_PROFILE = "standard"
-    _DEFAULT_INTENT_ROUTER_MODE = "hybrid"
+    _DEFAULT_INTENT_ROUTER_MODE = "jev"
     _DEFAULT_INTENT_ROUTER_TIMEOUT_SECONDS = "8"
     _DEFAULT_SEARCH_TIMEOUT_SECONDS = "300"
     _DEFAULT_PROVIDER_COOLDOWN_SECONDS = "900"
@@ -34,11 +35,18 @@ class Config:
     _DEFAULT_INTENT_EMBEDDING_THRESHOLD = "0.74"
     _DEFAULT_INTENT_EMBEDDING_MARGIN = "0.05"
     _ALLOWED_XAI_TOOLS = {"web_search", "x_search"}
+    _ALLOWED_XAI_REASONING_EFFORTS = {"low", "medium", "high"}
     _ALLOWED_OPENAI_COMPATIBLE_API_MODES = {"chat-completions", "responses"}
     _ALLOWED_VALIDATION_LEVELS = {"fast", "balanced", "strict"}
     _ALLOWED_FALLBACK_MODES = {"auto", "off"}
     _ALLOWED_MINIMUM_PROFILES = {"standard", "off"}
-    _ALLOWED_INTENT_ROUTER_MODES = {"hybrid", "rules", "off", "jev"}
+    _ALLOWED_INTENT_ROUTER_MODES = ALLOWED_INTENT_ROUTER_MODES
+    RETIRED_ROUTER_KEYS = {
+        "INTENT_EMBEDDING_API_URL", "INTENT_EMBEDDING_API_KEY", "INTENT_EMBEDDING_MODEL",
+        "INTENT_EMBEDDING_THRESHOLD", "INTENT_EMBEDDING_MARGIN",
+        "INTENT_CLASSIFIER_API_URL", "INTENT_CLASSIFIER_API_KEY", "INTENT_CLASSIFIER_MODEL",
+        "INTENT_ROUTER_TIMEOUT_SECONDS",
+    }
     PROVIDER_ENABLED_KEYS: dict[str, str] = {
         "xai-responses": "XAI_ENABLED",
         "openai-compatible": "OPENAI_COMPATIBLE_ENABLED",
@@ -60,6 +68,7 @@ class Config:
         "XAI_API_KEY",
         "XAI_MODEL",
         "XAI_TOOLS",
+        "XAI_REASONING_EFFORT",
         "OPENAI_COMPATIBLE_API_URL",
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_MODEL",
@@ -139,6 +148,7 @@ class Config:
         "XAI_ENABLED",
         "XAI_MODEL",
         "XAI_TOOLS",
+        "XAI_REASONING_EFFORT",
         "OPENAI_COMPATIBLE_API_URL",
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_ENABLED",
@@ -299,6 +309,9 @@ class Config:
         else:
             values = self.get_saved_config(masked=False)
             values.update({key: os.environ[key] for key in self._CONFIG_KEYS if key in os.environ})
+        mode = values.get("SMART_SEARCH_INTENT_ROUTER", "").strip().lower()
+        if mode in self._ALLOWED_INTENT_ROUTER_MODES:
+            values["SMART_SEARCH_INTENT_ROUTER"] = normalize_router_mode(mode)
         return {key: self._mask_if_secret(key, value) for key, value in values.items()} if masked else values
 
     @contextmanager
@@ -465,6 +478,8 @@ class Config:
                 errors.append({"key": key, "error": tr('Unsupported config key: {0}', key)})
                 continue
             value = "" if raw_value is None else str(raw_value)
+            if key == "XAI_REASONING_EFFORT":
+                value = value.strip().lower()
             try:
                 self._validate_config_value(key, value)
             except ValueError as e:
@@ -563,6 +578,11 @@ class Config:
     @property
     def xai_tools_raw(self) -> str:
         return self._get_config_value("XAI_TOOLS", self._DEFAULT_XAI_TOOLS) or self._DEFAULT_XAI_TOOLS
+
+    @property
+    def xai_reasoning_effort(self) -> str:
+        value = (self._get_config_value("XAI_REASONING_EFFORT", "") or "").strip().lower()
+        return self._validate_enum_value("XAI_REASONING_EFFORT", value, self._ALLOWED_XAI_REASONING_EFFORTS) if value else ""
 
     @property
     def openai_compatible_api_url(self) -> str | None:
@@ -715,6 +735,7 @@ class Config:
             self._validate_enum_value(key, value, {"true", "false", "1", "0", "yes", "no", "on", "off"})
             return
         enum_allowed = {
+            "XAI_REASONING_EFFORT": self._ALLOWED_XAI_REASONING_EFFORTS,
             "SMART_SEARCH_VALIDATION_LEVEL": self._ALLOWED_VALIDATION_LEVELS,
             "SMART_SEARCH_FALLBACK_MODE": self._ALLOWED_FALLBACK_MODES,
             "SMART_SEARCH_MINIMUM_PROFILE": self._ALLOWED_MINIMUM_PROFILES,
@@ -826,50 +847,14 @@ class Config:
 
     @property
     def intent_router_mode(self) -> str:
-        return self._validated_enum(
+        return normalize_router_mode(self._validated_enum(
             "SMART_SEARCH_INTENT_ROUTER",
             self._DEFAULT_INTENT_ROUTER_MODE,
             self._ALLOWED_INTENT_ROUTER_MODES,
-        )
+        ))
 
     def jev_settings(self) -> JevSettings:
         return JevSettings.from_config(self)
-
-    @property
-    def intent_embedding_api_url(self) -> str:
-        return self._get_config_value("INTENT_EMBEDDING_API_URL", "") or ""
-
-    @property
-    def intent_embedding_api_key(self) -> str | None:
-        return self._get_config_value("INTENT_EMBEDDING_API_KEY")
-
-    @property
-    def intent_embedding_model(self) -> str:
-        return self._get_config_value("INTENT_EMBEDDING_MODEL", "") or ""
-
-    @property
-    def intent_embedding_threshold(self) -> float:
-        return self._bounded_float_value("INTENT_EMBEDDING_THRESHOLD", self._DEFAULT_INTENT_EMBEDDING_THRESHOLD, 0.0, 1.0)
-
-    @property
-    def intent_embedding_margin(self) -> float:
-        return self._bounded_float_value("INTENT_EMBEDDING_MARGIN", self._DEFAULT_INTENT_EMBEDDING_MARGIN, 0.0, 1.0)
-
-    @property
-    def intent_classifier_api_url(self) -> str:
-        return self._get_config_value("INTENT_CLASSIFIER_API_URL", "") or ""
-
-    @property
-    def intent_classifier_api_key(self) -> str | None:
-        return self._get_config_value("INTENT_CLASSIFIER_API_KEY")
-
-    @property
-    def intent_classifier_model(self) -> str:
-        return self._get_config_value("INTENT_CLASSIFIER_MODEL", "") or ""
-
-    @property
-    def intent_router_timeout(self) -> float:
-        return self._float_value("INTENT_ROUTER_TIMEOUT_SECONDS", self._DEFAULT_INTENT_ROUTER_TIMEOUT_SECONDS)
 
     @property
     def search_timeout(self) -> float:
@@ -1154,6 +1139,11 @@ class Config:
             except ValueError as exc:
                 config_parameter_errors.append(str(exc))
             jev_info[key] = self._mask_if_secret(key, str(value)) if "KEY" in key else value
+        xai_reasoning_effort = self._get_config_value("XAI_REASONING_EFFORT", "")
+        try:
+            xai_reasoning_effort = self.xai_reasoning_effort
+        except ValueError as exc:
+            config_parameter_errors.append(str(exc))
         xai_configured = self.provider_enabled("xai-responses") and bool(self.xai_api_key)
         openai_configured = self.provider_enabled("openai-compatible") and bool(self.openai_compatible_api_url and self.openai_compatible_api_key)
         explicit_main_configured = xai_configured or openai_configured
@@ -1182,8 +1172,10 @@ class Config:
             self._DEFAULT_INTENT_ROUTER_MODE,
             self._ALLOWED_INTENT_ROUTER_MODES,
         )
+        if not intent_router_error:
+            intent_router_mode = normalize_router_mode(intent_router_mode)
         if intent_router_mode == "jev":
-            config_status = "ok: Jev routing configured" if self._get_config_value("TYPESAFE_API_KEY") else "config_error: TYPESAFE_API_KEY is not configured"
+            config_status = "ok: Jev routing configured" if self._get_config_value("TYPESAFE_API_KEY") else "ok: local routing (Jev not configured)"
         openai_compatible_api_mode, openai_compatible_api_mode_error = self._enum_info(
             "OPENAI_COMPATIBLE_API_MODE",
             self._DEFAULT_OPENAI_COMPATIBLE_API_MODE,
@@ -1194,10 +1186,6 @@ class Config:
             primary_api_mode = "xai-responses"
         elif openai_configured:
             primary_api_mode = openai_compatible_api_mode
-        intent_router_timeout, intent_router_timeout_error = self._float_info(
-            "INTENT_ROUTER_TIMEOUT_SECONDS",
-            self._DEFAULT_INTENT_ROUTER_TIMEOUT_SECONDS,
-        )
         search_timeout, search_timeout_error = self._positive_float_info(
             "SMART_SEARCH_TIMEOUT_SECONDS",
             self._DEFAULT_SEARCH_TIMEOUT_SECONDS,
@@ -1210,18 +1198,6 @@ class Config:
             "SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD",
             self._DEFAULT_PROVIDER_FAILURE_THRESHOLD,
         )
-        intent_embedding_threshold, intent_embedding_threshold_error = self._bounded_float_info(
-            "INTENT_EMBEDDING_THRESHOLD",
-            self._DEFAULT_INTENT_EMBEDDING_THRESHOLD,
-            0.0,
-            1.0,
-        )
-        intent_embedding_margin, intent_embedding_margin_error = self._bounded_float_info(
-            "INTENT_EMBEDDING_MARGIN",
-            self._DEFAULT_INTENT_EMBEDDING_MARGIN,
-            0.0,
-            1.0,
-        )
         config_parameter_errors.extend(
             error
             for error in (
@@ -1230,12 +1206,9 @@ class Config:
                 minimum_error,
                 intent_router_error,
                 openai_compatible_api_mode_error,
-                intent_router_timeout_error,
                 search_timeout_error,
                 provider_cooldown_error,
                 provider_failure_threshold_error,
-                intent_embedding_threshold_error,
-                intent_embedding_margin_error,
             )
             if error
         )
@@ -1249,6 +1222,7 @@ class Config:
             "XAI_API_KEY": self._mask_api_key(self.xai_api_key) if self.xai_api_key else tr('未配置'),
             "XAI_MODEL": self.xai_model,
             "XAI_TOOLS": self.xai_tools_raw,
+            "XAI_REASONING_EFFORT": xai_reasoning_effort,
             "OPENAI_COMPATIBLE_API_URL": self.openai_compatible_api_url or tr('未配置'),
             "OPENAI_COMPATIBLE_API_KEY": self._mask_api_key(self.openai_compatible_api_key) if self.openai_compatible_api_key else tr('未配置'),
             "OPENAI_COMPATIBLE_MODEL": self.openai_compatible_model,
@@ -1261,15 +1235,6 @@ class Config:
             "SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS": ",".join(self.research_preferred_providers),
             "SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS": ",".join(self.research_disabled_providers),
             "SMART_SEARCH_INTENT_ROUTER": intent_router_mode,
-            "INTENT_EMBEDDING_API_URL": self.intent_embedding_api_url or tr('未配置'),
-            "INTENT_EMBEDDING_API_KEY": self._mask_api_key(self.intent_embedding_api_key) if self.intent_embedding_api_key else tr('未配置'),
-            "INTENT_EMBEDDING_MODEL": self.intent_embedding_model or tr('未配置'),
-            "INTENT_EMBEDDING_THRESHOLD": intent_embedding_threshold,
-            "INTENT_EMBEDDING_MARGIN": intent_embedding_margin,
-            "INTENT_CLASSIFIER_API_URL": self.intent_classifier_api_url or tr('未配置'),
-            "INTENT_CLASSIFIER_API_KEY": self._mask_api_key(self.intent_classifier_api_key) if self.intent_classifier_api_key else tr('未配置'),
-            "INTENT_CLASSIFIER_MODEL": self.intent_classifier_model or tr('未配置'),
-            "INTENT_ROUTER_TIMEOUT_SECONDS": intent_router_timeout,
             "SMART_SEARCH_TIMEOUT_SECONDS": search_timeout,
             "SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS": provider_cooldown_seconds,
             "SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD": provider_failure_threshold,

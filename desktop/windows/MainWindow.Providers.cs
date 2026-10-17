@@ -108,6 +108,7 @@ public sealed partial class MainWindow
             AddItem("section:routing", L("意图路由"), ChoiceLabel("SMART_SEARCH_INTENT_ROUTER", EffectiveConfigurationValue("SMART_SEARCH_INTENT_ROUTER")));
         var providers = fields.Where(field => Text(field, "provider").Length > 0).GroupBy(field => Text(field, "provider"))
             .Where(group => Matches(group.Key + " " + ProviderLabel(group.Key) + " " + ProviderPurpose(group.Key, group)
+                + " " + ProviderDescription(group.Key, "guidance_")
                 + " " + string.Join(" ", ProviderCapabilities(group.Key, group))))
             .ToList();
         var categories = providers.Select(group => ProviderCapabilities(group.Key, group).FirstOrDefault() ?? "other").Distinct().ToList();
@@ -163,13 +164,31 @@ public sealed partial class MainWindow
             .Where(value => value.Length > 0).Distinct().ToList();
     }
 
+    private string ProviderDescription(string provider, string prefix)
+    {
+        var profile = Property(Property(_state, "provider_profiles"), provider);
+        var descriptions = Property(profile, "descriptions");
+        var sentences = new List<string>();
+        foreach (var operation in new[] { "search", "fetch", "site_map", "synthesis" })
+        {
+            var translations = Property(descriptions, operation);
+            var description = Text(translations, prefix + Localization.Language, Text(translations, prefix + "en"));
+            if (description.Length > 0) sentences.Add(description);
+        }
+        return string.Join(" ", sentences);
+    }
+
     private string ProviderPurpose(string provider, IEnumerable<JsonElement> fields)
     {
         var profile = Property(Property(_state, "provider_profiles"), provider);
-        var capabilities = string.Join(L("、"), ProviderCapabilities(provider, fields).Select(CapabilityLabel));
-        var strengths = string.Join(L("、"), Items(profile, "strengths").Select(item => L(item.GetString() ?? string.Empty)));
         var sentences = new List<string>();
-        if (capabilities.Length > 0) sentences.Add(strengths.Length > 0 ? L("用于{0}，侧重{1}。", capabilities, strengths) : L("用于{0}。", capabilities));
+        var description = ProviderDescription(provider, "");
+        if (description.Length > 0) sentences.Add(description);
+        if (description.Length == 0)
+        {
+            var capabilities = string.Join(L("、"), ProviderCapabilities(provider, fields).Select(CapabilityLabel));
+            if (capabilities.Length > 0) sentences.Add(L("用于{0}。", capabilities));
+        }
         if (Bool(profile, "experimental")) sentences.Add(L("实验性能力。"));
         if (Bool(profile, "explicit_only")) sentences.Add(L("仅在明确指定时调用。"));
         else if (Property(profile, "route_enabled").ValueKind == JsonValueKind.False) sentences.Add(L("不参与自动路由。"));
@@ -208,6 +227,8 @@ public sealed partial class MainWindow
             var selected = fields.Where(field => Text(field, "provider") == provider).ToList();
             panel.Children.Add(PageTitle(ProviderLabel(provider)));
             panel.Children.Add(Secondary(ProviderPurpose(provider, selected)));
+            var guidance = ProviderDescription(provider, "guidance_");
+            if (guidance.Length > 0) panel.Children.Add(Secondary(guidance));
             foreach (var enableField in selected.Where(field => Bool(field, "provider_toggle")))
                 panel.Children.Add(Card(BuildFieldEditor(enableField, _providerDraft)));
             AddFields(L("连接设置"), selected.Where(field => !Bool(field, "provider_toggle") && !IsAdvanced(field)));
@@ -228,20 +249,15 @@ public sealed partial class MainWindow
             AddFields(L("路由模式"), routing.Where(field => Text(field, "key") == "SMART_SEARCH_INTENT_ROUTER"));
             panel.Children.Add(Secondary(mode switch
             {
-                "hybrid" => L("以规则为基础，可按需配置向量模型和分类模型增强判断。未配置的模型不会被调用。"),
-                "jev" => L("使用 JEV 选择检索渠道并判断证据是否充分，需要单独配置 TypeSafe 凭据。"),
-                "rules" => L("仅使用本地规则判断意图，无需填写模型接口或密钥。"),
-                "off" => L("关闭自动意图路由，无需填写路由参数。"), _ => L("请选择一种路由模式。")
+                "jev" => L("普通搜索只选路一次；深入搜索按证据缺口继续。未配置 Jev 时使用本地路由。"),
+                "local" => L("仅使用本地规则判断意图，无需填写模型接口或密钥。"),
+                _ => L("请选择一种路由模式。")
             }));
-            if (mode == "hybrid")
+            if (mode == "jev")
             {
-                AddFields(L("向量模型"), routing.Where(field => Text(field, "key").StartsWith("INTENT_EMBEDDING_")));
-                AddFields(L("分类模型"), routing.Where(field => Text(field, "key").StartsWith("INTENT_CLASSIFIER_")));
-                AddFields(L("请求设置"), routing.Where(field => Text(field, "key") == "INTENT_ROUTER_TIMEOUT_SECONDS"));
-            }
-            else if (mode == "jev")
-            {
-                string[] processing = ["SMART_SEARCH_JEV_FILTER_RESULTS", "SMART_SEARCH_JEV_FILTER_THRESHOLD", "SMART_SEARCH_JEV_SYNTHESIZE"];
+                string[] processing = ["SMART_SEARCH_JEV_FILTER_RESULTS", "SMART_SEARCH_JEV_FILTER_THRESHOLD", "SMART_SEARCH_JEV_SYNTHESIZE",
+                    "SMART_SEARCH_JEV_SYNTHESIS_API_URL", "SMART_SEARCH_JEV_SYNTHESIS_API_KEY",
+                    "SMART_SEARCH_JEV_SYNTHESIS_MODEL", "SMART_SEARCH_JEV_SYNTHESIS_API_MODE"];
                 AddFields(L("JEV 连接"), routing.Where(field => Text(field, "key").StartsWith("TYPESAFE_")));
                 AddFields(L("检索与判断"), routing.Where(field => Text(field, "key").StartsWith("SMART_SEARCH_JEV_") && !processing.Contains(Text(field, "key"))));
                 AddFields(L("结果处理"), routing.Where(field => processing.Contains(Text(field, "key")) &&
@@ -399,13 +415,9 @@ public sealed partial class MainWindow
         var key = Text(field, "key");
         switch (key)
         {
-            case "OPENAI_COMPATIBLE_MODEL":
-            case "INTENT_CLASSIFIER_MODEL": return "gpt-4o";
+            case "OPENAI_COMPATIBLE_MODEL": return "gpt-4o";
             case "OPENAI_COMPATIBLE_FALLBACK_MODELS": return "gpt-4o,deepseek-chat";
             case "JINA_RESPOND_WITH": return "readerlm-v2";
-            case "INTENT_EMBEDDING_API_URL": return "https://api.siliconflow.cn/v1/embeddings";
-            case "INTENT_EMBEDDING_MODEL": return "Qwen/Qwen3-Embedding-8B";
-            case "INTENT_CLASSIFIER_API_URL": return "https://api.example.com/v1/chat/completions";
             case "SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS": return "exa,tavily";
             case "SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS": return "anysearch,sciverse";
         }
@@ -422,7 +434,7 @@ public sealed partial class MainWindow
 
     private static string ChoiceLabel(string key, string value) => key switch
     {
-        "SMART_SEARCH_INTENT_ROUTER" => value switch { "hybrid" => L("混合路由"), "jev" => L("JEV 语义路由"), "rules" => L("规则路由"), "off" => L("关闭路由"), _ => value },
+        "SMART_SEARCH_INTENT_ROUTER" => value switch { "jev" => L("JEV 语义路由"), "local" => L("本地路由"), _ => value },
         "SMART_SEARCH_JEV_SYNTHESIZE" => value switch { "false" => L("直接返回证据"), "auto" => L("按需汇总"), "true" => L("始终汇总"), _ => value },
         _ => value
     };

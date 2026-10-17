@@ -179,6 +179,61 @@ async def test_context7_provider_uses_shared_http_error_taxonomy(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_context7_library_uses_official_search_endpoint(monkeypatch):
+    def handler(request):
+        assert request.method == "GET"
+        assert request.url.path == "/api/v2/libs/search"
+        assert dict(request.url.params) == {"libraryName": "React", "query": "useEffect cleanup"}
+        return httpx.Response(200, json={"results": [{
+            "id": "/reactjs/react.dev", "title": "React", "description": "React documentation",
+            "trustScore": 10, "benchmarkScore": 85.23, "totalSnippets": 4342, "stars": 11311,
+        }], "searchFilterApplied": False})
+
+    client = httpx.AsyncClient
+    monkeypatch.setattr("smart_search.providers.context7.httpx.AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs))
+    data = json.loads(await Context7Provider("https://context7.com", "key").library("React", "useEffect cleanup"))
+
+    assert data["ok"]
+    assert data["results"] == [{
+        "id": "/reactjs/react.dev", "title": "React", "description": "React documentation",
+        "trust_score": 10, "benchmark_score": 85.23, "total_snippets": 4342, "stars": 11311, "provider": "context7",
+    }]
+
+
+@pytest.mark.asyncio
+async def test_context7_library_without_query_searches_by_name(monkeypatch):
+    def handler(request):
+        assert dict(request.url.params) == {"libraryName": "react", "query": "react"}
+        return httpx.Response(200, json={"results": []})
+
+    client = httpx.AsyncClient
+    monkeypatch.setattr("smart_search.providers.context7.httpx.AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs))
+    assert json.loads(await Context7Provider("https://context7.com", "key").library("react"))["ok"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,body,error_type", [
+    (404, {"error": "not_found"}, "provider_error"),
+    (404, "Not found", "provider_error"),
+    (500, {"error": "no_relevant_snippets"}, "network_error"),
+])
+async def test_context7_docs_preserves_other_errors(monkeypatch, status, body, error_type):
+    monkeypatch.setenv("SMART_SEARCH_RETRY_MAX_ATTEMPTS", "0")
+
+    def handler(request):
+        return httpx.Response(status, **({"json": body} if isinstance(body, dict) else {"text": body}))
+
+    client = httpx.AsyncClient
+    monkeypatch.setattr("smart_search.providers.context7.httpx.AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs))
+    data = json.loads(await Context7Provider("https://context7.com", "key").docs("/reactjs/react.dev", "hooks"))
+
+    assert not data["ok"]
+    assert data["error_type"] == error_type
+    assert f"HTTP {status}" in data["error"]
+    assert (body["error"] if isinstance(body, dict) else body) in data["error"]
+
+
+@pytest.mark.asyncio
 async def test_exa_provider_reports_bad_request_as_parameter_error(monkeypatch):
     class FakeAsyncClient:
         def __init__(self, timeout):

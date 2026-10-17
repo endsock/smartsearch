@@ -66,6 +66,7 @@ smart-search setup
 ```
 
 The new npm CLI requires Node.js 18+ / npm only. Its platform package includes the Python runtime and does not use a user-installed Python. See the [CLI guide](https://github.com/konbakuyomu/smartsearch/blob/main/docs/guide/en/cli.md) for installation, language settings, commands, and examples.
+For uv source installation and a fixed Python version, see [CLI installation](https://github.com/konbakuyomu/smartsearch/blob/main/docs/guide/en/cli.md#cli-installation).
 
 ## Need more detail?
 

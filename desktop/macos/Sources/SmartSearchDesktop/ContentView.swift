@@ -454,6 +454,7 @@ private struct ProvidersView: View {
         case .provider(let id):
             if let group = state.providerGroups.first(where: { $0.id == id }) {
                 ConfigurationEditor(model: model, title: id, subtitle: providerPurpose(group),
+                                    secondarySubtitle: group.purposeGuidance.joined(separator: " "),
                                     fields: group.fields, section: id)
                     .id(ConfigurationRoute.provider(id))
             }
@@ -520,7 +521,8 @@ private struct ProvidersView: View {
     private func groups(_ state: DesktopState) -> [ProviderFieldGroup] {
         state.providerGroups
             .filter { group in
-                matches(group.id) || matches(providerPurpose(group)) || group.capabilities.contains { matches($0) }
+                matches(group.id) || matches(providerPurpose(group)) ||
+                    matches(group.purposeGuidance.joined(separator: " ")) || group.capabilities.contains { matches($0) }
             }
             .sorted {
                 let left = providerIsConfigured($0, state: state)
@@ -550,6 +552,8 @@ private struct IntentRoutingEditor: View {
     private var mode: String { modeField.map(selectedValue) ?? "" }
     private let resultProcessingKeys: Set<String> = [
         "SMART_SEARCH_JEV_FILTER_RESULTS", "SMART_SEARCH_JEV_FILTER_THRESHOLD", "SMART_SEARCH_JEV_SYNTHESIZE",
+        "SMART_SEARCH_JEV_SYNTHESIS_API_URL", "SMART_SEARCH_JEV_SYNTHESIS_API_KEY",
+        "SMART_SEARCH_JEV_SYNTHESIS_MODEL", "SMART_SEARCH_JEV_SYNTHESIS_API_MODE",
     ]
     private var filteringEnabled: Bool {
         guard let field = fields.first(where: { $0.key == "SMART_SEARCH_JEV_FILTER_RESULTS" }) else { return false }
@@ -566,10 +570,6 @@ private struct IntentRoutingEditor: View {
                 }
             }
             switch mode {
-            case "hybrid":
-                fieldPanel(L("向量模型"), fields: fields.filter { $0.key.hasPrefix("INTENT_EMBEDDING_") })
-                fieldPanel(L("分类模型"), fields: fields.filter { $0.key.hasPrefix("INTENT_CLASSIFIER_") })
-                fieldPanel(L("请求设置"), fields: fields.filter { $0.key == "INTENT_ROUTER_TIMEOUT_SECONDS" })
             case "jev":
                 fieldPanel(L("JEV 连接"), fields: fields.filter { $0.key.hasPrefix("TYPESAFE_") })
                 fieldPanel(L("检索与判断"), fields: fields.filter {
@@ -586,10 +586,8 @@ private struct IntentRoutingEditor: View {
 
     private var modeDescription: String {
         switch mode {
-        case "hybrid": return L("以规则为基础，可按需配置向量模型和分类模型增强判断。未配置的模型不会被调用。")
-        case "jev": return L("使用 JEV 选择检索渠道并判断证据是否充分，需要单独配置 TypeSafe 凭据。")
-        case "rules": return L("仅使用本地规则判断意图，无需填写模型接口或密钥。")
-        case "off": return L("关闭自动意图路由，无需填写路由参数。")
+        case "jev": return L("普通搜索只选路一次；深入搜索按证据缺口继续。未配置 Jev 时使用本地路由。")
+        case "local": return L("仅使用本地规则判断意图，无需填写模型接口或密钥。")
         default: return L("请选择一种路由模式。")
         }
     }
@@ -619,10 +617,8 @@ private func configurationBooleanValue(_ value: String) -> Bool {
 private func configurationChoiceLabel(_ choice: String, for field: ConfigField) -> String {
     if field.key == "SMART_SEARCH_INTENT_ROUTER" {
         switch choice {
-        case "hybrid": return L("混合路由")
         case "jev": return L("JEV 语义路由")
-        case "rules": return L("规则路由")
-        case "off": return L("关闭路由")
+        case "local": return L("本地路由")
         default: return choice
         }
     }
@@ -679,12 +675,13 @@ private struct ConfigurationEditor: View {
     @ObservedObject var model: AppModel
     let title: String
     var subtitle: String = L("修改先保留为草稿；测试使用当前填写的值。")
+    var secondarySubtitle: String = ""
     let fields: [ConfigField]
     let section: String
 
     var body: some View {
         if let state = model.state {
-            DesktopPage(title, subtitle: subtitle) {
+            DesktopPage(title, subtitle: subtitle, secondarySubtitle: secondarySubtitle) {
                 ProviderSection(model: model, state: state, section: section, fields: fields)
             }
         }
@@ -698,16 +695,14 @@ private func capabilityName(_ value: String) -> String {
 }
 
 private func providerPurpose(_ group: ProviderFieldGroup) -> String {
-    let capabilities = group.capabilities.map(capabilityName).joined(separator: L("、"))
-    let strengths = group.strengths.map { L($0) }.joined(separator: L("、"))
-    var sentences: [String] = []
-    if !capabilities.isEmpty {
-        let purpose = strengths.isEmpty
-            ? L("用于{0}。", capabilities)
-            : L("用于{0}，侧重{1}。", capabilities, strengths)
-        sentences.append(purpose)
-    } else if let help = group.fields.first(where: { !$0.help.isEmpty })?.help {
-        sentences.append(help)
+    var sentences = group.purposeDescriptions
+    if sentences.isEmpty {
+        let capabilities = group.capabilities.map(capabilityName).joined(separator: L("、"))
+        if !capabilities.isEmpty {
+            sentences.append(L("用于{0}。", capabilities))
+        } else if let help = group.fields.first(where: { !$0.help.isEmpty })?.help {
+            sentences.append(help)
+        }
     }
     if group.isExperimental { sentences.append(L("实验性能力。")) }
     if group.isExplicitOnly {

@@ -22,7 +22,7 @@ def test_state_is_json_serialisable_and_complete(isolated):
     payload = ui_api.state()
     json.dumps(payload)
     assert payload["ok"] is True
-    assert len(payload["metadata"]["fields"]) == len(service.config._CONFIG_KEYS)
+    assert len(payload["metadata"]["fields"]) == len(service.config._CONFIG_KEYS - service.config.RETIRED_ROUTER_KEYS)
     assert len(payload["skill_targets"]) == len(SKILL_TARGETS)
 
 

@@ -3243,9 +3243,9 @@
     "号池地址填服务商给你的域名或 URL，例如 https://pool.example.com 或 https://pool.example.com/mcp；setup 会保存为 https://pool.example.com/api/tavily。\n",
     "For pooled endpoints, paste the provider domain or URL, for example https://pool.example.com or https://pool.example.com/mcp; setup saves it as https://pool.example.com/api/tavily.\n"
   ],
-  "Force stream=false for OpenAI-compatible main search.": [
-    "强制 OpenAI 兼容主搜索使用 stream=false。",
-    "Force stream=false for OpenAI-compatible main search."
+  "Force stream=false for xAI Responses or OpenAI-compatible main search.": [
+    "强制 xAI Responses 或 OpenAI 兼容主搜索使用 stream=false。",
+    "Force stream=false for xAI Responses or OpenAI-compatible main search."
   ],
   "Full page URL, including http:// or https://.": [
     "完整网页地址，需带 http:// 或 https://。",
@@ -7435,6 +7435,10 @@
     "最高项",
     "Top"
   ],
+  "Total fetch budget in seconds; overrides SMART_SEARCH_TIMEOUT_SECONDS.": [
+    "抓取总时间预算，单位秒；覆盖 SMART_SEARCH_TIMEOUT_SECONDS。",
+    "Total fetch budget in seconds; overrides SMART_SEARCH_TIMEOUT_SECONDS."
+  ],
   "Total search budget in seconds; overrides SMART_SEARCH_TIMEOUT_SECONDS.": [
     "搜索总时间预算，单位秒；覆盖 SMART_SEARCH_TIMEOUT_SECONDS。",
     "Total search budget in seconds; overrides SMART_SEARCH_TIMEOUT_SECONDS."
@@ -7659,9 +7663,9 @@
     "使用内置后端",
     "Use bundled backend"
   ],
-  "Use stream=true for OpenAI-compatible main search.": [
-    "为 OpenAI 兼容主搜索使用 stream=true。",
-    "Use stream=true for OpenAI-compatible main search."
+  "Use stream=true for xAI Responses or OpenAI-compatible main search.": [
+    "为 xAI Responses 或 OpenAI 兼容主搜索使用 stream=true。",
+    "Use stream=true for xAI Responses or OpenAI-compatible main search."
   ],
   "Use the Smart Search skill to run the following command and report the actual version. Do not only inspect files, and do not search the web yet:\n": [
     "请使用 Smart Search 技能，先运行以下命令并告诉我实际版本，不要仅检查文件，也先不要发起联网搜索：\n",
@@ -8579,13 +8583,13 @@
     "source_types 的值必须为 {0} 之一",
     "source_types values must be one of {0}"
   ],
-  "standard refuses to run when any of the three required capabilities is missing.": [
-    "standard 会在三类必需能力缺一时直接报错。关掉之后出问题更难查。",
-    "standard refuses to run when any of the three required capabilities is missing."
+  "standard requires at least one configured and enabled retrieval channel; Jev is optional.": [
+    "standard 要求至少一个已配置并启用的检索渠道；Jev 可选。",
+    "standard requires at least one configured and enabled retrieval channel; Jev is optional."
   ],
-  "standard 会在三类必需能力缺一时直接报错。关掉之后出问题更难查。": [
-    "standard 会在三类必需能力缺一时直接报错。关掉之后出问题更难查。",
-    "standard refuses to run when any of the three required capabilities is missing."
+  "standard 要求至少一个已配置并启用的检索渠道；Jev 可选。": [
+    "standard 要求至少一个已配置并启用的检索渠道；Jev 可选。",
+    "standard requires at least one configured and enabled retrieval channel; Jev is optional."
   ],
   "strict checks harder and runs slower.": [
     "strict 查得更严也更慢。",
@@ -8682,6 +8686,22 @@
   "xAI Responses tools": [
     "xAI 联网工具",
     "xAI Responses tools"
+  ],
+  "xAI reasoning effort": [
+    "xAI 推理强度",
+    "xAI reasoning effort"
+  ],
+  "xAI 推理强度": [
+    "xAI 推理强度",
+    "xAI reasoning effort"
+  ],
+  "Optional; when set, sends reasoning.effort in xAI Responses requests; omitted by default.": [
+    "可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。",
+    "Optional; when set, sends reasoning.effort in xAI Responses requests; omitted by default."
+  ],
+  "可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。": [
+    "可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。",
+    "Optional; when set, sends reasoning.effort in xAI Responses requests; omitted by default."
   ],
   "xAI Responses 模型": [
     "xAI Responses 模型",
@@ -9179,9 +9199,9 @@
     "中文",
     "中文"
   ],
-  "为 OpenAI 兼容主搜索使用 stream=true。": [
-    "为 OpenAI 兼容主搜索使用 stream=true。",
-    "Use stream=true for OpenAI-compatible main search."
+  "为 xAI Responses 或 OpenAI 兼容主搜索使用 stream=true。": [
+    "为 xAI Responses 或 OpenAI 兼容主搜索使用 stream=true。",
+    "Use stream=true for xAI Responses or OpenAI-compatible main search."
   ],
   "主搜索": [
     "主搜索",
@@ -11099,9 +11119,9 @@
     "引擎：`{0}`",
     "Engines: `{0}`"
   ],
-  "强制 OpenAI 兼容主搜索使用 stream=false。": [
-    "强制 OpenAI 兼容主搜索使用 stream=false。",
-    "Force stream=false for OpenAI-compatible main search."
+  "强制 xAI Responses 或 OpenAI 兼容主搜索使用 stream=false。": [
+    "强制 xAI Responses 或 OpenAI 兼容主搜索使用 stream=false。",
+    "Force stream=false for xAI Responses or OpenAI-compatible main search."
   ],
   "归档包含特殊设备文件。": [
     "归档包含特殊设备文件。",
@@ -13597,7 +13617,7 @@
   ],
   "结果数量": [
     "结果数量",
-    "Number of results"
+    "Result count"
   ],
   "结果核验的严格程度，越严越慢。": [
     "结果核验的严格程度，越严越慢。",
@@ -17690,5 +17710,149 @@
   "错误详情": [
     "错误详情",
     "Error details"
+  ],
+  "Configure at least one enabled retrieval channel.": [
+    "至少配置一个已启用的检索渠道。",
+    "Configure at least one enabled retrieval channel."
+  ],
+  "Embedding/classifier routing is retired. Use route for a local preview or route --remote for Jev diagnostics.": [
+    "旧向量/分类路由已退役。使用 route 本地预览，或显式 route --remote 检查 Jev。",
+    "Embedding/classifier routing is retired. Use route for a local preview or route --remote for Jev diagnostics."
+  ],
+  "Legacy embedding calibration is retired and calls no model.": [
+    "旧向量路由校准已退役，不调用模型。",
+    "Legacy embedding calibration is retired and calls no model."
+  ],
+  "Local routing": [
+    "本地路由",
+    "Local routing"
+  ],
+  "Result count": [
+    "结果数量",
+    "Result count"
+  ],
+  "Results requested from the selected channel in this round; does not add channels.": [
+    "本轮向选中渠道请求的结果条数，不增加检索渠道。",
+    "Results requested from the selected channel in this round; does not add channels."
+  ],
+  "Retired compatibility command; no remote calibration is performed.": [
+    "已退役的兼容命令；不执行远程校准。",
+    "Retired compatibility command; no remote calibration is performed."
+  ],
+  "Retrieve from one suitable channel and return results with sources. Ordinary search runs one round.": [
+    "选择一个合适渠道检索，返回结果和来源；普通搜索只运行一轮。",
+    "Retrieve from one suitable channel and return results with sources. Ordinary search runs one round."
+  ],
+  "Run single-pass retrieval through one selected channel.": [
+    "通过一个选中的渠道执行单轮检索。",
+    "Run single-pass retrieval through one selected channel."
+  ],
+  "Search can use a retrieval channel without a main model.": [
+    "搜索可直接使用检索渠道，无需主模型。",
+    "Search can use a retrieval channel without a main model."
+  ],
+  "Search selects once; research follows evidence gaps. Without Jev, routing stays local.": [
+    "普通搜索只选路一次；深入搜索按证据缺口继续。未配置 Jev 时使用本地路由。",
+    "Search selects once; research follows evidence gaps. Without Jev, routing stays local."
+  ],
+  "Source requirement": [
+    "来源要求",
+    "Source requirement"
+  ],
+  "Strict requires source evidence; ordinary search does not add follow-up or sufficiency judgments.": [
+    "strict 要求来源证据；普通搜索不会因此自动补搜或判断充分性。",
+    "Strict requires source evidence; ordinary search does not add follow-up or sufficiency judgments."
+  ],
+  "Using local routing; no Jev probe was sent.": [
+    "使用本地路由，未发送 Jev 探测请求。",
+    "Using local routing; no Jev probe was sent."
+  ],
+  "strict 要求来源证据；普通搜索不会因此自动补搜或判断充分性。": [
+    "strict 要求来源证据；普通搜索不会因此自动补搜或判断充分性。",
+    "Strict requires source evidence; ordinary search does not add follow-up or sufficiency judgments."
+  ],
+  "使用本地路由，未发送 Jev 探测请求。": [
+    "使用本地路由，未发送 Jev 探测请求。",
+    "Using local routing; no Jev probe was sent."
+  ],
+  "已退役的兼容命令；不执行远程校准。": [
+    "已退役的兼容命令；不执行远程校准。",
+    "Retired compatibility command; no remote calibration is performed."
+  ],
+  "搜索可直接使用检索渠道，无需主模型。": [
+    "搜索可直接使用检索渠道，无需主模型。",
+    "Search can use a retrieval channel without a main model."
+  ],
+  "旧向量/分类路由已退役。使用 route 本地预览，或显式 route --remote 检查 Jev。": [
+    "旧向量/分类路由已退役。使用 route 本地预览，或显式 route --remote 检查 Jev。",
+    "Embedding/classifier routing is retired. Use route for a local preview or route --remote for Jev diagnostics."
+  ],
+  "旧向量路由校准已退役，不调用模型。": [
+    "旧向量路由校准已退役，不调用模型。",
+    "Legacy embedding calibration is retired and calls no model."
+  ],
+  "普通搜索只选路一次；深入搜索按证据缺口继续。未配置 Jev 时使用本地路由。": [
+    "普通搜索只选路一次；深入搜索按证据缺口继续。未配置 Jev 时使用本地路由。",
+    "Search selects once; research follows evidence gaps. Without Jev, routing stays local."
+  ],
+  "本地路由": [
+    "本地路由",
+    "Local routing"
+  ],
+  "本轮向选中渠道请求的结果条数，不增加检索渠道。": [
+    "本轮向选中渠道请求的结果条数，不增加检索渠道。",
+    "Results requested from the selected channel in this round; does not add channels."
+  ],
+  "来源要求": [
+    "来源要求",
+    "Source requirement"
+  ],
+  "至少配置一个已启用的检索渠道。": [
+    "至少配置一个已启用的检索渠道。",
+    "Configure at least one enabled retrieval channel."
+  ],
+  "选择一个合适渠道检索，返回结果和来源；普通搜索只运行一轮。": [
+    "选择一个合适渠道检索，返回结果和来源；普通搜索只运行一轮。",
+    "Retrieve from one suitable channel and return results with sources. Ordinary search runs one round."
+  ],
+  "通过一个选中的渠道执行单轮检索。": [
+    "通过一个选中的渠道执行单轮检索。",
+    "Run single-pass retrieval through one selected channel."
+  ],
+  "研究预算上限；达到目标后会提前停止。": [
+    "研究预算上限；达到目标后会提前停止。",
+    "Research budget ceiling; stops early when the goal is reached."
+  ],
+  "离线计划的建议深度，不执行检索或消耗请求额度。": [
+    "离线计划的建议深度，不执行检索或消耗请求额度。",
+    "Suggested depth for the offline plan; it runs no retrieval and uses no request quota."
+  ],
+  "auto 允许故障兜底和后续检索；off 关闭这些行为，但保留已发现来源的必要正文读取。": [
+    "auto 允许故障兜底和后续检索；off 关闭这些行为，但保留已发现来源的必要正文读取。",
+    "auto allows failure fallback and follow-up searches; off disables both but permits necessary reading of discovered sources."
+  ],
+  "Invalid {0}: expected chat-completions or responses.": [
+    "无效的 {0}：应为 chat-completions 或 responses。",
+    "Invalid {0}: expected chat-completions or responses."
+  ],
+  "Invalid {0}: expected an HTTP(S) base URL without credentials or query parameters.": [
+    "无效的 {0}：需要不含凭据和查询参数的 HTTP(S) 基础地址。",
+    "Invalid {0}: expected an HTTP(S) base URL without credentials or query parameters."
+  ],
+  "Jev synthesis requires API URL, API key, and model when dedicated synthesis is configured.": [
+    "配置独立 Jev 汇总时，必须同时填写 API 地址、Key 和模型名。",
+    "Jev synthesis requires API URL, API key, and model when dedicated synthesis is configured."
+  ],
+  "Jev synthesis requires an allowed configured synthesis model": [
+    "Jev 结果汇总需要配置允许使用的独立汇总模型",
+    "Jev synthesis requires an allowed configured synthesis model"
+  ],
+  "Jev synthesis is disabled": [
+    "Jev 结果汇总已关闭",
+    "Jev synthesis is disabled"
+  ],
+  "Jev synthesis model is not configured": [
+    "尚未配置 Jev 独立汇总模型",
+    "Jev synthesis model is not configured"
   ]
 }

@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -42,10 +43,69 @@ def test_xai_responses_search_payload_uses_responses_shape():
     assert payload["model"] == "test-model"
     assert payload["instructions"]
     assert payload["stream"] is False
+    assert "reasoning" not in payload
     assert payload["tools"] == [{"type": "web_search"}, {"type": "x_search"}]
     assert payload["input"][0]["role"] == "user"
     assert "What is new?" in payload["input"][0]["content"]
     assert "X" in payload["input"][0]["content"]
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high"])
+def test_xai_responses_payload_sends_optional_reasoning_effort(effort):
+    provider = XAIResponsesSearchProvider("https://api.x.ai/v1", "test-key", reasoning_effort=effort)
+
+    assert provider._build_search_payload("query")["reasoning"] == {"effort": effort}
+
+
+@pytest.mark.asyncio
+async def test_xai_responses_stream_matches_non_stream_sources(monkeypatch):
+    provider = XAIResponsesSearchProvider("https://api.x.ai/v1", "test-key", stream=True)
+    annotations = [{"type": "url_citation", "url": "https://example.com/a", "title": "Source"}]
+    events = [
+        {"type": "response.output_text.delta", "delta": "Streamed "},
+        {"type": "response.output_text.delta", "delta": "answer."},
+        {"type": "response.output_text.annotation.added", "annotation": annotations[0]},
+        {"type": "response.completed", "response": {"status": "completed", "output": []}},
+    ]
+    requests = []
+    original_client = httpx.AsyncClient
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, headers={"Content-Type": "text/event-stream"},
+                              text="".join(f"data: {json.dumps(event)}\n\n" for event in events))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+
+    result = await provider.search("query")
+
+    assert len(requests) == 1
+    assert json.loads(requests[0].content)["stream"] is True
+    assert result == await provider._parse_response(output_text_response("Streamed answer.", annotations))
+    assert split_answer_and_sources(result) == ("Streamed answer.", [{"url": "https://example.com/a", "title": "Source"}])
+
+
+@pytest.mark.asyncio
+async def test_xai_stream_inline_urls_match_non_stream_sources(monkeypatch):
+    provider = XAIResponsesSearchProvider("https://api.x.ai/v1", "test-key", stream=True)
+    answer = "See HTTPS://example.org/source for details."
+    events = [
+        {"type": "response.output_text.delta", "delta": answer},
+        {"type": "response.completed", "response": {"status": "completed", "output": []}},
+    ]
+    original_client = httpx.AsyncClient
+
+    def handler(request):
+        return httpx.Response(200, headers={"Content-Type": "text/event-stream"},
+                              text="".join(f"data: {json.dumps(event)}\n\n" for event in events))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+
+    result = await provider.search("query")
+
+    assert result == await provider._parse_response(output_text_response(answer))
+    assert result.endswith('sources([{"url": "https://example.org/source"}])')
+    assert split_answer_and_sources(result) == (answer, [{"url": "https://example.org/source"}])
 
 
 @pytest.mark.asyncio
@@ -263,3 +323,29 @@ async def test_xai_expired_deadline_fails_before_any_request():
 
     with pytest.raises(asyncio.TimeoutError):
         await provider.search("expired deadline")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delay,expected_requests", [(0.1, 1), (0, 4)])
+@pytest.mark.parametrize("stream", [False, True])
+async def test_xai_retry_stops_after_slow_failure(monkeypatch, delay, expected_requests, stream):
+    import smart_search.providers.openai_compatible as provider_mod
+
+    monkeypatch.setattr(provider_mod, "SLOW_FAILURE_SECONDS", 0.05)
+    monkeypatch.setenv("SMART_SEARCH_RETRY_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("SMART_SEARCH_RETRY_MULTIPLIER", "0")
+    requests = []
+    original_client = httpx.AsyncClient
+
+    async def handler(request):
+        requests.append(request)
+        if delay:
+            await asyncio.sleep(delay)
+        return httpx.Response(503)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    provider = XAIResponsesSearchProvider("https://api.x.ai/v1", "test-key", "test-model", [], stream=stream)
+    with pytest.raises(httpx.HTTPStatusError):
+        await provider.search("query")
+
+    assert len(requests) == expected_requests

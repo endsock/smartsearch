@@ -88,7 +88,7 @@ def test_openai_compatible_endpoint_normalizes_known_completion_suffixes(api_url
 
 
 @pytest.mark.asyncio
-async def test_responses_mode_fetch_describe_and_rank_use_non_stream_responses_payloads(monkeypatch):
+async def test_responses_fetch_respects_stream_while_describe_and_rank_stay_non_stream(monkeypatch):
     provider = OpenAICompatibleSearchProvider(
         "https://api.example.com/v1",
         "test-key",
@@ -108,12 +108,13 @@ async def test_responses_mode_fetch_describe_and_rank_use_non_stream_responses_p
         return "fetched content"
 
     monkeypatch.setattr(provider, "_execute_completion_with_retry", fake_execute)
+    monkeypatch.setattr(provider, "_execute_stream_with_retry", fake_execute)
 
     assert await provider.fetch("https://example.com/page") == "fetched content"
     assert (await provider.describe_url("https://example.com"))["title"] == "Example"
     assert await provider.rank_sources("query", "1. Source", 1) == [1]
     assert len(payloads) == 3
-    assert all(payload["stream"] is False for payload in payloads)
+    assert [payload["stream"] for payload in payloads] == [True, False, False]
     assert all("instructions" in payload and "input" in payload for payload in payloads)
     assert all("messages" not in payload and "tools" not in payload for payload in payloads)
 
@@ -864,3 +865,57 @@ def test_short_deadline_still_shrinks_every_timeout_component():
     assert timeout.read <= 2.0
     assert timeout.connect <= 2.0
     assert timeout.write <= 2.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("delay,expected_requests", [(0.1, 1), (0, 4)])
+async def test_openai_retry_stops_after_slow_failure(monkeypatch, stream, delay, expected_requests):
+    import smart_search.providers.openai_compatible as provider_mod
+
+    monkeypatch.setattr(provider_mod, "SLOW_FAILURE_SECONDS", 0.05)
+    monkeypatch.setenv("SMART_SEARCH_RETRY_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("SMART_SEARCH_RETRY_MULTIPLIER", "0")
+    requests = []
+    original_client = httpx.AsyncClient
+
+    async def handler(request):
+        requests.append(request)
+        if delay:
+            await asyncio.sleep(delay)
+        return httpx.Response(503)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "test-model", stream=stream)
+    execute = provider._execute_stream_with_retry if stream else provider._execute_completion_with_retry
+    with pytest.raises(httpx.HTTPStatusError):
+        await execute({}, {"stream": stream})
+
+    assert len(requests) == expected_requests
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_done_returns_without_eof(monkeypatch):
+    import smart_search.providers.openai_compatible as provider_mod
+
+    monkeypatch.setattr(provider_mod, "_STREAM_BREAKERS", {})
+    never = asyncio.Event()
+
+    class OpenEndedStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
+            yield b'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+            yield b'data: [DONE]\n\n'
+            await never.wait()
+
+    async def handler(request):
+        return httpx.Response(200, headers={"Content-Type": "text/event-stream"}, stream=OpenEndedStream())
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "done-test-model", stream=True)
+
+    result = await asyncio.wait_for(provider.search("query"), 2)
+
+    assert result == "Hello world"
+    assert [attempt["transport"] for attempt in provider.last_transport_attempts] == ["stream"]

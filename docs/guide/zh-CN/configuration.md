@@ -10,16 +10,16 @@
 
 `SMART_SEARCH_LANGUAGE` 接受 `auto`、`zh`、`en`，也兼容 `zh-CN` 等形式。CLI 的 `--lang` 优先于环境变量和保存偏好，见 [CLI 语言和脚本调用](cli.md#语言和脚本调用)。App 的选择另存在 App 设置里，两者都不改变查询或来源的语言。
 
-运行时还识别只从环境读取的变量：`SMART_SEARCH_CONFIG_DIR` 选择配置目录；`SMART_SEARCH_PYTHON` 为 npm 安装/修复指定已有 Python 可执行文件；`LC_ALL`、`LC_MESSAGES` 和 `LANG` 提供 CLI 自动语言。这些不是可保存的服务商键。`SMART_SEARCH_PYTHON` 应填完整路径，显式选择无效时会报错，不会静默改用另一个解释器。
+运行时还识别只从环境读取的变量：`SMART_SEARCH_CONFIG_DIR` 选择配置目录；`SMART_SEARCH_PYTHON` 只在 App 安装或修复较早发布、未内置运行环境的 npm 包时使用；`LC_ALL`、`LC_MESSAGES` 和 `LANG` 提供 CLI 自动语言。这些不是可保存的服务商键。当前 npm 包自带运行环境并会忽略 `SMART_SEARCH_PYTHON`。
 
 ## 服务商、Key 与配置
 
 普通用户优先用 `smart-search setup` 配置。环境变量仍然支持 CI 和高级用户。
-默认交互式 setup 已包含可选智能意图路由小节，可以直接配置 embeddings 和 classifier 路由，不需要进入 `--advanced`。
+默认 setup 可选择 Jev 或本地路由；CLI 网页配置入口仍是 `smart-search ui`。
 
 | Provider / 路线 | 用途 | 主要配置项 | 官方文档 | Key / 控制台 |
 | --- | --- | --- | --- | --- |
-| xAI Responses API | 主搜索，走 `web_search,x_search` 工具 | `XAI_API_KEY`、`XAI_API_URL`、`XAI_MODEL`、`XAI_TOOLS` | [docs.x.ai](https://docs.x.ai/docs) | [xAI API keys](https://console.x.ai/team/default/api-keys) |
+| xAI Responses API | 主搜索，走 `web_search,x_search` 工具 | `XAI_API_KEY`、`XAI_API_URL`、`XAI_MODEL`、`XAI_TOOLS`、`XAI_REASONING_EFFORT` | [docs.x.ai](https://docs.x.ai/docs) | [xAI API keys](https://console.x.ai/team/default/api-keys) |
 | OpenAI-compatible Chat Completions / Responses | 主搜索，适合 OpenAI 官方或兼容中转；任一模式都不会发送 xAI search tools | `OPENAI_COMPATIBLE_API_URL`、`OPENAI_COMPATIBLE_API_KEY`、`OPENAI_COMPATIBLE_MODEL`、`OPENAI_COMPATIBLE_API_MODE`、`OPENAI_COMPATIBLE_FALLBACK_MODELS`、`OPENAI_COMPATIBLE_STREAM` | [OpenAI platform docs](https://platform.openai.com/docs) | [OpenAI API keys](https://platform.openai.com/api-keys) 或你的兼容服务商 |
 | Exa | 官方文档、API、论文、产品页、可信网页的低噪声发现 | `EXA_API_KEY` | [Exa docs](https://docs.exa.ai/) | [Exa API keys](https://dashboard.exa.ai/api-keys) |
 | Context7 | SDK、库、框架、API 文档兜底 | `CONTEXT7_API_KEY`、`CONTEXT7_BASE_URL` | [Context7 docs](https://context7.com/docs) | [Context7](https://context7.com/) |
@@ -33,44 +33,30 @@
 | AnySearch | 实验垂直搜索验收入口，不是默认兜底 | `ANYSEARCH_API_URL`、`ANYSEARCH_API_KEY`、`ANYSEARCH_TIMEOUT_SECONDS` | [AnySearch 文档](https://www.anysearch.com/docs) | [AnySearch API keys](https://www.anysearch.com/console/api-keys) |
 | Sciverse | 显式实验学术检索、语义论文检索、正文片段和引用/参考文献关系，不是默认兜底 | `SCIVERSE_API_TOKEN`、`SCIVERSE_API_URL`、`SCIVERSE_TIMEOUT_SECONDS` | [Sciverse Agent Tools](https://github.com/opendatalab/Sciverse-Agent-Tools) | Sciverse 控制台 / token 提供方 |
 
-意图路由配置：
+## 路由与兼容
 
-| 配置项 | 用途 |
-| --- | --- |
-| `SMART_SEARCH_INTENT_ROUTER` | `hybrid`、`rules`、`off` 或 `jev`，默认 `hybrid` |
-| `INTENT_EMBEDDING_API_URL` | 可选 OpenAI-compatible embeddings endpoint，用于语义能力路由；推荐 setup preset 使用 `https://api.siliconflow.cn/v1/embeddings` |
-| `INTENT_EMBEDDING_API_KEY` | 可选 embeddings key；`doctor` 和 config 输出会脱敏 |
-| `INTENT_EMBEDDING_MODEL` | embeddings 模型名；推荐 setup preset 使用 `Qwen/Qwen3-Embedding-8B` |
-| `INTENT_EMBEDDING_THRESHOLD` | 语义路由阈值，默认 `0.74`；推荐 8B setup 值是 `0.475`；这是模型相关参数 |
-| `INTENT_EMBEDDING_MARGIN` | top1 与第二名分数差阈值，默认 `0.05`；推荐 8B setup 值是 `0.053`；差距不足时只记录 ambiguous 信号，不直接加 capability |
-| `INTENT_CLASSIFIER_API_URL` | 可选 OpenAI-compatible chat-completions endpoint，用于结构化意图分类 |
-| `INTENT_CLASSIFIER_API_KEY` | 可选 classifier key；`doctor` 和 config 输出会脱敏 |
-| `INTENT_CLASSIFIER_MODEL` | classifier 模型名 |
-| `INTENT_ROUTER_TIMEOUT_SECONDS` | 可选远程路由调用超时，默认 `8` |
-| `SMART_SEARCH_TIMEOUT_SECONDS` | `search` 的总单调时限，默认 `300`；单次 `search --timeout` 可覆盖 |
-| `SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS` | 可选 provider 连续失败后被跳过的时长，默认 `900`；设为 `0` 关闭冷却 |
-| `SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD` | 可选 provider 进入冷却前允许的连续软失败次数，默认 `2` |
+`search` 和 `research` 是两种联网搜索模式，共用渠道目录、执行器、总时限和证据记录。
 
-`jev` 是推荐的可选语义路由，默认仍为 `hybrid`。它结合渠道专长和已有 provider 偏好选择搜索引擎，判断累计证据是否相关、有用和足够，再选择新查询、另一引擎或阅读已发现的网页。research 保留计划、预算、报告及“实际读正文后才能引用”的约束；可选过滤改变内容后重新判断。TypeSafe 故障时按允许的固定能力兜底并标记降级，不隐藏调用旧远程分类器。最终汇总保留 `true/false/auto` 三态，默认直接返回证据。`route --router-mode jev` 是本地候选预览，只有显式 `--remote` 才调用可能计费的 TypeSafe 判断。配置、限制和诊断见 [Jev 路由与过滤](../../jev-routing.md)。
+- `search`：一次 Jev 选路，选择一个适合的渠道，返回结果与来源。Context7 查库后读文档等必要依赖调用，以及同能力故障兜底继续保留，模型回答与网页搜索互为兜底。不会执行充分性评估、自动补搜、过滤或汇总。`--extra-sources N` 只限制所选渠道的结果数量（最多 20），不增加渠道。`evidence_assessment.status=not_evaluated` 表示尚未评估，检索成功不等于事实核验成功。`--validation strict` 要求来源证据，不满足时可保留部分内容并返回证据错误。
+- `research`：Jev 选择互补动作并发执行，读取发现的网页，判断证据缺口，必要时继续。原问题、子问题和有限缺口查询由程序提供，Jev 只选择候选，不生成任意查询或工具调用。只有实际 fetched/read 的内容进入 `citations`。可选过滤和 `SMART_SEARCH_JEV_SYNTHESIZE=false|auto|true` 只影响深入搜索。
+- `deep` 继续离线生成计划，`steps[].command` 是供人或 AI 手动编排的建议。`research` 实际执行记录单独保存在 `routing_decision.rounds` 和 `stage_results` 中。
 
-默认 `hybrid` 是 fail-open：embeddings 或 classifier 没配置、超时或失败时，会在 `degraded_reason` 里说明，然后自动退回本地规则。语义路由只有在 top1 相似度达到 `INTENT_EMBEDDING_THRESHOLD`，并且 top1 与第二名差值达到 `INTENT_EMBEDDING_MARGIN` 时，才会直接添加 capability；否则只记录 ambiguous 信号。classifier 可以补充 capability，但未知 capability 和 provider 名会被忽略；provider 仍然只能由 capability-first 注册表选择。
+深入搜索的最终汇总只调用独立配置的 JEV 汇总模型，与主搜索模型无关。配置键为 `SMART_SEARCH_JEV_SYNTHESIS_API_URL`、`SMART_SEARCH_JEV_SYNTHESIS_API_KEY`、`SMART_SEARCH_JEV_SYNTHESIS_MODEL` 和 `SMART_SEARCH_JEV_SYNTHESIS_API_MODE`（`chat-completions` 或 `responses`）。汇总模式和诊断见 [Jev 路由与过滤](../../jev-routing.md)。
 
-普通用户推荐直接使用 Qwen3-Embedding-8B preset：`INTENT_EMBEDDING_API_URL=https://api.siliconflow.cn/v1/embeddings`、`INTENT_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-8B`、`INTENT_EMBEDDING_THRESHOLD=0.475`、`INTENT_EMBEDDING_MARGIN=0.053`。选择 8B 模型且没有手动配置 threshold/margin 时，`smart-search setup` 会自动补齐这两个推荐值。
+默认 `SMART_SEARCH_INTENT_ROUTER=jev`。没有 TypeSafe key 或无法得到有效判断时，`--fallback auto` 使用本地能力规则并标记降级，`--fallback off` 明确失败。显式 `local` 从不调用 Jev。旧 `hybrid` 映射为 `jev`，`rules` 和 `off` 映射为 `local`。旧 embedding/classifier 字段和 Key 保留但不使用，`route-calibrate` 是不联网的退役兼容命令。
 
-embedding 余弦分数强依赖模型。`route-calibrate` 保留给高级复验：换 `INTENT_EMBEDDING_MODEL`、换 embedding endpoint，或者后续加入真实 query 校准集后再运行：
+`route` 默认只预览本地能力，不调用模型或检索服务；显式 `--remote` 才进行可能计费的 Jev 诊断。直接 provider 命令保持明确的调用语义。
 
-```powershell
-smart-search route-calibrate --models "Qwen/Qwen3-Embedding-8B" --format markdown
-```
+只有已配置、启用、允许且不在冷却期的渠道可以执行。`--providers`、各 provider 开关、`SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` 和 explicit-only 限制在选路与派发前检查。普通渠道失败可在同能力内兜底，模型回答与网页搜索互为兜底，不能扩展成深研循环；用户偏好也不能绕过这些边界。
 
-再按报告推荐值设置 `INTENT_EMBEDDING_THRESHOLD` 和 `INTENT_EMBEDDING_MARGIN`。校准主指标是 semantic-only Macro-F1；full-route Macro-F1 只用来验证 rules/classifier 兜底后的真实路由表现。
+总时限默认 300 秒（`SMART_SEARCH_TIMEOUT_SECONDS`，`search --timeout` 可覆盖）。深研 quick/standard/deep 的上限分别是 2/3/10 轮、每轮 1/2/10 渠道、每渠道 3/5/20 个结果，以及 45/120/配置秒数，并受用户 Jev 预算进一步限制。证据充分、候选耗尽、无新证据或期限到达时停止；可选判断、过滤、汇总失败仍保留已完成的结果。
 
 几个容易混淆的点：
 
 - xAI 官方联网搜索通过 `XAI_*` 走 `/responses`。OpenAI-compatible 中转默认走 `/chat/completions`；只有中转明确支持文档化的 Responses 子集时才设置 `OPENAI_COMPATIBLE_API_MODE=responses`。
-- `OPENAI_COMPATIBLE_STREAM=true` 或 `smart-search search --stream` 只会给 OpenAI-compatible 的 `search` 和 provider 侧 `fetch` 设置 `stream=true`。它是中转长请求兼容开关，不改变 xAI Responses、URL 描述和来源排序行为。
+- `smart-search search --stream` 会给 xAI Responses 和 OpenAI-compatible 搜索设置 `stream=true`，包括 Jev 调度的 Grok 搜索；`--no-stream` 关闭本次流式请求。`OPENAI_COMPATIBLE_STREAM=true` 仍只设置 OpenAI-compatible 搜索和 provider 侧 fetch 的默认流式行为。
+- `XAI_REASONING_EFFORT` 接受 `low`、`medium`、`high`，大小写不敏感，保存为小写。可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。Jev 调度的 Grok 搜索同样适用。provider attempts 记录实际 `stream` 和 `reasoning_effort`，`doctor` 显示 `XAI_REASONING_EFFORT`。上游因不支持 reasoning 返回 4xx 时原样报错，不删除字段重发。
 - `SMART_SEARCH_TIMEOUT_SECONDS` 是持久化的 `search` 总时限；环境变量覆盖本机配置文件，单次 `search --timeout SECONDS` 覆盖两者，默认 `300` 秒。
-- service 以一个单调 deadline 协调 router、main search、extra sources 和 supplemental evidence。hybrid 远程路由共享一个上限，并为 main search 预留 `min(240 秒, 总时限的三分之二)`；可选工作超时只会产生部分成功，不会清空已有主答案。
 - 主搜索 provider 直接用剩余的共享预算作为读取上限，不再额外套一层固定的 provider 读超时，因此慢推理模型不会在共享 deadline 之前被提前掐断。
 - `OPENAI_COMPATIBLE_FALLBACK_MODELS` 是失败后接力，不是时间片。主模型会使用剩余的共享 main-search 预算；只有硬失败（例如 `model_not_found`、鉴权失败、空结果、不可重试协议错误）才会换兜底模型。`doctor` 和 `diagnose openai-compatible` 会在兜底模型不在 `/models` 里时给出警告。
 - 旧的 `SMART_SEARCH_API_URL`、`SMART_SEARCH_API_KEY`、`SMART_SEARCH_API_MODE`、`SMART_SEARCH_MODEL`、`SMART_SEARCH_XAI_TOOLS` 不再是受支持配置项。请显式使用 `XAI_*` 或 `OPENAI_COMPATIBLE_*`。
@@ -86,7 +72,6 @@ smart-search route-calibrate --models "Qwen/Qwen3-Embedding-8B" --format markdow
 - `FIRECRAWL_API_URL` 默认是 `https://api.firecrawl.dev/v2`。
 - AnySearch 默认走 `https://api.anysearch.com/mcp` 的 JSON-RPC 2.0 `tools/call`。没有 key 时允许匿名请求；有 key 时发送 `Authorization: Bearer ...`。HTTP 200 但 `result.isError=true` 会按 provider error 处理，不能当成功证据。`--sub-domain-params` 会先解析成 JSON object，随后可重复的 `--param key=value` 覆盖同名键；参数不合法时会在发请求前失败。
 - Sciverse 默认走 `https://api.sciverse.space` 的 native HTTP/OpenAPI。必须配置 `SCIVERSE_API_TOKEN`；未配置时本地返回 `config_error` 且不发网络请求；已配置时发送 `Authorization: Bearer ...`。它保持 explicit-only：不是 `docs_search`，不满足 `standard`，不进入默认 `search` / `research` 兜底。
-- `doctor` 和 `route` 会报告 intent router 的配置状态、embedding 模型、threshold、margin、配置来源、超时和是否可降级，不会暴露 router API key。
 
 非交互配置示例：
 
@@ -103,12 +88,7 @@ smart-search setup --non-interactive `
   --search-timeout "300" `
   --fallback-mode "auto" `
   --minimum-profile "standard" `
-  --intent-router "hybrid" `
-  --intent-embedding-api-url "https://api.siliconflow.cn/v1/embeddings" `
-  --intent-embedding-api-key "your-siliconflow-key" `
-  --intent-embedding-model "Qwen/Qwen3-Embedding-8B" `
-  --intent-embedding-threshold "0.475" `
-  --intent-embedding-margin "0.053" `
+  --intent-router "jev" `
   --exa-key "your-exa-key" `
   --context7-key "your-context7-key" `
   --zhipu-key "your-zhipu-key" `
@@ -122,15 +102,9 @@ smart-search setup --non-interactive `
   --firecrawl-key "your-firecrawl-key"
 ```
 
-默认最低配置是 `SMART_SEARCH_MINIMUM_PROFILE=standard`，至少需要：
+`standard` 最低要求是至少一个启用的自动检索渠道，Jev 和主模型均可选。渠道仍需支持当前操作；仅配置网页读取不能发现未知 URL。
 
-- `main_search`：xAI Responses 或 OpenAI-compatible 二选一；
-- `docs_search`：Exa 或 Context7 二选一；
-- `web_fetch`：Tavily、带 `JINA_API_KEY` 的 Jina、智谱 Coding Plan MCP Reader、Firecrawl、TinyFish 五选一。
-
-缺少任一最低能力时，`doctor` 和 `search` 会 fail closed 并返回缺失 capability。`SMART_SEARCH_MINIMUM_PROFILE=off` 只建议本地实验使用。
-
-AnySearch 是可选实验配置，不满足也不改变 `standard` 最低配置：
+AnySearch 是可选的垂直意图检索渠道：
 
 ```powershell
 smart-search setup --non-interactive --anysearch-api-url "https://api.anysearch.com/mcp" --anysearch-key "your-anysearch-key"
@@ -175,6 +149,7 @@ smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --p
 | `XAI_API_URL` | xAI API 地址，默认 `https://api.x.ai/v1` |
 | `XAI_MODEL` | xAI 模型名 |
 | `XAI_TOOLS` | xAI Responses 工具列表，通常 `web_search,x_search` |
+| `XAI_REASONING_EFFORT` | 可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。 |
 | `OPENAI_COMPATIBLE_API_URL` | OpenAI-compatible `/v1` base URL |
 | `OPENAI_COMPATIBLE_API_KEY` | OpenAI-compatible key |
 | `OPENAI_COMPATIBLE_MODEL` | 兼容模型名 |
@@ -189,16 +164,7 @@ smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --p
 | `SCIVERSE_API_TOKEN` | 显式 Sciverse 学术命令需要的 token |
 | `SCIVERSE_API_URL` | Sciverse API base URL，默认 `https://api.sciverse.space` |
 | `SCIVERSE_TIMEOUT_SECONDS` | Sciverse 请求超时，默认 `30` |
-| `SMART_SEARCH_INTENT_ROUTER` | 意图路由模式：`hybrid`、`rules`、`off`、`jev`，默认 `hybrid` |
-| `INTENT_EMBEDDING_API_URL` | 可选 embeddings endpoint，用于语义路由 |
-| `INTENT_EMBEDDING_API_KEY` | 可选 embeddings key |
-| `INTENT_EMBEDDING_MODEL` | embeddings 模型名 |
-| `INTENT_EMBEDDING_THRESHOLD` | 语义路由阈值，默认 `0.74`，换模型后用 `route-calibrate` 校准 |
-| `INTENT_EMBEDDING_MARGIN` | top1 与第二名分数差阈值，默认 `0.05` |
-| `INTENT_CLASSIFIER_API_URL` | 可选 classifier chat-completions endpoint |
-| `INTENT_CLASSIFIER_API_KEY` | 可选 classifier key |
-| `INTENT_CLASSIFIER_MODEL` | classifier 模型名 |
-| `INTENT_ROUTER_TIMEOUT_SECONDS` | 可选路由调用超时，默认 `8` |
+| `SMART_SEARCH_INTENT_ROUTER` | 路由方式：`jev`（默认）或 `local`；旧值按兼容映射处理 |
 | `EXA_API_KEY` | Exa key |
 | `CONTEXT7_API_KEY` | Context7 key |
 | `ZHIPU_API_KEY` | 智谱 Web Search key |

@@ -82,8 +82,18 @@ def test_translation_tables_have_no_dead_entries():
     assert not stale, f"_DESCRIPTIONS names commands that no longer exist: {stale}"
 
     field_names = {field["name"] for entry in command_catalog() for field in entry["fields"]}
+    field_names.update(f"{entry['id']}/{field['name']}" for entry in command_catalog() for field in entry["fields"])
     stale_fields = sorted(set(_FIELD_HELP) - field_names)
     assert not stale_fields, f"_FIELD_HELP names fields that no longer exist: {stale_fields}"
+
+
+def test_router_tool_offers_current_modes_but_keeps_cli_aliases():
+    route = next(entry for entry in command_catalog() if entry["id"] == "route")
+    choices = next(field["choices"] for field in route["fields"] if field["name"] == "router_mode")
+    assert choices == ["jev", "local"]
+    from smart_search.cli import build_parser
+    for legacy in ("hybrid", "rules", "off"):
+        assert build_parser().parse_args(["route", "query", "--router-mode", legacy]).router_mode == legacy
 
 
 def test_label_table_still_matches_the_catalog():

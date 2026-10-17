@@ -7,11 +7,11 @@ from functools import lru_cache
 from .cli import build_parser
 from .i18n import tr
 
-_MANAGED = {"agent-guide", "setup", "config", "skills", "providers", "ui"}
+_MANAGED = {"agent-guide", "setup", "config", "skills", "providers", "ui", "route-calibrate"}
 _LABELS = {"search": "搜索", "route": "查看路由", "deep": "离线研究计划", "research": "在线研究",
            "fetch": "读取网页", "map": "站点地图", "doctor": "服务商全面诊断（在线）",
            "smoke": "冒烟检查", "regression": "离线回归检查", "model/current": "当前模型",
-           "route-calibrate": "校准意图路由", "exa-search": "Exa 搜索", "exa-similar": "Exa 相似网页",
+           "exa-search": "Exa 搜索", "exa-similar": "Exa 相似网页",
            "zhipu-search": "智谱搜索", "zhipu-mcp-search": "智谱 MCP 搜索", "zhipu-mcp-reader": "智谱 MCP 网页阅读",
            "zhipu-mcp-search-doc": "智谱 仓库文档检索", "zhipu-mcp-repo-structure": "智谱 仓库目录",
            "zhipu-mcp-read-file": "智谱 仓库文件阅读", "context7-library": "Context7 查找库", "context7-docs": "Context7 查文档",
@@ -23,8 +23,8 @@ _FIELD_LABELS = {"query": "问题或关键词", "queries": "问题列表（每�
                  "diagnose_target": "排查对象", "repo": "代码仓库", "path": "文件路径", "library_id": "库标识", "name": "名称",
                  "budget": "研究深度", "timeout": "超时（秒）", "model": "模型", "output": "输出文件（可选）",
                  "evidence_dir": "研究证据目录", "ref": "分支或版本", "count": "结果数量", "num_results": "结果数量",
-                 "router_mode": "路由方式", "validation": "验证程度", "fallback": "回退策略", "providers": "服务商筛选",
-                 "extra_sources": "额外来源数量", "stream": "启用流式请求", "no_stream": "禁用流式请求", "remote": "允许远程路由判断"}
+                 "router_mode": "路由方式", "validation": "来源要求", "fallback": "回退策略", "providers": "服务商筛选",
+                 "extra_sources": "结果数量", "stream": "启用流式请求", "no_stream": "禁用流式请求", "remote": "允许远程路由判断"}
 
 
 # argparse help strings are written for `--help` and are English. Reflecting them
@@ -32,9 +32,8 @@ _FIELD_LABELS = {"query": "问题或关键词", "queries": "问题列表（每�
 # tools page, so these two tables carry the user-facing wording instead. Anything
 # not listed falls back to the original help, which keeps new commands working.
 _DESCRIPTIONS = {
-    "search": "问一个问题，让主搜索模型联网回答，并带回可点开的来源。",
+    "search": "选择一个合适渠道检索，返回结果和来源；普通搜索只运行一轮。",
     "route": "默认只预览本地可用能力；勾选远程判断会调用路由服务，但不执行搜索。",
-    "route-calibrate": "评估向量路由模型，给出推荐的阈值和间距。",
     "fetch": "把一个网页地址读成干净正文。",
     "map": "列出一个站点的结构。",
     "exa-search": "指定用 Exa 搜索，结果只来自这一家。",
@@ -73,7 +72,8 @@ _FIELD_HELP = {
     "path": "仓库内的文件路径。",
     "library_id": "开源库标识，可先用「Context7 查找库」拿到。",
     "name": "要查找的库名。",
-    "budget": "研究深度。越深越慢，来源也越多。",
+    "budget": "研究预算上限；达到目标后会提前停止。",
+    "deep/budget": "离线计划的建议深度，不执行检索或消耗请求额度。",
     "timeout": "这一条命令的总时间上限（秒），会覆盖全局设置。",
     "model": "本次改用哪个模型，留空用当前配置。",
     "output": "把渲染后的结果另存到这个文件。",
@@ -83,10 +83,11 @@ _FIELD_HELP = {
     "num_results": "返回多少条结果。",
     "router_mode": "本次改用哪种路由方式，仅影响这一次调用。",
     "remote": "明确允许远程路由判断，可能计费；默认关闭，且不执行检索。",
-    "validation": "结果核验的严格程度，越严越慢。",
+    "validation": "strict 要求来源证据；普通搜索不会因此自动补搜或判断充分性。",
     "fallback": "一家失败后要不要自动换下一家。",
+    "research/fallback": "auto 允许故障兜底和后续检索；off 关闭这些行为，但保留已发现来源的必要正文读取。",
     "providers": "限定只用哪些服务商，留空由路由决定。",
-    "extra_sources": "在主结果之外额外并行发现多少条来源。",
+    "extra_sources": "本轮向选中渠道请求的结果条数，不增加检索渠道。",
     "stream": "对 OpenAI 兼容接口启用流式请求。部分服务只有流式下才肯长时间思考。",
     "no_stream": "对 OpenAI 兼容接口禁用流式请求。",
     # 实验性命令的高级参数
@@ -99,7 +100,6 @@ _FIELD_HELP = {
     "sort_advanced": "Sciverse 排序条件，JSON 数组。",
     "sub_domain_params": "转发给 AnySearch 的 sub_domain_params，JSON 对象。",
     "param": "可重复的 key=value，会覆盖上面 JSON 里的同名键。",
-    "models": "要评估的向量模型名，多个用英文逗号分隔，留空用内置候选。",
     "mode": "已废弃的兼容别名，等价于 --retrieval hybrid。",
     "live": "跑真实服务商的冒烟检查，会发网络请求。",
     "mock": "跑离线冒烟检查，不碰真实服务商。",
@@ -127,6 +127,7 @@ def command_catalog() -> list[dict]:
                     (a.help for a in sub._choices_actions if a.dest == name), "")
                 visit(child, (*tokens, name), description)
             return
+        identifier = "/".join(tokens)
         fields = []
         for arg in parser._actions:
             if arg.dest in {"help", "format", "lang"} or arg.help == argparse.SUPPRESS:
@@ -140,11 +141,10 @@ def command_catalog() -> list[dict]:
             field_name = flags[0][2:].replace("-", "_") if flags else arg.dest
             fields.append({"name": field_name,
                            "label": tr(_FIELD_LABELS.get(field_name, flags[0] if flags else arg.dest)),
-                           "help": tr(_FIELD_HELP.get(field_name) or arg.help or ""), "flags": flags[:1],
-                           "kind": kind, "choices": list(arg.choices or []), "required": arg.required,
+                           "help": tr(_FIELD_HELP.get(f"{identifier}/{field_name}") or _FIELD_HELP.get(field_name) or arg.help or ""), "flags": flags[:1],
+                           "kind": kind, "choices": ["jev", "local"] if field_name == "router_mode" else list(arg.choices or []), "required": arg.required,
                            "default": default, "multiple": isinstance(arg, argparse._AppendAction) or arg.nargs in {"+", "*"},
                            "nargs": arg.nargs, "advanced": bool(flags) and arg.dest not in {"budget", "evidence_dir"}})
-        identifier = "/".join(tokens)
         entries.append({"id": identifier, "label": tr(_LABELS.get(identifier, identifier)),
                         "description": tr(_DESCRIPTIONS.get(identifier) or help_text or parser.description or ""),
                         "fields": fields,

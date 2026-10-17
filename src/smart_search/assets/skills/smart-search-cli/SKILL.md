@@ -29,16 +29,16 @@ Use the local `smart-search` command as the default execution layer for web rese
 7. Use `smart-search smoke --mock --format json` after CLI/provider architecture changes. Use `--live` only when real keys are available and the user expects live checks.
 8. Treat `TAVILY_ENABLED=false` as an intentional no-network boundary: do not work around it with direct Tavily or `map` calls. Check `doctor` and live smoke for disabled/skipped Tavily state; Firecrawl remains independently configured.
 9. If a result reports a degraded provider in `provider_notices`, or a provider attempt is `skipped`, run `smart-search providers status --format json`. The channel is on a persisted failure cooldown; fix the credential or run `smart-search providers reset PROVIDER` instead of retrying the same failing provider.
-10. Preserve command lines and source URLs in your answer. Prefer citing fetched pages or `primary_sources`; treat `extra_sources` as follow-up candidates until fetched.
+10. Preserve command lines and source URLs in your answer. Prefer citing fetched pages; treat model citations and unread search sources as discovery candidates.
 
 ## Routing
 
-- `search`: first hop for realtime, broad exploration, community signals, multi-source summaries, and routing metadata.
+- `search`: single-pass retrieval: Jev or local rules select one suitable channel, which returns results and sources; no automatic assessment, follow-up, filtering, or synthesis.
 - `route`: explain capability routing locally without executing providers; `--router-mode jev --remote` explicitly opts into a potentially billable TypeSafe judgment.
-- `research`: live Deep Research executor for end-to-end plan, discovery, fetch/read, gap check, and evidence-only synthesis.
+- `research`: shared bounded loop with Jev or local routing for complementary discovery, fetch/read, evidence gaps, and optional synthesis.
 - `deep`: offline Deep Research planner; it does not run providers, fetch pages, or replace default `search`.
 - `zhipu-search`: Chinese-language, domestic China, policy/regulatory, announcements, current news, or China-local source discovery.
-- `context7-library` / `context7-docs`: library, SDK, API, framework, or documentation intent. Automatic routes select Context7 only when a query subject overlaps a candidate title/id; otherwise use same-capability Exa fallback. Explicit commands retain the candidate list and supplied library id.
+- `context7-library` / `context7-docs`: library, SDK, API, framework, or documentation intent. Ordinary search uses the first library in Context7's ranked candidates; research may ask Jev to choose a candidate, using the first candidate if Jev fails or no score reaches its threshold. Unresolved libraries allow same-capability fallback. Explicit commands retain the candidate list and supplied library id.
 - `exa-search`: official domains, papers, product pages, trusted pages, date/domain-filtered low-noise discovery, and adjacent source discovery through `exa-similar`.
 - `fetch`: user-provided URLs or any claim that depends on page content.
 - `map`: documentation site or domain structure before fetching many pages from one site.
@@ -52,8 +52,8 @@ Use the local `smart-search` command as the default execution layer for web rese
 - `smart-search` should resolve from the user's PATH.
 - Private API keys should be saved with `smart-search setup` or `smart-search config set`; environment variables remain supported for CI and advanced users.
 - In sandboxed runtimes, set `SMART_SEARCH_CONFIG_DIR` to an absolute writable path when the default config directory is unavailable or must be pinned.
-- The standard minimum profile requires one configured provider in each of `main_search`, `docs_search`, and fetch capability. Missing required capabilities are hard configuration failures.
-- Fallback must remain same-capability only. Do not use Context7 for broad news/web facts or page-extraction providers as documentation search replacements.
+- The standard minimum profile requires at least one enabled retrieval channel. Jev and a main model are optional; the requested operation still needs a capable channel.
+- Fallback stays within the same capability family; model answers and web search are mutual fallbacks in ordinary search. Do not use Context7 for broad news/web facts or page-extraction providers as documentation search replacements.
 - xAI Responses and OpenAI-compatible are peer `main_search` providers. Do not reuse one provider's URL/key to fabricate the other provider as fallback.
 - For current-news, policy, finance, health, and other high-risk facts, do not answer from broad `search.content` alone. Fetch key pages and summarize only what fetched text supports.
 - Native `web_search` is disabled in this CLI-first workflow unless the user explicitly configures another approved route; do not silently fall back to another web-search route.
