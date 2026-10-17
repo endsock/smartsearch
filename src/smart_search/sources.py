@@ -8,7 +8,7 @@ from typing import Any
 import asyncio
 
 from .config import config
-from .utils import extract_unique_urls
+from .utils import NO_WEB_SEARCH_MARKER, extract_unique_urls
 
 
 _MD_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
@@ -27,6 +27,17 @@ _SOURCES_FUNCTION_PATTERN = re.compile(
 )
 
 _THINK_BLOCK_PATTERN = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
+
+_INTENT_SENTENCE = re.compile(
+    r"(?:(?:ok(?:ay)?|sure|alright)[,!.]?\s+)?"
+    r"(?:(?:i'll|i will|i'm going to|i am going to|let me|let's|i need to|first,?\s+i'll)\b.{0,200}?"
+    r"\b(?:look|search|check|find|research|browse|dig|gather|pull|review|investigate|query|consult|verify)"
+    r"|(?:searching|looking up|looking into|checking|researching|gathering|browsing|pulling up)\b"
+    r"(?!\s+(?:is|are|was|were|can|could|will|would|should|has|have|must|may|might)\b))"
+    r"|(?:好的?[，,]?\s*)?(?:我|让我|下面我|接下来我|正在)(?:先|将|会|来|马上|去|再)*"
+    r"(?:检索|搜索|查找|查询|查一下|查阅|搜一下|调研|核实)",
+    re.IGNORECASE,
+)
 
 _LEADING_POLICY_PATTERNS = [
     re.compile(r"^I\s+cannot\s+(comply|assist|help|provide|fulfill)", re.IGNORECASE),
@@ -134,6 +145,21 @@ def merge_sources(*source_lists: list[dict]) -> list[dict]:
             seen.add(url)
             merged.append(item)
     return merged
+
+
+def model_answer_problem(answer: str, sources: list[dict]) -> tuple[str, str] | None:
+    if answer.strip().split("\n", 1)[0].strip("*_` ") == NO_WEB_SEARCH_MARKER:
+        return "no_web_search", "Search model reported that it has no web search access"
+    if not sources and not extract_unique_urls(answer):
+        return "no_sources", "Search model answer contained no source URLs"
+    body = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", answer.strip())
+    body = re.sub(r"https?://\S+", "", body)
+    body = re.sub(r"\[\d+\]", "", body).strip()
+    sentences = [s.strip(" -*>#") for s in re.split(r"(?<=[.!?])\s+|(?<=[。！？；])|\n+", body)]
+    sentences = [s for s in sentences if s]
+    if len(body) <= 500 and sentences and all(_INTENT_SENTENCE.match(s) for s in sentences):
+        return "preface_only", "Search model returned only a preface announcing a search"
+    return None
 
 
 def split_answer_and_sources(text: str) -> tuple[str, list[dict]]:

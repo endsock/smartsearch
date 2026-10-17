@@ -382,6 +382,75 @@ async def test_model_answer_without_sources_uses_same_capability_fallback(monkey
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fallback", ["auto", "off"])
+@pytest.mark.parametrize("primary", ["openai-compatible", "xai-responses"])
+@pytest.mark.parametrize("answer, reason, message", [
+    ("NO_WEB_SEARCH", "no_web_search", "Search model reported that it has no web search access"),
+    ("I'll look up this on https://example.org/page.", "preface_only", "Search model returned only a preface announcing a search"),
+])
+async def test_model_answer_quality_uses_same_capability_fallback(monkeypatch, primary, fallback, answer, reason, message):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "chat-completions")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "test-model")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_MODEL", "test-model")
+    monkeypatch.setenv("SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS", primary)
+    called = []
+    backup = "xai-responses" if primary == "openai-compatible" else "openai-compatible"
+
+    async def search(self, query, platform="", ctx=None):
+        provider = "openai-compatible" if isinstance(self, service.OpenAICompatibleSearchProvider) else "xai-responses"
+        called.append(provider)
+        if provider == primary:
+            return answer
+        return 'Retrieved answer.\n\nsources([{"url":"https://example.org/source","title":"Source"}])'
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", search)
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", search)
+    result = await service.search("Find this source", fallback=fallback)
+
+    assert called == ([primary, backup] if fallback == "auto" else [primary])
+    assert result["ok"] == (fallback == "auto")
+    attempt = [item for item in result["provider_attempts"] if item["provider"] == primary][-1]
+    assert attempt["status"] == "empty"
+    assert attempt["error_type"] == "evidence_error"
+    assert attempt["error"] == message
+    assert attempt["result_count"] == 0
+    if fallback == "auto":
+        assert result["content"] == "Retrieved answer."
+        assert result["provider"] == backup
+        assert result["answer_check"]["status"] == "passed"
+    else:
+        assert result["answer_check"] == {
+            "status": "rejected", "method": "local", "reason": reason, "provider": primary,
+            "api_mode": "chat-completions" if primary == "openai-compatible" else "xai-responses", "model": "test-model",
+        }
+        assert any("Search model answer rejected" in warning for warning in result["warnings"])
+        if primary == "openai-compatible":
+            assert any("XAI_API_URL" in warning for warning in result["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_rejected_model_answer_keeps_degraded_reason(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test")
+
+    async def search(self, query, platform="", ctx=None):
+        return "NO_WEB_SEARCH"
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", search)
+    result = await service.search("Find this source", providers="openai-compatible", fallback="auto")
+
+    assert result["ok"] is False
+    assert result["degraded"] is True
+    assert result["degraded_reason"].startswith("TYPESAFE_API_KEY is not configured")
+    assert result["answer_check"]["reason"] == "no_web_search"
+    assert any("XAI_API_URL" in warning for warning in result["warnings"])
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("provider", ["openai-compatible", "xai-responses"])
 async def test_model_answer_rejects_think_only_urls(monkeypatch, provider):
     monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
@@ -500,6 +569,8 @@ async def test_search_xai_stream_and_reasoning_effort(monkeypatch, mode, stream,
     original_client = httpx.AsyncClient
 
     async def judge(self, state, questions, timeout):
+        if "answer" in state:
+            return response(questions, {"substantive": 0.99, "contradicted": 0.01})
         judgments.append(state)
         return response(questions, {"channel_0": 0.99})
 

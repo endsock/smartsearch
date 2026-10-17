@@ -10,7 +10,7 @@ import time
 from dataclasses import replace
 from typing import Any
 
-from .jev import JevClient, assess_evidence, decide_synthesis, filter_evidence, has_source_evidence, noul, select_channels
+from .jev import JevClient, assess_evidence, check_model_answer, decide_synthesis, filter_evidence, has_source_evidence, noul, select_channels
 from .provider_descriptions import PROVIDER_DESCRIPTIONS
 from .provider_errors import ProviderCallError, classify_provider_exception
 
@@ -192,6 +192,23 @@ class ChannelExecutor:
                 return []
             raw = _check_data(data)["content"]
             answer, sources = svc.split_answer_and_sources(raw)
+            if not self.research and self.client.settings.api_key and self.client.last_error is None:
+                try:
+                    scores = await check_model_answer(self.client, query, answer, sources)
+                except ProviderCallError as exc:
+                    data["answer_check"] = {**data.get("answer_check", {}), "status": "unverified", "method": "jev",
+                                            "reason": "jev_error", "error": exc.error}
+                else:
+                    reason = "not_substantive" if scores["substantive"] < 0.5 else "contradicted_by_sources" if scores["contradicted"] >= 0.5 else ""
+                    data["answer_check"] = {**data.get("answer_check", {}), "status": "rejected" if reason else "passed",
+                                            "method": "jev", "reason": reason, "scores": scores}
+                    if reason:
+                        message = ("Search model answer did not substantively answer the question" if reason == "not_substantive"
+                                   else "Search model answer contradicted its cited sources")
+                        data.update(ok=False, error_type="evidence_error", error=message)
+                        if data.get("attempts"):
+                            data["attempts"][-1].update(status="empty", result_count=0, error_type="evidence_error", error=message)
+                        return []
             results = [{"title": "Search model response", "content": answer, "kind": "model_answer"}]
             # An answer's prose is not silently attributed to each cited page.
             results.extend({**source, "content": source.get("description") or source.get("title") or source.get("url", ""), "kind": "citation"} for source in sources)
@@ -649,6 +666,7 @@ async def search(
         error_type, error = "cancelled", source_message('任务已取消。')
     engines = (["jev"] if client.calls else []) + (["rules"] if any(item["selection_source"] != "jev" for item in rounds) else [])
     search_model = next((item for item in executor.model_results.values() if item.get("ok")), next(iter(executor.model_results.values()), {}))
+    answer_check = search_model.get("answer_check") or {"status": "not_run", "method": "", "reason": "no_model_answer"}
     model_fallback_used = any(item.get("fallback_from_model") for item in attempts)
     transport_fallback_used = any(item.get("fallback_from_transport") for item in attempts)
     primary_sources = [item for item in sources if item.get("kind") == "citation"] if ordinary_model_answer else []
@@ -673,7 +691,7 @@ async def search(
             "openai_compatible_timeout_policy": "remaining_budget",
             "search_timeout_seconds": timeout_seconds,
         },
-        "evidence_assessment": assessment, "result_filter": filter_info, "synthesis": synthesis,
+        "evidence_assessment": assessment, "answer_check": answer_check, "result_filter": filter_info, "synthesis": synthesis,
         "jev_usage": client.usage(), "jev_calls": client.calls, "warnings": warnings,
         "degraded": degraded or bool(failure),
         "degraded_reason": (warnings[-1] if warnings else "Jev did not select a suitable action; used local capability rules.") if degraded or failure else "",
@@ -685,6 +703,12 @@ async def search(
         "minimum_profile_ok": True, "capability_status": svc.get_capability_status(), "elapsed_ms": svc._elapsed_ms(start),
         **execution.telemetry(partial_success=bool(evidence and (not ok or failure or is_research and not assessment["sufficient"]))),
     }
+    # Appended after degraded_reason is chosen, so it still names the degradation cause.
+    if answer_check["status"] == "rejected":
+        warnings.append(f"Search model answer rejected ({answer_check['reason']}); the result uses other evidence if any.")
+        if (answer_check.get("provider") == "openai-compatible" and answer_check.get("api_mode") == "chat-completions"
+                and answer_check["reason"] in {"no_web_search", "no_sources", "preface_only"}):
+            warnings.append("OpenAI-compatible chat-completions sends no web search tool. If this model can only search through Responses tools, point XAI_API_URL, XAI_API_KEY and XAI_MODEL at a relay that supports /v1/responses.")
     return _research_result(svc, result, query, evidence, research_plan) if research_plan is not None else result
 
 

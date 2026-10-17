@@ -60,7 +60,7 @@ from .sciverse_schema import (
     normalize_sciverse_retrieval,
     normalize_sciverse_semantic_payload,
 )
-from .sources import merge_sources, new_session_id, split_answer_and_sources
+from .sources import merge_sources, model_answer_problem, new_session_id, split_answer_and_sources
 from .utils import extract_unique_urls, search_prompt
 
 
@@ -1714,10 +1714,15 @@ async def _search_model_channel(
             if not content:
                 raise ProviderCallError("network_error", "Search model returned an empty response")
             answer, sources = split_answer_and_sources(content)
-            if not sources and not extract_unique_urls(answer):
-                status, error_type, error = "empty", "evidence_error", "Search model answer contained no source URLs"
+            problem = model_answer_problem(answer, sources)
+            if problem:
+                status, error_type, error = "empty", "evidence_error", problem[1]
                 result.update(error_type=error_type, error=error)
+                result.update(answer_check={"status": "rejected", "method": "local", "reason": problem[0],
+                                            "provider": candidate["provider"], "api_mode": api_mode, "model": candidate["model"]})
                 continue
+            result["answer_check"] = {"status": "passed", "method": "local", "reason": "",
+                                      "provider": candidate["provider"], "api_mode": api_mode, "model": candidate["model"]}
             status = "ok"
             result.update(ok=True, content=content, model=candidate["model"], primary_api_mode=candidate["mode"],
                           error_type="", error="")
@@ -2908,6 +2913,36 @@ async def _probe_openai_compatible_search_shape(
         )
 
 
+async def _probe_openai_compatible_web_search(
+    api_url: str,
+    api_key: str,
+    model: str,
+    *,
+    api_mode: str,
+    stream: bool,
+    timeout_seconds: float,
+) -> dict:
+    name = "联网搜索能力"
+    start = time.time()
+    provider = OpenAICompatibleSearchProvider(api_url, api_key, model, stream=stream, api_mode=api_mode)
+    answer = ""
+    try:
+        content = await asyncio.wait_for(provider.search("What is the latest stable Python release? Cite the source URL."), timeout_seconds)
+        answer, sources = split_answer_and_sources(content or "")
+        problem = model_answer_problem(answer, sources)
+        if problem:
+            status, message = "warning", f"{problem[1]}（{problem[0]}）"
+        else:
+            status, message = "ok", f"返回 {len(sources) or len(extract_unique_urls(answer))} 个来源"
+    except asyncio.TimeoutError:
+        status, message = "timeout", f"请求超时（{timeout_seconds:g} 秒）"
+    except Exception as e:
+        status, message = "error", f"运行错误: {sanitize_provider_error_message(e)}"
+    return _diagnose_check_result(
+        name=name, status=status, message=message, start=start, has_content=bool(answer.strip()), stream=stream,
+    )
+
+
 async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str, Any]:
     if disabled := _provider_disabled_result("openai-compatible"):
         return disabled
@@ -3004,6 +3039,10 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
         probe_kwargs["api_mode"] = api_mode
     stream = await _probe_openai_compatible_search_shape(api_url, api_key, model, **probe_kwargs)
     result["checks"].append(stream)
+    web = await _probe_openai_compatible_web_search(api_url, api_key, model, api_mode=api_mode,
+                                                   stream=config.openai_compatible_stream, timeout_seconds=timeout_seconds)
+    result["checks"].append(web)
+    result["web_search_capable"] = web["status"] == "ok"
 
     available_models: list[str] = []
     try:
@@ -3030,6 +3069,8 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
     result["timeout_policy"] = OPENAI_COMPATIBLE_TIMEOUT_POLICY
 
     ok, summary, recommendation = _openai_compatible_diagnosis(quick_check, no_stream, stream)
+    if web["status"] != "ok":
+        recommendation = source_message('{0} 另外，联网搜索能力检查未通过：{1}。OpenAI-compatible 不会发送搜索工具；如果该模型只能通过 Responses 的 web_search 工具联网，请把 XAI_API_URL、XAI_API_KEY、XAI_MODEL 指向支持 /v1/responses 的中转站。', recommendation, web['message'])
     if inventory.get("status") == "warning":
         recommendation = source_message('{0} 另外，{1}。兜底只在主模型硬失败后接力，不会再把主模型砍成 30 秒。', recommendation, inventory['message'])
     result.update(

@@ -1292,6 +1292,10 @@ async def test_search_gives_fallback_remaining_budget_after_primary_hard_failure
 
 @pytest.mark.asyncio
 async def test_diagnose_reports_unknown_fallback_models_without_failing_ok(monkeypatch):
+    async def fake_web(*args, **kwargs):
+        return {"name": "联网搜索能力", "status": "ok", "message": "返回 1 个来源", "has_content": True}
+
+    monkeypatch.setattr(service, "_probe_openai_compatible_web_search", fake_web)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
     monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "grok-4.6")
@@ -2265,6 +2269,10 @@ async def test_diagnose_openai_compatible_reports_missing_config(monkeypatch, tm
 
 @pytest.mark.asyncio
 async def test_diagnose_openai_compatible_timeout_after_quick_chat(monkeypatch):
+    async def fake_web(*args, **kwargs):
+        return {"name": "联网搜索能力", "status": "ok", "message": "返回 1 个来源", "has_content": True}
+
+    monkeypatch.setattr(service, "_probe_openai_compatible_web_search", fake_web)
     async def models(*args): return []
     monkeypatch.setattr(service, "fetch_available_models", models)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
@@ -2299,6 +2307,10 @@ async def test_diagnose_openai_compatible_timeout_after_quick_chat(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_diagnose_openai_compatible_recommends_stream_when_only_stream_works(monkeypatch):
+    async def fake_web(*args, **kwargs):
+        return {"name": "联网搜索能力", "status": "ok", "message": "返回 1 个来源", "has_content": True}
+
+    monkeypatch.setattr(service, "_probe_openai_compatible_web_search", fake_web)
     async def models(*args): return []
     monkeypatch.setattr(service, "fetch_available_models", models)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
@@ -2329,6 +2341,10 @@ async def test_diagnose_openai_compatible_recommends_stream_when_only_stream_wor
 
 @pytest.mark.asyncio
 async def test_diagnose_openai_compatible_recommends_no_stream_when_stream_fails(monkeypatch):
+    async def fake_web(*args, **kwargs):
+        return {"name": "联网搜索能力", "status": "ok", "message": "返回 1 个来源", "has_content": True}
+
+    monkeypatch.setattr(service, "_probe_openai_compatible_web_search", fake_web)
     async def models(*args): return []
     monkeypatch.setattr(service, "fetch_available_models", models)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
@@ -2359,6 +2375,10 @@ async def test_diagnose_openai_compatible_recommends_no_stream_when_stream_fails
 
 @pytest.mark.asyncio
 async def test_diagnose_openai_compatible_reports_ok_when_both_search_shapes_work(monkeypatch):
+    async def fake_web(*args, **kwargs):
+        return {"name": "联网搜索能力", "status": "ok", "message": "返回 1 个来源", "has_content": True}
+
+    monkeypatch.setattr(service, "_probe_openai_compatible_web_search", fake_web)
     async def models(*args): return []
     monkeypatch.setattr(service, "fetch_available_models", models)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
@@ -2382,6 +2402,11 @@ async def test_diagnose_openai_compatible_reports_ok_when_both_search_shapes_wor
 
 @pytest.mark.asyncio
 async def test_diagnose_openai_compatible_uses_responses_mode_for_every_probe(monkeypatch):
+    async def fake_web(*args, **kwargs):
+        assert kwargs["api_mode"] == "responses"
+        return {"name": "联网搜索能力", "status": "ok", "message": "返回 1 个来源", "has_content": True}
+
+    monkeypatch.setattr(service, "_probe_openai_compatible_web_search", fake_web)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1/responses/")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "responses")
@@ -2427,12 +2452,47 @@ async def test_diagnose_rejects_invalid_api_mode_without_probe(monkeypatch):
         raise AssertionError("diagnose should reject invalid mode locally")
 
     monkeypatch.setattr(service, "_probe_openai_compatible_search_shape", should_not_probe)
+    monkeypatch.setattr(service, "_probe_openai_compatible_web_search", should_not_probe)
 
     result = await service.diagnose_openai_compatible()
 
     assert result["ok"] is False
     assert result["error_type"] == "parameter_error"
     assert "Invalid OPENAI_COMPATIBLE_API_MODE" in result["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("web_status", ["warning", "ok"])
+async def test_diagnose_web_search_capability_does_not_change_connectivity_ok(monkeypatch, web_status):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test")
+
+    async def fake_quick(*args, **kwargs):
+        return {"status": "ok", "message": "chat ok", "has_content": True}
+
+    async def fake_probe(*args, **kwargs):
+        return {"name": "probe", "status": "ok", "message": "ok", "has_content": True}
+
+    async def fake_web(*args, **kwargs):
+        return {"name": "联网搜索能力", "status": web_status,
+                "message": "返回 1 个来源" if web_status == "ok" else "Search model reported that it has no web search access（no_web_search）",
+                "has_content": True}
+
+    async def fake_models(*args):
+        return []
+
+    monkeypatch.setattr(service, "_test_primary_chat_completion", fake_quick)
+    monkeypatch.setattr(service, "_probe_openai_compatible_search_shape", fake_probe)
+    monkeypatch.setattr(service, "_probe_openai_compatible_web_search", fake_web)
+    monkeypatch.setattr(service, "fetch_available_models", fake_models)
+    result = await service.diagnose_openai_compatible()
+
+    assert result["ok"] is True
+    assert result["web_search_capable"] is (web_status == "ok")
+    assert result["checks"][3]["name"] == "联网搜索能力"
+    assert result["checks"][3]["status"] == web_status
+    if web_status == "warning":
+        assert "XAI_API_URL" in result["recommendation"]
 
 
 @pytest.mark.asyncio

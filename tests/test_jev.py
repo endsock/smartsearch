@@ -45,7 +45,8 @@ def answer_payload(questions, scores):
     }
 
 
-def scripted_jev(monkeypatch, selections, assessments, *, filter_score=None, synthesis_score=None):
+def scripted_jev(monkeypatch, selections, assessments, *, filter_score=None, synthesis_score=None,
+                 answer_score={"substantive": 0.99, "contradicted": 0.01}):
     """Stub only the remote boundary; retain parsing and all workflow decisions."""
     calls = []
     selections = iter(selections)
@@ -64,6 +65,10 @@ def scripted_jev(monkeypatch, selections, assessments, *, filter_score=None, syn
             if isinstance(synthesis_score, Exception):
                 raise synthesis_score
             scores = {"synthesize": synthesis_score}
+        elif "answer" in state:
+            if isinstance(answer_score, Exception):
+                raise answer_score
+            scores = answer_score
         else:
             scores = next(assessments)
         return answer_payload(questions, scores)
@@ -78,6 +83,84 @@ def hit(text, url="https://example.org/docs", title="Documentation"):
 
 def evidence(text, number):
     return {"id": f"e{number}", "provider": "exa", "url": f"https://example.org/{number}", "title": f"Result {number}", "content": text}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer_score, reason, message", [
+    ({"substantive": 0.1, "contradicted": 0.01}, "not_substantive", "Search model answer did not substantively answer the question"),
+    ({"substantive": 0.99, "contradicted": 0.9}, "contradicted_by_sources", "Search model answer contradicted its cited sources"),
+])
+async def test_ordinary_search_rejects_model_answer_and_uses_web_fallback(monkeypatch, configured, answer_score, reason, message):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test")
+    calls = scripted_jev(monkeypatch, [{"xai-responses:search"}], [], answer_score=answer_score)
+    dispatched = []
+
+    async def model_search(self, query, platform="", ctx=None):
+        dispatched.append("xai-responses")
+        return 'Model conclusion.\n\nsources([{"url":"https://example.org/source","title":"Source","description":"Source excerpt"}])'
+
+    async def web_search(query, count):
+        dispatched.append("tavily")
+        return [hit("Retrieved web evidence")]
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", model_search)
+    monkeypatch.setattr(service, "call_tavily_search", web_search)
+    result = await service.search("Explain this subject")
+
+    assert result["ok"]
+    assert dispatched == ["xai-responses", "tavily"]
+    assert result["provider"] == "tavily"
+    assert "Model conclusion" not in result["content"]
+    assert "Retrieved web evidence" in result["content"]
+    assert result["answer_check"]["status"] == "rejected"
+    assert result["answer_check"]["reason"] == reason
+    assert result["answer_check"]["method"] == "jev"
+    assert result["answer_check"]["scores"] == answer_score
+    attempt = result["provider_attempts"][0]
+    assert attempt["status"] == "empty"
+    assert attempt["result_count"] == 0
+    assert attempt["error_type"] == "evidence_error"
+    assert attempt["error"] == message
+    assert sum("answer" in state for state, _ in calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_ordinary_search_keeps_model_answer_when_jev_check_fails(monkeypatch, configured):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    calls = scripted_jev(monkeypatch, [{"xai-responses:search"}], [],
+                         answer_score=ProviderCallError("network_error", "Answer check unavailable"))
+
+    async def model_search(self, query, platform="", ctx=None):
+        return 'Model conclusion.\n\nsources([{"url":"https://example.org/source","title":"Source"}])'
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", model_search)
+    result = await service.search("Explain this subject")
+
+    assert result["ok"]
+    assert result["content"] == "Model conclusion."
+    assert result["answer_check"]["status"] == "unverified"
+    assert result["answer_check"]["method"] == "jev"
+    assert result["answer_check"]["reason"] == "jev_error"
+    assert result["answer_check"]["error"] == "Answer check unavailable"
+    assert sum("answer" in state for state, _ in calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_research_does_not_check_model_answer(monkeypatch, configured):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    calls = scripted_jev(monkeypatch, [{"xai-responses:search"}], [{"useful": 0.99, "sufficient": 0.95}],
+                         answer_score=AssertionError("research must not check model answers"))
+
+    async def model_search(self, query, platform="", ctx=None):
+        return 'Model conclusion.\n\nsources([{"url":"https://example.org/source","title":"Source"}])'
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", model_search)
+    result = await run_loop("Explain this subject")
+
+    assert result["ok"]
+    assert all("answer" not in state for state, _ in calls)
+    assert [call["phase"] for call in result["jev_calls"]] == ["selection", "assessment"]
 
 
 @pytest.mark.asyncio
