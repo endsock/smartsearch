@@ -24,7 +24,77 @@ from smart_search import activity, cli
 from smart_search.config import config
 from smart_search.desktop_backend import Backend, child_environment
 from smart_search import desktop_worker
+from smart_search import service, jev_search
 from smart_search.desktop_catalog import command_catalog
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["retrieval", "selection", "assessment", "filtering", "synthesis"])
+async def test_cancelled_research_keeps_completed_evidence_in_worker_result(monkeypatch, tmp_path, phase):
+    completed, blocked, child_cancelled = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    record_result = service._record_provider_result
+    selections = 0
+
+    async def pause():
+        blocked.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            child_cancelled.set()
+
+    def record(provider, status, *args, **kwargs):
+        result = record_result(provider, status, *args, **kwargs)
+        if status == "ok":
+            completed.set()
+        return result
+
+    async def fetch(url):
+        if url.endswith("/b"):
+            return await pause()
+        return "Completed source text"
+
+    async def select(client, query, candidates, **kwargs):
+        nonlocal selections
+        selections += 1
+        if phase == "selection" and selections == 2:
+            return await pause()
+        return [c for c in candidates if c["operation"] == "fetch"][:2 if phase == "retrieval" else 1], {}
+
+    async def assess(*args, **kwargs):
+        if phase == "assessment":
+            return await pause()
+        return {"status": "partial" if phase == "selection" else "sufficient", "useful": True,
+                "sufficient": phase != "selection", "gaps": ["detail"] if phase == "selection" else []}
+
+    async def optional_step(*args, **kwargs):
+        return await pause()
+
+    monkeypatch.setattr(service, "_record_provider_result", record)
+    monkeypatch.setattr(service, "call_tavily_extract", fetch)
+    monkeypatch.setattr(jev_search, "select_channels", select)
+    monkeypatch.setattr(jev_search, "assess_evidence", assess)
+    monkeypatch.setattr(jev_search, "filter_evidence", optional_step)
+    monkeypatch.setattr(jev_search.ChannelExecutor, "synthesize", optional_step)
+    run_id = uuid.uuid4().hex
+    payload = {"method": "run.start", "command": "research", "params": {"arguments": [
+        "https://example.com/a https://example.com/b", "--budget", "standard", "--evidence-dir", str(tmp_path / "evidence")]},
+        "values": {"TYPESAFE_API_KEY": "synthetic-jev", "TAVILY_API_KEY": "synthetic-tavily",
+                   "SMART_SEARCH_JEV_FILTER_RESULTS": str(phase == "filtering").lower(),
+                   "SMART_SEARCH_JEV_SYNTHESIZE": str(phase == "synthesis").lower()},
+        "config_dir": str(tmp_path), "run_id": run_id, "language": "en"}
+    task = asyncio.create_task(desktop_worker.execute(payload))
+    await asyncio.wait_for(completed.wait(), 3)
+    await asyncio.wait_for(blocked.wait(), 3)
+    task.cancel()
+    envelope = await asyncio.wait_for(task, 3)
+    result = envelope["result"]
+    assert envelope["status"] == "cancelled" and result["error_type"] == "cancelled"
+    assert not result["ok"] and result["partial_success"] and child_cancelled.is_set()
+    assert "Completed source text" in result["content"]
+    assert [item["url"] for item in result["citations"]] == ["https://example.com/a"]
+    assert result["routing_decision"]["stop_reason"] == "cancelled"
+    assert activity.ActivityStore(tmp_path).list_runs()[0]["status"] == "cancelled"
+    assert json.loads((tmp_path / "evidence/summary.json").read_text(encoding="utf-8"))["partial_success"]
 
 
 def test_cli_observation_preserves_stdout_exit_and_privacy(tmp_path):

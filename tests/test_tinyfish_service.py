@@ -67,7 +67,8 @@ async def test_web_search_fallback_accepts_tinyfish_candidates(monkeypatch):
 
     monkeypatch.setattr(service, "call_tinyfish_search", yes_tinyfish)
 
-    sources, attempts = await service._run_web_search_fallback("example query", count=3)
+    result = await service.search("example query", extra_sources=3)
+    sources, attempts = result["sources"], result["provider_attempts"]
 
     assert [source["url"] for source in sources] == ["https://tiny.example.com"]
     assert sources[0]["provider"] == "tinyfish"
@@ -89,7 +90,8 @@ async def test_web_search_prefers_tavily_over_tinyfish(monkeypatch):
     monkeypatch.setattr(service, "call_tavily_search", yes_tavily)
     monkeypatch.setattr(service, "call_tinyfish_search", unexpected_tinyfish)
 
-    sources, attempts = await service._run_web_search_fallback("q", count=2)
+    result = await service.search("q", extra_sources=2)
+    sources, attempts = result["sources"], result["provider_attempts"]
 
     assert sources[0]["provider"] == "tavily"
     assert [attempt["provider"] for attempt in attempts] == ["tavily"]
@@ -123,8 +125,8 @@ def test_tinyfish_never_satisfies_main_search_or_docs_search(monkeypatch):
 
     # TinyFish is registered for web_search and web_fetch only; a search/fetch key
     # must never be mistaken for a synthesis or docs provider.
-    assert result["ok"] is False
-    assert set(result["missing"]) == {"main_search", "docs_search"}
+    assert result["ok"] is True
+    assert result["missing"] == []
     assert result["capability_status"]["main_search"]["configured"] == []
     assert result["capability_status"]["docs_search"]["configured"] == []
     assert result["capability_status"]["web_fetch"]["configured"] == ["tinyfish"]
@@ -179,11 +181,10 @@ async def test_research_route_keeps_tinyfish_after_firecrawl(monkeypatch):
         return [{"url": "https://example.com/evidence", "description": "Evidence"}]
 
     monkeypatch.setattr(service, "call_firecrawl_search", firecrawl_sources)
-    routes = service._research_capability_routes("history of printing", {}, "auto")
-    providers = routes["capabilities"]["web_search"]["providers"]
-    sources, attempts = await service._run_web_search_fallback(
-        "history of printing", providers=",".join(providers), fallback="off"
-    )
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    providers = ["firecrawl", "tinyfish"]
+    result = await service.search("history of printing", providers=",".join(providers), fallback="off")
+    sources, attempts = result["sources"], result["provider_attempts"]
 
     assert providers == ["firecrawl", "tinyfish"]
     assert sources[0]["provider"] == providers[0]

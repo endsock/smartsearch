@@ -1,8 +1,8 @@
 [Guide](../README.md) · [简体中文](../zh-CN/configuration-reference.md)
 
-# All configuration keys
+# Active configuration keys
 
-Generated from current configuration metadata. All saved keys appear below. See the [configuration guide](configuration.md) for key registration, precedence, runtime environment variables, and the minimum capability profile. Supply your own credentials; unconfigured optional providers are not enabled automatically.
+Generated from current configuration metadata. Active keys appear below. Retired embedding/classifier fields remain storable but are not executed. See the [configuration guide](configuration.md) for key registration, precedence, runtime environment variables, and the minimum capability profile. Supply your own credentials; unconfigured optional providers are not enabled automatically.
 
 ## Start here
 
@@ -75,30 +75,21 @@ Generated from current configuration metadata. All saved keys appear below. See 
 
 | Key | Purpose and conditions | Type / values | Default |
 | --- | --- | --- | --- |
-| `SMART_SEARCH_INTENT_ROUTER` | jev selects channels and evaluates evidence with its own key; hybrid combines rules and models; rules uses rules only; off disables routing. | `hybrid, jev, off, rules` | `hybrid` |
-| `TYPESAFE_API_KEY` | Separate credentials for optional semantic routing; adding a key does not switch modes. | `secret` | Not set |
+| `SMART_SEARCH_INTENT_ROUTER` | Jev selects a channel when available; local mode calls no router model. Ordinary search always uses one round. | `jev, local` | `jev` |
+| `TYPESAFE_API_KEY` | Optional. The default uses Jev; without a key it selects a configured retrieval channel locally. | `secret` | Not set |
 | `TYPESAFE_API_URL` | TypeSafe base URL for JEV mode only. Defaults to https://api.typesafe.ai/v1; /systemone is added automatically. This is not a search-provider URL. | `url` | `https://api.typesafe.ai/v1` |
 | `TYPESAFE_MODEL` | TypeSafe model identifier for judging channels and evidence, separate from the main search model. Usually leave the default. | `text` | `jev-latest` |
 | `SMART_SEARCH_JEV_TIMEOUT_SECONDS` | Maximum seconds to wait for one response from this service. A timeout returns an error or uses the configured fallback; normally leave the default. | `float` | `15` |
-| `SMART_SEARCH_JEV_MAX_ROUNDS` | Maximum retrieval and evidence-review rounds. More rounds can increase time and cost. | `int` | `3` |
-| `SMART_SEARCH_JEV_MAX_CHANNELS` | Maximum retrieval channels per round. Larger values may generate more requests. | `int` | `3` |
+| `SMART_SEARCH_JEV_MAX_ROUNDS` | Research only. Stops early when sufficient; ordinary search ignores this setting. | `int` | `3` |
+| `SMART_SEARCH_JEV_MAX_CHANNELS` | Research only: maximum concurrent channels per round. Ordinary search selects one. | `int` | `3` |
 | `SMART_SEARCH_JEV_RESULTS_PER_CHANNEL` | Requested results per retrieval channel. Usually leave the default. | `int` | `5` |
 | `SMART_SEARCH_JEV_ROUTE_THRESHOLD` | From 0 to 1. A channel must meet this suitability score to be selected; higher values select fewer channels. | `float` | `0.5` |
-| `SMART_SEARCH_JEV_SUFFICIENCY_THRESHOLD` | From 0 to 1. Stop retrieving when evidence reaches this sufficiency score; higher values demand more evidence. | `float` | `0.75` |
-| `SMART_SEARCH_JEV_FILTER_RESULTS` | Adds judgment calls; overall cost savings are not guaranteed. | `bool` | `false` |
-| `SMART_SEARCH_JEV_FILTER_THRESHOLD` | From 0 to 1, used only when evidence filtering is enabled. Results below this relevance score are filtered. | `float` | `0.1` |
-| `SMART_SEARCH_JEV_SYNTHESIZE` | false returns evidence; auto decides whether to summarize; true uses the configured main model. | `false, auto, true` | `false` |
-| `INTENT_EMBEDDING_API_URL` | Optional full embedding endpoint including /v1/embeddings. It identifies required capabilities, not search answers. Enabled in hybrid mode when URL, key and model are all set. | `url` | Not set |
-| `INTENT_EMBEDDING_API_KEY` | Key issued by the embedding service. It must match the endpoint and model; leave empty to disable embedding-based routing. | `secret` | Not set |
-| `INTENT_EMBEDDING_MODEL` | Exact embedding model identifier, for example BAAI/bge-m3. This is not a chat model; use an identifier supported by the endpoint. | `text` | Not set |
-| `INTENT_EMBEDDING_THRESHOLD` | Between 0 and 1. | `float` | `0.74` |
-| `INTENT_EMBEDDING_MARGIN` | Between 0 and 1. | `float` | `0.05` |
-| `INTENT_CLASSIFIER_API_URL` | Optional full chat endpoint including /v1/chat/completions for query classification. Enabled in hybrid mode when URL, key and model are all set; rules still work when omitted. | `url` | Not set |
-| `INTENT_CLASSIFIER_API_KEY` | Key for the classifier endpoint. The main search key is not automatically reused. | `secret` | Not set |
-| `INTENT_CLASSIFIER_MODEL` | Chat model identifier for classification. It must support JSON output at this endpoint and is configured separately from the main search model. | `text` | Not set |
-| `INTENT_ROUTER_TIMEOUT_SECONDS` | Maximum seconds to wait for one response from this service. A timeout returns an error or uses the configured fallback; normally leave the default. | `float` | `8` |
-| `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` | Comma-separated provider ids to prefer during deep research. | `csv` | Not set |
-| `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` | Comma-separated provider ids to keep out of deep research entirely. | `csv` | Not set |
+| `SMART_SEARCH_JEV_SUFFICIENCY_THRESHOLD` | Research only. A 0–1 stopping threshold, not a guarantee of factual correctness. | `float` | `0.75` |
+| `SMART_SEARCH_JEV_FILTER_RESULTS` | Research only. Adds judgments; overall cost savings are not guaranteed. | `bool` | `false` |
+| `SMART_SEARCH_JEV_FILTER_THRESHOLD` | Research filtering only, from 0 to 0.49. Only low-relevance passages are removed. | `float` | `0.1` |
+| `SMART_SEARCH_JEV_SYNTHESIZE` | Research only: false returns evidence; auto decides; true uses the configured main model. | `false, auto, true` | `false` |
+| `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` | Comma-separated provider ids, preferred when suitable in both search modes. | `csv` | Not set |
+| `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` | Comma-separated provider ids excluded from automatic routing in both modes. | `csv` | Not set |
 
 ## Timeouts and fallback
 

@@ -1,4 +1,4 @@
-"""The metadata registry must describe every config key, forever.
+"""The metadata registry describes every active configuration key.
 
 The single assertion that matters here is the key-set equality: without it, a 69th
 config key gets added to config.py and the UI silently stops being complete.
@@ -18,9 +18,10 @@ from smart_search.ui_metadata import (
 )
 
 
-def test_every_config_key_is_described():
+def test_every_active_config_key_is_described():
     described = {item.key for item in CONFIG_FIELDS}
-    missing = sorted(Config._CONFIG_KEYS - described)
+    missing = sorted(Config._CONFIG_KEYS - Config.RETIRED_ROUTER_KEYS - described)
+    assert not described.intersection(Config.RETIRED_ROUTER_KEYS)
     unknown = sorted(described - Config._CONFIG_KEYS)
     assert not missing, (
         f"these config keys have no UI metadata: {missing}. "
@@ -63,13 +64,9 @@ def test_field_help_and_routing_endpoint_examples_reach_the_frontends():
         assert item["help_zh"].strip() and item["help_en"].strip(), key
         if item["kind"] == "url":
             assert item["placeholder"] or item["default"], key
-    for key, endpoint in (
-        ("INTENT_EMBEDDING_API_URL", "/v1/embeddings"),
-        ("INTENT_CLASSIFIER_API_URL", "/v1/chat/completions"),
-    ):
-        assert fields[key]["placeholder"].endswith(endpoint)
-        assert endpoint in fields[key]["help_en"]
-        assert fields[key]["default"] == ""  # Examples must not enable a service.
+    assert fields["TYPESAFE_API_URL"]["default"] == "https://api.typesafe.ai/v1"
+    assert not set(fields).intersection(Config.RETIRED_ROUTER_KEYS)
+
 
 
 @pytest.mark.parametrize(
@@ -84,7 +81,10 @@ def test_field_help_and_routing_endpoint_examples_reach_the_frontends():
 )
 def test_enum_choices_track_the_config_layer(key, allowed_attr):
     # A new enum member must not be able to slip past the UI.
-    assert set(FIELDS_BY_KEY[key].choices) == set(getattr(Config, allowed_attr))
+    expected = set(getattr(Config, allowed_attr))
+    if key == "SMART_SEARCH_INTENT_ROUTER":
+        expected = {service.normalize_router_mode(value) for value in expected}
+    assert set(FIELDS_BY_KEY[key].choices) == expected
 
 
 def test_provider_ids_are_real():
@@ -116,12 +116,9 @@ def test_every_testable_provider_has_at_least_one_field():
         ("SMART_SEARCH_FALLBACK_MODE", "_DEFAULT_FALLBACK_MODE"),
         ("SMART_SEARCH_MINIMUM_PROFILE", "_DEFAULT_MINIMUM_PROFILE"),
         ("SMART_SEARCH_INTENT_ROUTER", "_DEFAULT_INTENT_ROUTER_MODE"),
-        ("INTENT_ROUTER_TIMEOUT_SECONDS", "_DEFAULT_INTENT_ROUTER_TIMEOUT_SECONDS"),
         ("SMART_SEARCH_TIMEOUT_SECONDS", "_DEFAULT_SEARCH_TIMEOUT_SECONDS"),
         ("SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS", "_DEFAULT_PROVIDER_COOLDOWN_SECONDS"),
         ("SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD", "_DEFAULT_PROVIDER_FAILURE_THRESHOLD"),
-        ("INTENT_EMBEDDING_THRESHOLD", "_DEFAULT_INTENT_EMBEDDING_THRESHOLD"),
-        ("INTENT_EMBEDDING_MARGIN", "_DEFAULT_INTENT_EMBEDDING_MARGIN"),
     ],
 )
 def test_displayed_defaults_match_the_config_constants(key, constant):

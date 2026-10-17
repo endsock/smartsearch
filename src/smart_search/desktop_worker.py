@@ -57,7 +57,8 @@ async def execute(payload: dict) -> dict:
                 if payload["method"] == "run.start":
                     render_command = "smoke" if payload["command"] == "regression" else payload["command"].split("/")[0]
                     result["display_text"] = cli._render(render_command, result, "markdown")
-                return {"status": "finished" if code == 0 else "failed", "result": redact(result), "exit_code": code}
+                return {"status": "cancelled" if result.get("error_type") == "cancelled" else "finished" if code == 0 else "failed",
+                        "result": redact(result), "exit_code": code}
             except asyncio.CancelledError:
                 run.finish(5, "cancelled")
                 return {"status": "cancelled", "result": {"ok": False, "error_type": "cancelled", "error": tr('任务已取消。')}, "exit_code": 5}

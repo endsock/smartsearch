@@ -190,12 +190,9 @@ struct ConfigField: Identifiable, Hashable {
         if !placeholder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return placeholder }
         if !defaultValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return defaultValue }
         switch key {
-        case "OPENAI_COMPATIBLE_MODEL", "INTENT_CLASSIFIER_MODEL": return "gpt-4o"
+        case "OPENAI_COMPATIBLE_MODEL": return "gpt-4o"
         case "OPENAI_COMPATIBLE_FALLBACK_MODELS": return "gpt-4o,deepseek-chat"
         case "JINA_RESPOND_WITH": return "readerlm-v2"
-        case "INTENT_EMBEDDING_API_URL": return "https://api.siliconflow.cn/v1/embeddings"
-        case "INTENT_EMBEDDING_MODEL": return "Qwen/Qwen3-Embedding-8B"
-        case "INTENT_CLASSIFIER_API_URL": return "https://api.example.com/v1/chat/completions"
         case "SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS": return "exa,tavily"
         case "SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS": return "anysearch,sciverse"
         default: break

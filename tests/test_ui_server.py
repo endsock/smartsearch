@@ -204,8 +204,8 @@ def test_state_carries_the_full_field_metadata(running, monkeypatch):
     _httpd, runtime = running
     _response, raw = request(runtime, "GET", "/api/state", token=runtime.token)
     payload = json.loads(raw)
-    assert len(payload["metadata"]["fields"]) == len(service.config._CONFIG_KEYS)
-    assert payload["minimum_profile"]["required"] == ["main_search", "docs_search", "web_fetch"]
+    assert len(payload["metadata"]["fields"]) == len(service.config._CONFIG_KEYS - service.config.RETIRED_ROUTER_KEYS)
+    assert payload["minimum_profile"]["required"] == ["retrieval"]
     assert set(payload["capability_status"]) >= {"main_search", "docs_search", "web_fetch"}
     assert payload["probe_kinds"]["exa"] == "live"
 

@@ -17,25 +17,16 @@ from .config import config
 from . import activity
 from .jev import JevClient, noul
 from .intent_router import (
-    CAPABILITY_UTTERANCES,
     CURRENT_INTENT_KEYWORDS as ROUTER_CURRENT_INTENT_KEYWORDS,
-    DEFAULT_ROUTE_CALIBRATION_MODELS,
-    DEFAULT_SEMANTIC_CONFIDENCE_MARGIN,
-    DEFAULT_SEMANTIC_CONFIDENCE_THRESHOLD,
     DOCS_INTENT_KEYWORDS as ROUTER_DOCS_INTENT_KEYWORDS,
     FETCH_INTENT_KEYWORDS as ROUTER_FETCH_INTENT_KEYWORDS,
-    ROUTABLE_CAPABILITIES,
-    ROUTE_CALIBRATION_QUERIES,
     VERTICAL_INTENT_KEYWORDS as ROUTER_VERTICAL_INTENT_KEYWORDS,
-    IntentRouteResult,
-    IntentRouter,
     build_rules_route,
     extract_urls as router_extract_urls,
-    _classifier_can_add_capability,
-    _cosine_similarity,
-    _ordered_capabilities,
-    _semantic_summary,
+    normalize_router_mode,
 )
+
+
 from .logger import log_info
 from .providers.anysearch import AnySearchProvider
 from .providers.context7 import Context7Provider
@@ -169,7 +160,6 @@ DEEP_EXA_DISCOVERY_KEYWORDS = {
     "standards",
 }
 RESEARCH_ROUTE_POLICY_VERSION = "research-router-v1"
-RESEARCH_VERTICAL_KEYWORDS = ROUTER_VERTICAL_INTENT_KEYWORDS
 RESEARCH_JS_HEAVY_KEYWORDS = {
     "js-heavy",
     "javascript",
@@ -335,7 +325,6 @@ MAIN_SEARCH_PROVIDER_ALIASES = {
 MODEL_BREAKER_FAILURE_THRESHOLD = 2
 MODEL_BREAKER_COOLDOWN_SECONDS = 600.0
 _OPENAI_COMPATIBLE_MODEL_BREAKERS: dict[tuple[str, str, str], dict[str, Any]] = {}
-MAIN_SEARCH_RESERVE_CAP_SECONDS = 240.0
 
 
 class SearchBudget:
@@ -353,19 +342,6 @@ class SearchBudget:
 
     def remaining_seconds(self) -> float:
         return max(0.0, self.deadline - time.monotonic())
-
-    def main_reserve_seconds(self) -> float:
-        return min(MAIN_SEARCH_RESERVE_CAP_SECONDS, self.total_seconds * (2.0 / 3.0))
-
-    def router_cap_seconds(self, configured_timeout: float) -> float:
-        """Keep remote routing inside its shared cap and preserve main capacity."""
-        return max(
-            0.0,
-            min(
-                max(0.0, float(configured_timeout)),
-                max(0.0, self.remaining_seconds() - self.main_reserve_seconds()),
-            ),
-        )
 
 
 class SearchExecutionState:
@@ -438,93 +414,6 @@ def _resolve_search_timeout(timeout_seconds: float | None) -> float:
     if not math.isfinite(value) or value <= 0:
         raise ValueError(source_message('Invalid --timeout: {0}. Expected a positive finite number.', timeout_seconds))
     return value
-
-
-async def _run_budgeted_phase(
-    operation: Any,
-    budget: SearchBudget,
-    execution: SearchExecutionState,
-    phase: str,
-    *,
-    max_seconds: float | None = None,
-    timeout_reason: str,
-    details: dict[str, Any] | None = None,
-) -> tuple[bool, Any]:
-    """Run one scheduler phase without allowing it to outlive the shared deadline."""
-    phase_start = time.monotonic()
-    available = budget.remaining_seconds()
-    if max_seconds is not None:
-        available = min(available, max(0.0, max_seconds))
-    if available <= 0:
-        execution.record(phase, "skipped", phase_start, 0.0, timeout_reason, details)
-        return False, None
-    try:
-        activity.progress(phase)
-        result = await asyncio.wait_for(operation(), timeout=available)
-    except asyncio.TimeoutError:
-        execution.record(phase, "timeout", phase_start, available, timeout_reason, details)
-        return False, None
-    execution.record(phase, "ok", phase_start, available, details=details)
-    return True, result
-
-
-async def _collect_extra_source_calls(
-    calls: list[tuple[str, Any]],
-    budget: SearchBudget,
-    execution: SearchExecutionState,
-) -> list[tuple[str, float, Any]]:
-    """Collect completed optional calls and cancel only the work past its phase cap."""
-    if not calls:
-        return []
-    phase_start = time.monotonic()
-    phase_budget = budget.remaining_seconds()
-    providers = [provider for provider, _ in calls]
-    if phase_budget <= 0:
-        execution.record(
-            "extra_sources",
-            "skipped",
-            phase_start,
-            0.0,
-            "search deadline exhausted before optional extra sources",
-            {"providers": providers},
-        )
-        return []
-
-    tasks = [(provider, time.time(), asyncio.create_task(factory())) for provider, factory in calls]
-    try:
-        done, pending = await asyncio.wait([task for _, _, task in tasks], timeout=phase_budget)
-    except asyncio.CancelledError:
-        pending = [task for _, _, task in tasks if not task.done()]
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
-        raise
-    pending_providers = [provider for provider, _, task in tasks if task in pending]
-    if pending:
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
-        execution.record(
-            "extra_sources",
-            "timeout",
-            phase_start,
-            phase_budget,
-            "optional extra-source work reached the shared search deadline",
-            {"providers": providers, "pending_providers": pending_providers},
-        )
-    else:
-        execution.record("extra_sources", "ok", phase_start, phase_budget, details={"providers": providers})
-
-    outcomes: list[tuple[str, float, Any]] = []
-    for provider, attempt_start, task in tasks:
-        if task not in done:
-            continue
-        try:
-            outcomes.append((provider, attempt_start, task.result()))
-        except BaseException as exc:
-            outcomes.append((provider, attempt_start, exc))
-    return outcomes
 
 
 def _elapsed_ms(start: float) -> float:
@@ -1171,20 +1060,21 @@ def provider_profiles() -> dict[str, dict[str, Any]]:
 
 
 def intent_router_status() -> dict[str, Any]:
-    if str(config._get_config_value("SMART_SEARCH_INTENT_ROUTER", "")).strip().lower() == "jev":
-        try:
-            settings = config.jev_settings()
-            return {
-                "mode": "jev", "ok": bool(settings.api_key), "configured": bool(settings.api_key),
-                "model": settings.model, "timeout_seconds": settings.timeout,
-                "max_rounds": settings.max_rounds, "max_channels": settings.max_channels,
-                "filter_results": settings.filter_results, "synthesize": settings.synthesis_mode,
-                "degrades_to_rules": False,
-                "error": "" if settings.api_key else source_message('TYPESAFE_API_KEY is not configured'),
-            }
-        except ValueError as exc:
-            return {"mode": "jev", "ok": False, "error": str(exc)}
-    return IntentRouter(config).status()
+    try:
+        mode = config.intent_router_mode
+        settings = config.jev_settings()
+        configured = bool(settings.api_key)
+        return {
+            "mode": mode, "ok": True, "configured": configured,
+            "effective_engine": "jev" if mode == "jev" and configured else "rules",
+            "model": settings.model, "timeout_seconds": settings.timeout,
+            "max_rounds": settings.max_rounds, "max_channels": settings.max_channels,
+            "filter_results": settings.filter_results, "synthesize": settings.synthesis_mode,
+            "degrades_to_rules": True, "error": "", "ordinary_search_rounds": 1,
+            "legacy_remote_routing": "retired",
+        }
+    except ValueError as exc:
+        return {"mode": "", "ok": False, "error": str(exc)}
 
 
 def _provider_supports_capability(provider: str, capability: str) -> bool:
@@ -1282,94 +1172,6 @@ def _research_fetch_order(query: str, url: str = "", capability_status: dict[str
     return _apply_research_overrides("web_fetch", ordered)
 
 
-def _research_route_signals(question: str, plan: dict[str, Any]) -> dict[str, Any]:
-    intent = plan.get("intent_signals") or {}
-    rules_route = build_rules_route(question, plan_intent_signals=intent, mode="rules")
-    text = question.lower()
-    return {
-        "docs_api_intent": rules_route.docs_intent,
-        "official_low_noise_intent": _contains_any(question, DEEP_EXA_DISCOVERY_KEYWORDS),
-        "current_or_locale_intent": rules_route.web_current_intent,
-        "known_url": rules_route.fetch_intent,
-        "pdf_or_arxiv_intent": _contains_any(question, RESEARCH_PDF_KEYWORDS),
-        "js_heavy_intent": _contains_any(question, RESEARCH_JS_HEAVY_KEYWORDS),
-        "vertical_intent": bool(rules_route.intent_signals.get("vertical_intent")),
-        "claim_risk": intent.get("claim_risk", "medium"),
-        "cross_validation_need": intent.get("cross_validation_need", "normal"),
-        "raw_query": text,
-    }
-
-
-def _research_capability_routes(
-    question: str,
-    plan: dict[str, Any],
-    fallback: str,
-    capability_status: dict[str, Any] | None = None,
-    route_result: IntentRouteResult | None = None,
-) -> dict[str, Any]:
-    signals = _research_route_signals(question, plan)
-    if route_result is not None:
-        signals["docs_api_intent"] = route_result.docs_intent
-        signals["current_or_locale_intent"] = route_result.web_current_intent
-        signals["known_url"] = route_result.fetch_intent
-        signals["vertical_intent"] = bool(route_result.intent_signals.get("vertical_intent") or "vertical_search" in route_result.required_capabilities)
-    _, _, invalid_overrides = _safe_provider_overrides()
-    routes: dict[str, Any] = {
-        "signals": signals,
-        "fallback_mode": fallback,
-        "route_policy_version": RESEARCH_ROUTE_POLICY_VERSION,
-        "invalid_provider_overrides": invalid_overrides,
-        "capabilities": {},
-    }
-    if route_result is not None:
-        route_data = route_result.to_dict()
-        for key in (
-            "intent_router_mode",
-            "required_capabilities",
-            "intent_signals",
-            "confidence",
-            "router_engines_used",
-            "degraded",
-            "degraded_reason",
-            "reasons",
-        ):
-            routes[key] = route_data.get(key)
-
-    web_search = _configured_for_capability("web_search", capability_status)
-    if signals["current_or_locale_intent"]:
-        ordered = [provider for provider in ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"] if provider in web_search]
-    else:
-        ordered = [provider for provider in ["tavily", "firecrawl", "zhipu", "zhipu-mcp", "tinyfish"] if provider in web_search]
-    routes["capabilities"]["web_search"] = {
-        "providers": _apply_research_overrides("web_search", ordered),
-        "reason": source_message('current/locale evidence') if signals["current_or_locale_intent"] else source_message('broad source discovery'),
-    }
-
-    docs = _configured_for_capability("docs_search", capability_status)
-    docs_order = [provider for provider in ["context7", "exa"] if provider in docs]
-    if signals["official_low_noise_intent"] and not signals["docs_api_intent"]:
-        docs_order = [provider for provider in ["exa", "context7"] if provider in docs]
-    routes["capabilities"]["docs_search"] = {
-        "providers": _apply_research_overrides("docs_search", docs_order),
-        "reason": source_message('docs/API evidence') if signals["docs_api_intent"] else source_message('official low-noise discovery'),
-    }
-
-    fetch_order = _research_fetch_order(question, capability_status=capability_status)
-    routes["capabilities"]["web_fetch"] = {
-        "providers": fetch_order,
-        "reason": source_message('JS-heavy fetch') if signals["js_heavy_intent"] else (source_message('known URL/PDF extraction') if signals["known_url"] or signals["pdf_or_arxiv_intent"] else source_message('evidence extraction')),
-    }
-
-    vertical = _configured_for_capability("vertical_search", capability_status)
-    routes["capabilities"]["vertical_search"] = {
-        "providers": _apply_research_overrides("vertical_search", vertical) if signals["vertical_intent"] else [],
-        "reason": source_message('vertical intent matched') if signals["vertical_intent"] else source_message('vertical intent absent'),
-        "experimental": True,
-    }
-
-    return routes
-
-
 def _research_evidence_item(
     *,
     url: str,
@@ -1431,28 +1233,10 @@ def _evidence_only_synthesis(question: str, evidence_items: list[dict[str, Any]]
     return "\n".join(lines).strip()
 
 
-def _select_candidate_urls(sources: list[dict[str, Any]], limit: int = 5) -> list[dict[str, Any]]:
-    selected: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for source in sources:
-        url = (source.get("url") or "").strip()
-        if not url or url.startswith("context7:") or url in seen:
-            continue
-        seen.add(url)
-        selected.append(source)
-        if len(selected) >= limit:
-            break
-    return selected
-
-
-def _artifact_path(evidence_root: str, name: str) -> Path:
-    return Path(evidence_root) / name
-
-
 def _write_research_artifact(evidence_root: str, name: str, data: Any) -> None:
     root = Path(evidence_root)
     root.mkdir(parents=True, exist_ok=True)
-    path = _artifact_path(evidence_root, name)
+    path = root / name
     if isinstance(data, str):
         path.write_text(data, encoding="utf-8")
     else:
@@ -1469,10 +1253,6 @@ def _is_zh_current_intent(query: str) -> bool:
 
 def _is_web_current_intent(query: str) -> bool:
     return build_rules_route(query, mode="rules").web_current_intent
-
-
-def _is_fetch_intent(query: str) -> bool:
-    return build_rules_route(query, mode="rules").fetch_intent
 
 
 def _contains_any(query: str, keywords: set[str]) -> bool:
@@ -1554,8 +1334,9 @@ def build_deep_research_plan(query: str, budget: str = "standard", evidence_dir:
     evidence_root = evidence_dir.strip() or _default_evidence_dir(question)
     urls = _extract_urls(question)
     known_url = bool(urls)
-    docs_intent = _is_docs_intent(question)
-    zh_current_intent = _is_zh_current_intent(question)
+    route = build_rules_route(question, mode="rules")
+    docs_intent = route.docs_intent
+    zh_current_intent = route.zh_current_intent
     recency_requirement = "none"
     if _contains_any(question, DEEP_CURRENT_KEYWORDS) or zh_current_intent:
         recency_requirement = "current"
@@ -1822,280 +1603,20 @@ async def research(
     start = time.time()
     question = query.strip()
     fallback_mode = (fallback or "auto").strip().lower()
-    if fallback_mode not in {"auto", "off"}:
+    if fallback_mode not in config._ALLOWED_FALLBACK_MODES:
         return {
-            "ok": False,
-            "error_type": "parameter_error",
+            "ok": False, "error_type": "parameter_error",
             "error": source_message('Invalid fallback mode: {0}', fallback_mode),
-            "question": question,
-            "mode": "deep_research_execution",
-            "route_policy_version": RESEARCH_ROUTE_POLICY_VERSION,
-            "elapsed_ms": _elapsed_ms(start),
+            "question": question, "mode": "deep_research_execution",
+            "route_policy_version": RESEARCH_ROUTE_POLICY_VERSION, "elapsed_ms": _elapsed_ms(start),
         }
-
-    if str(config._get_config_value("SMART_SEARCH_INTENT_ROUTER", "")).strip().lower() == "jev":
-        level = _deep_budget(budget or "deep")
-        plan = build_deep_research_plan(question, budget=level, evidence_dir=evidence_dir)
-        timeout = min(config.search_timeout, {"quick": 45, "standard": 120, "deep": config.search_timeout}[level])
-        return await jev_search.search(
-            question, validation="strict" if level == "deep" else "balanced", fallback=fallback_mode,
-            providers="auto", timeout_seconds=timeout, research_plan=plan,
-        )
-
-    minimum = validate_minimum_profile()
-    if not minimum.get("ok"):
-        return {
-            "ok": False,
-            "error_type": minimum.get("error_type", "config_error"),
-            "error": minimum.get("error", MINIMUM_PROFILE_ERROR),
-            "question": question,
-            "mode": "deep_research_execution",
-            "minimum_profile_ok": False,
-            "capability_status": minimum.get("capability_status", {}),
-            "final_answer": "",
-            "citations": [],
-            "evidence_items": [],
-            "gap_check": {
-                "status": "failed",
-                "gaps": [{"subquestion_id": "", "reason": source_message('minimum profile is missing required capabilities')}],
-            },
-            "provider_attempts": [],
-            "fallback_used": False,
-            "degraded": True,
-            "route_policy_version": RESEARCH_ROUTE_POLICY_VERSION,
-            "evidence_dir": evidence_dir,
-            "elapsed_ms": _elapsed_ms(start),
-        }
-
-    plan = build_deep_research_plan(question, budget=_deep_budget(budget or "deep"), evidence_dir=evidence_dir)
-    evidence_root = plan.get("evidence_dir") or _default_evidence_dir(question)
-    try:
-        route_result = await IntentRouter(config).route(
-            question,
-            validation_level="balanced",
-            allow_remote=True,
-            plan_intent_signals=plan.get("intent_signals") or {},
-        )
-    except ValueError as e:
-        return {
-            "ok": False,
-            "error_type": "parameter_error",
-            "error": str(e),
-            "question": question,
-            "mode": "deep_research_execution",
-            "route_policy_version": RESEARCH_ROUTE_POLICY_VERSION,
-            "elapsed_ms": _elapsed_ms(start),
-        }
-    routes = _research_capability_routes(question, plan, fallback_mode, route_result=route_result)
-    provider_attempts: list[dict[str, Any]] = []
-    discovery_sources: list[dict[str, Any]] = []
-    evidence_items: list[dict[str, Any]] = []
-    stage_results: list[dict[str, Any]] = []
-    gaps: list[dict[str, Any]] = []
-
-    _write_research_artifact(evidence_root, "00-plan.json", plan)
-
-    urls = _extract_urls(question)
-    fetch_order = routes["capabilities"]["web_fetch"]["providers"]
-    if urls:
-        for index, url in enumerate(urls, 1):
-            fetch_result, attempts = await _run_web_fetch_fallback(url, fallback=fallback_mode, preferred_order=fetch_order)
-            provider_attempts.extend(attempts)
-            stage_results.append({"stage": "known_url_fetch", "url": url, "ok": bool(fetch_result), "provider_attempts": attempts})
-            if fetch_result:
-                item = _research_evidence_item(
-                    url=fetch_result["url"],
-                    provider=fetch_result["provider"],
-                    title=fetch_result["url"],
-                    content=fetch_result["content"],
-                    subquestion_id="sq1",
-                )
-                evidence_items.append(item)
-                _write_research_artifact(evidence_root, f"{index:02d}-fetch-{fetch_result['provider']}.md", fetch_result["content"])
-            else:
-                gaps.append({"subquestion_id": "sq1", "reason": source_message('failed to fetch known URL: {0}', url), "url": url})
-
-    signals = routes["signals"]
-    if signals["docs_api_intent"]:
-        docs_providers = routes["capabilities"]["docs_search"]["providers"]
-        selected_docs_providers = docs_providers[:1] if fallback_mode == "off" else docs_providers
-        if not selected_docs_providers:
-            gaps.append({"subquestion_id": "sq2", "reason": source_message('no configured docs_search provider for docs/API evidence')})
-        for provider in selected_docs_providers:
-            step_start = time.time()
-            if provider == "context7":
-                data = await context7_library(question, question)
-                if data.get("ok") and data.get("results"):
-                    selected_library = _select_context7_library_candidate(data.get("results"), question)
-                    library_id = (selected_library or {}).get("id", "")
-                    stage_results.append(
-                        {
-                            "stage": "docs_discovery",
-                            "provider": "context7",
-                            "ok": bool(library_id),
-                            "result_count": len(data.get("results") or []),
-                            "selected_library_id": library_id,
-                            "selection_status": "selected" if library_id else "no_eligible_candidate",
-                        }
-                    )
-                    if not library_id:
-                        provider_attempts.append(_attempt("docs_search", "context7", "empty", step_start))
-                        if fallback_mode == "off":
-                            break
-                        continue
-                    provider_attempts.append(_attempt("docs_search", "context7", "ok", step_start, result_count=1))
-                    if library_id:
-                        docs_start = time.time()
-                        docs_data = await context7_docs(library_id, question)
-                        if docs_data.get("ok") and docs_data.get("content"):
-                            provider_attempts.append(_attempt("docs_search", "context7", "ok", docs_start, result_count=1))
-                            item = _research_evidence_item(
-                                url=f"context7:{library_id}",
-                                provider="context7",
-                                title=library_id,
-                                content=docs_data.get("content", ""),
-                                source_type="docs",
-                                subquestion_id="sq2",
-                            )
-                            evidence_items.append(item)
-                            _write_research_artifact(evidence_root, "docs-context7.md", docs_data.get("content", ""))
-                            break
-                        docs_status = "error" if docs_data.get("error_type") else "empty"
-                        provider_attempts.append(_attempt("docs_search", "context7", docs_status, docs_start, error_type=docs_data.get("error_type", ""), error=docs_data.get("error", "")))
-                    if fallback_mode == "off":
-                        break
-                    continue
-                status = "error" if data.get("error_type") in {"auth_error", "timeout", "network_error", "runtime_error"} else "empty"
-                provider_attempts.append(_attempt("docs_search", "context7", status, step_start, error_type=data.get("error_type", ""), error=data.get("error", "")))
-            elif provider == "exa":
-                data = await exa_search(question, num_results=5, include_highlights=True)
-                if data.get("ok"):
-                    sources = _normalize_source_results(data.get("results"), "exa")
-                    if sources:
-                        provider_attempts.append(_attempt("docs_search", "exa", "ok", step_start, result_count=len(sources)))
-                        discovery_sources.extend(sources)
-                        stage_results.append({"stage": "docs_discovery", "provider": "exa", "ok": True, "result_count": len(sources)})
-                        break
-                provider_attempts.append(_attempt("docs_search", "exa", "error" if data.get("error_type") else "empty", step_start, error_type=data.get("error_type", ""), error=data.get("error", "")))
-
-    should_run_web_discovery = (
-        signals["current_or_locale_intent"]
-        or signals["cross_validation_need"] == "high"
-        or (not evidence_items and not discovery_sources)
-    ) and not (urls and fallback_mode == "off")
-    if should_run_web_discovery:
-        web_provider_order = routes["capabilities"]["web_search"]["providers"]
-        if web_provider_order:
-            web_sources, attempts = await _run_web_search_fallback(
-                question,
-                count=5,
-                providers=",".join(web_provider_order),
-                fallback=fallback_mode,
-            )
-            provider_attempts.extend(attempts)
-            discovery_sources.extend(web_sources)
-            stage_results.append({"stage": "web_discovery", "ok": bool(web_sources), "result_count": len(web_sources), "provider_attempts": attempts})
-        else:
-            gaps.append({"subquestion_id": "", "reason": source_message('no configured web_search provider for discovery')})
-
-    exa_in_selected_docs_route = "exa" in routes["capabilities"]["docs_search"]["providers"]
-    if (
-        fallback_mode != "off"
-        and signals["official_low_noise_intent"]
-        and exa_in_selected_docs_route
-        and not any(source.get("provider") == "exa" for source in discovery_sources)
-    ):
-        exa_start = time.time()
-        data = await exa_search(question, num_results=5, include_highlights=True)
-        if data.get("ok"):
-            sources = _normalize_source_results(data.get("results"), "exa")
-            if sources:
-                provider_attempts.append(_attempt("docs_search", "exa", "ok", exa_start, result_count=len(sources)))
-                discovery_sources.extend(sources)
-        else:
-            provider_attempts.append(_attempt("docs_search", "exa", "error", exa_start, error_type=data.get("error_type", ""), error=data.get("error", "")))
-
-    if signals["vertical_intent"] and routes["capabilities"]["vertical_search"]["providers"]:
-        vertical_start = time.time()
-        data = await anysearch_search(question, max_results=5)
-        if data.get("ok"):
-            sources = _normalize_source_results(data.get("results"), "anysearch")
-            provider_attempts.append(_attempt("vertical_search", "anysearch", "ok" if sources else "empty", vertical_start, result_count=len(sources)))
-            discovery_sources.extend(sources)
-            stage_results.append({"stage": "vertical_discovery", "provider": "anysearch", "ok": bool(sources), "result_count": len(sources)})
-        else:
-            provider_attempts.append(_attempt("vertical_search", "anysearch", "error", vertical_start, error_type=data.get("error_type", ""), error=data.get("error", "")))
-
-    candidates = _select_candidate_urls(discovery_sources, limit=6)
-    fetched_urls = {item.get("url") for item in evidence_items}
-    no_new_evidence = True
-    for index, candidate in enumerate(candidates, 1):
-        url = candidate.get("url", "")
-        if not url or url in fetched_urls:
-            continue
-        order = _research_fetch_order(question, url)
-        fetch_result, attempts = await _run_web_fetch_fallback(url, fallback=fallback_mode, preferred_order=order)
-        provider_attempts.extend(attempts)
-        stage_results.append({"stage": "candidate_fetch", "url": url, "ok": bool(fetch_result), "provider_attempts": attempts})
-        if fetch_result:
-            no_new_evidence = False
-            fetched_urls.add(url)
-            content = fetch_result.get("content", "")
-            item = _research_evidence_item(
-                url=fetch_result["url"],
-                provider=fetch_result["provider"],
-                title=candidate.get("title") or fetch_result["url"],
-                content=content,
-                subquestion_id=candidate.get("subquestion_id", ""),
-            )
-            evidence_items.append(item)
-            _write_research_artifact(evidence_root, f"fetch-{index:02d}-{fetch_result['provider']}.md", content)
-        elif fallback_mode == "off":
-            gaps.append({"subquestion_id": "", "reason": source_message('fetch failed with fallback off: {0}', url), "url": url})
-
-    if not evidence_items:
-        gaps.append({"subquestion_id": "", "reason": source_message('no fetched/read evidence items were produced')})
-    elif no_new_evidence and not urls and candidates:
-        gaps.append({"subquestion_id": "", "reason": source_message('discovery produced candidates but no new fetch evidence converged')})
-
-    covered = bool(evidence_items)
-    gap_status = "closed" if covered and not gaps else ("degraded" if evidence_items else "failed")
-    citations = _citation_items(evidence_items)
-    final_answer = _evidence_only_synthesis(question, evidence_items, gaps)
-    result = {
-        "ok": bool(evidence_items),
-        "error_type": "" if evidence_items else "evidence_error",
-        "error": "" if evidence_items else source_message('research could not obtain fetched evidence'),
-        "mode": "deep_research_execution",
-        "query_mode": "research",
-        "question": question,
-        "budget": _deep_budget(budget or "deep"),
-        "research_plan": plan,
-        "routing_decision": routes,
-        "stage_results": stage_results,
-        "discovery_sources": discovery_sources,
-        "final_answer": final_answer,
-        "content": final_answer,
-        "citations": citations,
-        "evidence_items": evidence_items,
-        "gap_check": {
-            "status": gap_status,
-            "gaps": gaps,
-            "stop_reason": "evidence_converged" if gap_status == "closed" else ("degraded_with_gaps" if evidence_items else "provider_exhausted"),
-        },
-        "provider_attempts": provider_attempts,
-        "provider_notices": _provider_notices(provider_attempts),
-        "providers_used": _provider_names_from_attempts(provider_attempts),
-        "fallback_used": _fallback_used(provider_attempts),
-        "degraded": bool(gaps),
-        "route_policy_version": RESEARCH_ROUTE_POLICY_VERSION,
-        "evidence_dir": evidence_root,
-        "minimum_profile_ok": minimum.get("ok", False),
-        "capability_status": minimum.get("capability_status", {}),
-        "elapsed_ms": _elapsed_ms(start),
-    }
-    _write_research_artifact(evidence_root, "summary.json", result)
-    return result
+    level = _deep_budget(budget or "deep")
+    plan = build_deep_research_plan(question, budget=level, evidence_dir=evidence_dir)
+    timeout = min(config.search_timeout, {"quick": 45, "standard": 120, "deep": config.search_timeout}[level])
+    return await jev_search.search(
+        question, validation="strict" if level == "deep" else "balanced", fallback=fallback_mode,
+        providers="auto", timeout_seconds=timeout, research_plan=plan, single_pass=False,
+    )
 
 
 def get_capability_status() -> dict[str, Any]:
@@ -2166,12 +1687,17 @@ def get_capability_status() -> dict[str, Any]:
 
 
 def _minimum_profile_result(profile: str, capability_status: dict[str, Any]) -> dict[str, Any]:
-    required = [] if profile == "off" else ["main_search", "docs_search", "web_fetch"]
-    missing = [capability for capability in required if not capability_status.get(capability, {}).get("ok")]
+    required = [] if profile == "off" else ["retrieval"]
+    available = any(
+        provider not in config.research_disabled_providers
+        and not PROVIDER_PROFILES.get(provider, {}).get("explicit_only")
+        for status in capability_status.values() for provider in status.get("configured", [])
+    )
+    missing = required if not available else []
     return {
         "ok": not missing,
         "error_type": "config_error" if missing else "",
-        "error": source_message('{0} 缺失能力: {1}', MINIMUM_PROFILE_ERROR, ', '.join(missing)) if missing else "",
+        "error": source_message('Configure at least one enabled retrieval channel.') if missing else "",
         "profile": profile,
         "required": required,
         "missing": missing,
@@ -2181,20 +1707,7 @@ def _minimum_profile_result(profile: str, capability_status: dict[str, Any]) -> 
 
 def validate_minimum_profile() -> dict[str, Any]:
     try:
-        if config.intent_router_mode == "jev":
-            settings = config.jev_settings()
-            enabled = [
-                provider for provider, profile in PROVIDER_PROFILES.items()
-                if provider != "main-search" and not profile.get("explicit_only")
-                and provider not in config.research_disabled_providers and _provider_configured(provider)
-            ]
-            missing = ([] if settings.api_key else ["jev"]) + ([] if enabled else ["retrieval"])
-            return {
-                "ok": not missing, "profile": "jev", "required": ["jev", "retrieval"], "missing": missing,
-                "error_type": "config_error" if missing else "",
-                "error": source_message('Jev mode requires TYPESAFE_API_KEY and an enabled retrieval channel') if missing else "",
-                "capability_status": get_capability_status(),
-            }
+        config.intent_router_mode
         profile = config.minimum_profile
     except ValueError as e:
         return {"ok": False, "error_type": "parameter_error", "error": str(e), "missing": []}
@@ -2222,7 +1735,7 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
     provider_filter = _parse_provider_filter(providers)
     by_provider: dict[str, dict[str, Any]] = {}
 
-    if _provider_configured("xai-responses"):
+    if _provider_allowed("xai-responses", provider_filter) and _provider_configured("xai-responses"):
         by_provider["xai-responses"] = {
             "provider": "xai-responses",
             "mode": "xai-responses",
@@ -2233,7 +1746,7 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
             "source": "XAI_*",
         }
 
-    if _provider_configured("openai-compatible"):
+    if _provider_allowed("openai-compatible", provider_filter) and _provider_configured("openai-compatible"):
         by_provider["openai-compatible"] = {
             "provider": "openai-compatible",
             "mode": config.openai_compatible_api_mode,
@@ -2280,6 +1793,70 @@ def _main_search_providers(provider_configs: list[dict[str, Any]], fallback: str
     return providers
 
 
+async def _search_model_channel(
+    provider_config: dict[str, Any], query: str, platform: str, *,
+    deadline: float, fallback: str, model_override: str,
+) -> dict[str, Any]:
+    """Keep existing model/transport failover inside the selected search channel."""
+    candidates = (_openai_model_candidates(provider_config, fallback_mode=fallback, model_override=model_override)
+                  if provider_config["provider"] == "openai-compatible" else [provider_config])
+    attempts: list[dict] = []
+    result: dict[str, Any] = {"ok": False, "content": "", "attempts": attempts,
+                              "primary_api_mode": provider_config["mode"],
+                              "error_type": "network_error", "error": "No available search model",
+                              "models": [item["model"] for item in candidates],
+                              "stream": bool(provider_config.get("stream")),
+                              "api_mode": provider_config.get("api_mode", provider_config["mode"])}
+    for candidate in candidates:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            result.update(error_type="timeout", error="Search deadline exhausted")
+            break
+        started = time.time()
+        api_mode = candidate.get("api_mode", candidate["mode"])
+        relay = candidate["provider"] == "openai-compatible"
+        extra = {"model": candidate["model"], "model_role": candidate.get("model_role", "primary"),
+                 "stream": bool(candidate.get("stream")), "api_mode": api_mode,
+                 "attempt_timeout_seconds": round(remaining, 3)}
+        if candidate.get("fallback_from_model"):
+            extra["fallback_from_model"] = candidate["fallback_from_model"]
+        if relay:
+            extra["endpoint"] = openai_compatible_endpoint(candidate["api_url"], api_mode)
+            breaker = _openai_model_breaker_state(candidate["api_url"], candidate["model"], api_mode)
+            if breaker.get("state") == "open":
+                attempts.append(_attempt("main_search", candidate["provider"], "skipped", started,
+                                         error_type="network_error", error="model breaker open", extra={**extra, "breaker_state": breaker}))
+                continue
+        provider = _main_search_providers([candidate], fallback="off")[0]
+        set_deadline = getattr(provider, "set_search_deadline", None)
+        if callable(set_deadline):
+            set_deadline(deadline)
+        activity.progress("main_search", candidate["provider"], candidate["model"])
+        status, error_type, error = "error", "", ""
+        try:
+            content = await asyncio.wait_for(provider.search(query, platform), max(0.001, deadline - time.monotonic()))
+            if not content:
+                raise ProviderCallError("network_error", "Search model returned an empty response")
+            status = "ok"
+            result.update(ok=True, content=content, model=candidate["model"], primary_api_mode=candidate["mode"],
+                          error_type="", error="")
+            if relay:
+                _record_openai_model_success(candidate["api_url"], candidate["model"], api_mode)
+        except Exception as exc:
+            error_type, error = classify_provider_exception(exc)
+            result.update(error_type=error_type, error=error)
+            if relay:
+                extra["breaker_state"] = _record_openai_model_failure(candidate["api_url"], candidate["model"], api_mode)
+        finally:
+            if not _append_openai_transport_attempts(attempts, provider, candidate, extra=extra):
+                attempts.append(_attempt("main_search", candidate["provider"], status, started,
+                                         result_count=1 if status == "ok" else 0,
+                                         error_type=error_type, error=error, extra=extra))
+        if result["ok"]:
+            break
+    return result
+
+
 async def fetch_available_models(api_url: str, api_key: str) -> list[str]:
     models_url = f"{normalize_openai_compatible_api_url(api_url)}/models"
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -2314,63 +1891,6 @@ async def get_available_models_cached(api_url: str, api_key: str) -> list[str]:
     async with _AVAILABLE_MODELS_LOCK:
         _AVAILABLE_MODELS_CACHE[key] = models
     return models
-
-
-EXTRA_SOURCE_PROVIDERS = ("tavily", "firecrawl", "tinyfish")
-
-
-def _allocate_extra_sources(total: int) -> dict[str, int]:
-    """Split the optional extra-source budget across configured web_search providers.
-
-    Tavily and Firecrawl keep their historical 60/40 split so existing setups see
-    no change. TinyFish picks up the budget only when neither of them is
-    configured, and otherwise stays additive through the web_search chain.
-    """
-    counts = {provider: 0 for provider in EXTRA_SOURCE_PROVIDERS}
-    if total <= 0:
-        return counts
-    has_tavily = _provider_configured("tavily")
-    has_firecrawl = _provider_configured("firecrawl")
-    if has_tavily and has_firecrawl:
-        counts["tavily"] = max(1, round(total * 0.6))
-        counts["firecrawl"] = total - counts["tavily"]
-    elif has_tavily:
-        counts["tavily"] = total
-    elif has_firecrawl:
-        counts["firecrawl"] = total
-    elif _provider_configured("tinyfish"):
-        counts["tinyfish"] = total
-    return counts
-
-
-def extra_results_to_sources(
-    tavily_results: list[dict] | None,
-    firecrawl_results: list[dict] | None,
-    tinyfish_results: list[dict] | None = None,
-) -> list[dict]:
-    sources: list[dict] = []
-    seen: set[str] = set()
-
-    for provider, results, description_field in (
-        ("firecrawl", firecrawl_results, "description"),
-        ("tavily", tavily_results, "content"),
-        ("tinyfish", tinyfish_results, "description"),
-    ):
-        for r in results or []:
-            url = (r.get("url") or "").strip()
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            item: dict = {"url": url, "provider": provider}
-            title = (r.get("title") or "").strip()
-            if title:
-                item["title"] = title
-            desc = (r.get(description_field) or "").strip()
-            if desc:
-                item["description"] = desc
-            sources.append(item)
-
-    return sources
 
 
 async def _run_web_fetch_fallback(
@@ -2446,183 +1966,6 @@ async def _run_web_fetch_fallback(
         except Exception as e:
             attempts.append(_attempt_with_health("web_fetch", provider, start, e))
     return None, attempts
-
-
-async def _run_web_search_fallback(
-    query: str,
-    count: int = 5,
-    providers: str = "auto",
-    fallback: str = "auto",
-) -> tuple[list[dict], list[dict]]:
-    provider_filter = _parse_provider_filter(providers)
-    attempts: list[dict] = []
-    configured: list[str] = []
-    if _provider_configured("zhipu"):
-        configured.append("zhipu")
-    if _provider_configured("zhipu-mcp"):
-        configured.append("zhipu-mcp")
-    if _provider_configured("tavily"):
-        configured.append("tavily")
-    if _provider_configured("firecrawl"):
-        configured.append("firecrawl")
-    if _provider_configured("tinyfish"):
-        configured.append("tinyfish")
-    if provider_filter is not None:
-        configured = [p for p in configured if p in provider_filter]
-    if fallback == "off":
-        configured = configured[:1]
-
-    configured, skipped = _plan_provider_health("web_search", configured)
-    attempts.extend(skipped)
-
-    for provider in configured:
-        start = time.time()
-        activity.progress("web_search", provider)
-        try:
-            if provider == "zhipu":
-                data = await zhipu_search(query, count=count)
-                if data.get("ok"):
-                    sources = _normalize_source_results(data.get("results"), "zhipu")
-                    if sources:
-                        _record_provider_result(provider, "ok")
-                        attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
-                        return sources, attempts
-                status = _attempt_status_for_result(data)
-                health_extra = _record_provider_result(provider, status, data.get("error_type", ""), data.get("error", ""))
-                attempts.append(_attempt("web_search", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
-            elif provider == "zhipu-mcp":
-                data = await zhipu_mcp_search(query, count=count)
-                if data.get("ok"):
-                    sources = _normalize_source_results(data.get("results"), "zhipu-mcp")
-                    if sources:
-                        _record_provider_result(provider, "ok")
-                        attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
-                        return sources, attempts
-                status = _attempt_status_for_result(data)
-                health_extra = _record_provider_result(provider, status, data.get("error_type", ""), data.get("error", ""))
-                attempts.append(_attempt("web_search", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
-            elif provider == "tavily":
-                results = await call_tavily_search(query, count)
-                sources = _normalize_source_results(results, "tavily")
-                if sources:
-                    _record_provider_result(provider, "ok")
-                    attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
-                    return sources, attempts
-                attempts.append(_attempt("web_search", provider, "empty", start))
-            elif provider == "firecrawl":
-                results = await call_firecrawl_search(query, count)
-                sources = _normalize_source_results(results, "firecrawl")
-                if sources:
-                    _record_provider_result(provider, "ok")
-                    attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
-                    return sources, attempts
-                attempts.append(_attempt("web_search", provider, "empty", start))
-            elif provider == "tinyfish":
-                results = await call_tinyfish_search(query, count)
-                sources = _normalize_source_results(results, "tinyfish")
-                if sources:
-                    _record_provider_result(provider, "ok")
-                    attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
-                    return sources, attempts
-                attempts.append(_attempt("web_search", provider, "empty", start))
-        except Exception as e:
-            attempts.append(_attempt_with_health("web_search", provider, start, e))
-    return [], attempts
-
-
-async def _run_docs_search_fallback(
-    query: str,
-    providers: str = "auto",
-    fallback: str = "auto",
-) -> tuple[list[dict], list[dict]]:
-    provider_filter = _parse_provider_filter(providers)
-    attempts: list[dict] = []
-    configured: list[str] = []
-    if _provider_configured("context7"):
-        configured.append("context7")
-    if _provider_configured("exa"):
-        configured.append("exa")
-    if provider_filter is not None:
-        configured = [p for p in configured if p in provider_filter]
-    if fallback == "off":
-        configured = configured[:1]
-
-    configured, skipped = _plan_provider_health("docs_search", configured)
-    attempts.extend(skipped)
-
-    for provider in configured:
-        start = time.time()
-        activity.progress("docs_search", provider)
-        try:
-            if provider == "exa":
-                data = await exa_search(query, num_results=5, include_highlights=True)
-                if data.get("ok"):
-                    sources = _normalize_source_results(data.get("results"), "exa")
-                    if sources:
-                        _record_provider_result(provider, "ok")
-                        attempts.append(_attempt("docs_search", provider, "ok", start, result_count=len(sources)))
-                        return sources, attempts
-                status = _attempt_status_for_result(data)
-                health_extra = _record_provider_result(provider, status, data.get("error_type", ""), data.get("error", ""))
-                attempts.append(_attempt("docs_search", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
-            elif provider == "context7":
-                data = await context7_library(query, query)
-                if data.get("ok"):
-                    selected_library = _select_context7_library_candidate(data.get("results"), query)
-                    _record_provider_result(provider, "ok")
-                    if selected_library:
-                        source = {
-                            "url": f"context7:{selected_library.get('id')}",
-                            "title": selected_library.get("title") or selected_library.get("id") or "Context7",
-                            "description": selected_library.get("description") or "",
-                            "provider": "context7",
-                        }
-                        attempts.append(_attempt("docs_search", provider, "ok", start, result_count=1))
-                        return [source], attempts
-                    attempts.append(_attempt("docs_search", provider, "empty", start))
-                else:
-                    status = _attempt_status_for_result(data)
-                    health_extra = _record_provider_result(provider, status, data.get("error_type", ""), data.get("error", ""))
-                    attempts.append(_attempt("docs_search", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
-        except Exception as e:
-            attempts.append(_attempt_with_health("docs_search", provider, start, e))
-    return [], attempts
-
-
-async def _run_vertical_search_fallback(
-    query: str,
-    providers: str = "auto",
-    fallback: str = "auto",
-) -> tuple[list[dict], list[dict]]:
-    provider_filter = _parse_provider_filter(providers)
-    attempts: list[dict] = []
-    configured: list[str] = []
-    if _provider_configured("anysearch"):
-        configured.append("anysearch")
-    if provider_filter is not None:
-        configured = [p for p in configured if p in provider_filter]
-    if fallback == "off":
-        configured = configured[:1]
-
-    configured, skipped = _plan_provider_health("vertical_search", configured)
-    attempts.extend(skipped)
-
-    for provider in configured:
-        start = time.time()
-        try:
-            data = await anysearch_search(query, max_results=5)
-            if data.get("ok"):
-                sources = _normalize_source_results(data.get("results"), "anysearch")
-                if sources:
-                    _record_provider_result(provider, "ok")
-                    attempts.append(_attempt("vertical_search", provider, "ok", start, result_count=len(sources)))
-                    return sources, attempts
-            status = _attempt_status_for_result(data)
-            health_extra = _record_provider_result(provider, status, data.get("error_type", ""), data.get("error", ""))
-            attempts.append(_attempt("vertical_search", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
-        except Exception as e:
-            attempts.append(_attempt_with_health("vertical_search", provider, start, e))
-    return [], attempts
 
 
 def _provider_response_object(data: Any, provider: str) -> dict[str, Any]:
@@ -2919,1068 +2262,45 @@ async def search(
     timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     start = time.time()
-    session_id = new_session_id()
     try:
         effective_timeout = _resolve_search_timeout(timeout_seconds)
-        budget = SearchBudget(effective_timeout)
-        execution = SearchExecutionState(budget)
         validation_level = (validation or config.validation_level).strip().lower()
         fallback_mode = (fallback or config.fallback_mode).strip().lower()
         if validation_level not in config._ALLOWED_VALIDATION_LEVELS:
             raise ValueError(source_message('Invalid validation level: {0}', validation_level))
         if fallback_mode not in config._ALLOWED_FALLBACK_MODES:
             raise ValueError(source_message('Invalid fallback mode: {0}', fallback_mode))
-        router_mode = config.intent_router_mode
-    except ValueError as e:
-        return _empty_search_result(
-            start,
-            session_id,
-            query,
-            "parameter_error",
-            str(e),
-            extra={"timeout_seconds": timeout_seconds},
-        )
-
-    if router_mode == "jev":
-        return await jev_search.search(
-            query, validation=validation_level, fallback=fallback_mode, providers=providers,
-            timeout_seconds=effective_timeout, platform=platform, model=model, stream=stream, extra_sources=extra_sources,
-        )
-
-    minimum = validate_minimum_profile()
-    if not minimum.get("ok"):
-        return _empty_search_result(
-            start,
-            session_id,
-            query,
-            minimum.get("error_type", "config_error"),
-            minimum.get("error", MINIMUM_PROFILE_ERROR),
-            extra={
-                "capability_status": minimum.get("capability_status", {}),
-                "minimum_profile_ok": False,
-                "validation_level": validation_level,
-                **execution.telemetry(),
-            },
-        )
-
-    try:
-        main_provider_configs = _main_search_provider_configs(model_override=model, providers=providers)
-    except ValueError as e:
-        return _empty_search_result(
-            start,
-            session_id,
-            query,
-            "parameter_error",
-            str(e),
-            extra={"validation_level": validation_level, **execution.telemetry()},
-        )
-
-    if not main_provider_configs:
-        return _empty_search_result(
-            start,
-            session_id,
-            query,
-            "config_error",
-            "No configured main_search provider matches --providers.",
-            extra={
-                "validation_level": validation_level,
-                "capability_status": minimum.get("capability_status", {}),
-                "minimum_profile_ok": minimum.get("ok", False),
-                **execution.telemetry(),
-            },
-        )
-
-    primary_api_mode = main_provider_configs[0]["mode"]
-    if stream is not None:
-        for provider_config in main_provider_configs:
-            if provider_config["provider"] == "openai-compatible":
-                provider_config["stream"] = stream
-
-    extra_source_counts = _allocate_extra_sources(extra_sources)
-    tavily_count = extra_source_counts["tavily"]
-    firecrawl_count = extra_source_counts["firecrawl"]
-    tinyfish_count = extra_source_counts["tinyfish"]
-
-    selected_main_provider_configs = main_provider_configs if fallback_mode != "off" else main_provider_configs[:1]
-    router = IntentRouter(config)
-    try:
-        router_mode = config.intent_router_mode
-        router_has_remote = router_mode == "hybrid" and (
-            bool(config.intent_embedding_api_url and config.intent_embedding_api_key and config.intent_embedding_model)
-            or bool(config.intent_classifier_api_url and config.intent_classifier_api_key and config.intent_classifier_model)
-        )
-        if router_has_remote:
-            router_cap = budget.router_cap_seconds(config.intent_router_timeout)
-            route_ok, route_result = await _run_budgeted_phase(
-                lambda: router.route(query, validation_level=validation_level, allow_remote=True),
-                budget,
-                execution,
-                "router",
-                max_seconds=router_cap,
-                timeout_reason="router phase reached its shared cap; using local rules",
-                details={
-                    "main_search_reserve_ms": round(budget.main_reserve_seconds() * 1000, 2),
-                    "configured_timeout_ms": round(config.intent_router_timeout * 1000, 2),
-                },
-            )
-            if not route_ok:
-                route_result = await router.route(query, validation_level=validation_level, allow_remote=False)
-                route_result.intent_router_mode = router_mode
-                route_result.degraded = True
-                degraded_reason = "router phase reached its shared cap; using local rules"
-                route_result.degraded_reason = "; ".join(
-                    reason for reason in (route_result.degraded_reason, degraded_reason) if reason
-                )
-                route_result.reasons.append(degraded_reason)
-        else:
-            router_start = time.monotonic()
-            route_result = await router.route(query, validation_level=validation_level, allow_remote=True)
-            execution.record(
-                "router",
-                "ok",
-                router_start,
-                0.0,
-                details={"remote_components_configured": False},
-            )
-    except ValueError as e:
-        return _empty_search_result(
-            start,
-            session_id,
-            query,
-            "parameter_error",
-            str(e),
-            extra={"validation_level": validation_level, **execution.telemetry()},
-        )
-    fetch_urls = _extract_urls(query)
-    supplemental_paths = route_result.required_capabilities
-    openai_candidate_models = next(
-        (
-            [candidate["model"] for candidate in _openai_model_candidates(item, fallback_mode=fallback_mode, model_override=model)]
-            for item in selected_main_provider_configs
-            if item["provider"] == "openai-compatible"
-        ),
-        [],
+        config.intent_router_mode
+    except ValueError as exc:
+        return _empty_search_result(start, new_session_id(), query, "parameter_error", str(exc))
+    return await jev_search.search(
+        query, validation=validation_level, fallback=fallback_mode, providers=providers,
+        timeout_seconds=effective_timeout, platform=platform, model=model, stream=stream, extra_sources=extra_sources,
     )
-    routing_decision = {
-        **route_result.to_dict(),
-        "validation_level": validation_level,
-        "fallback_mode": fallback_mode,
-        "providers": providers,
-        "main_search_chain": [item["provider"] for item in selected_main_provider_configs],
-        "openai_compatible_stream": next((bool(item.get("stream")) for item in selected_main_provider_configs if item["provider"] == "openai-compatible"), False),
-        "openai_compatible_api_mode": next((item.get("api_mode", item.get("mode", "")) for item in selected_main_provider_configs if item["provider"] == "openai-compatible"), ""),
-        "openai_compatible_models": openai_candidate_models,
-        "openai_compatible_model_fallback_enabled": len(openai_candidate_models) > 1,
-        "openai_compatible_timeout_policy": OPENAI_COMPATIBLE_TIMEOUT_POLICY,
-        "search_timeout_seconds": effective_timeout,
-        "main_search_reserve_seconds": round(budget.main_reserve_seconds(), 3),
-    }
-
-    provider_attempts: list[dict] = []
-    primary_start = time.time()
-    main_phase_start = time.monotonic()
-    main_phase_budget = budget.remaining_seconds()
-    primary_result = None
-    successful_main_config: dict[str, Any] | None = None
-    last_primary_error: dict[str, Any] | None = None
-    model_fallback_used = False
-    transport_fallback_used = False
-    main_timed_out = False
-    for provider_config in selected_main_provider_configs:
-        provider_candidates = (
-            _openai_model_candidates(provider_config, fallback_mode=fallback_mode, model_override=model)
-            if provider_config["provider"] == "openai-compatible"
-            else [provider_config]
-        )
-        for candidate_config in provider_candidates:
-            attempt_timeout = budget.remaining_seconds()
-            if attempt_timeout <= 0:
-                main_timed_out = True
-                break
-            primary_start = time.time()
-            search_provider = _main_search_providers([candidate_config], fallback="auto")[0]
-            attempt_extra: dict[str, Any] = {"model": candidate_config.get("model", "")}
-            if candidate_config["provider"] == "openai-compatible":
-                attempt_extra["model_role"] = candidate_config.get("model_role", "primary")
-                attempt_extra["stream"] = bool(candidate_config.get("stream", False))
-                attempt_extra["api_mode"] = candidate_config.get("api_mode", candidate_config.get("mode", "chat-completions"))
-                attempt_extra["endpoint"] = openai_compatible_endpoint(
-                    candidate_config["api_url"],
-                    attempt_extra["api_mode"],
-                )
-                if candidate_config.get("fallback_from_model"):
-                    attempt_extra["fallback_from_model"] = candidate_config["fallback_from_model"]
-                    model_fallback_used = True
-                breaker_state = _openai_model_breaker_state(
-                    candidate_config["api_url"],
-                    candidate_config["model"],
-                    attempt_extra["api_mode"],
-                )
-                if breaker_state.get("state") == "open":
-                    attempt_extra["breaker_state"] = breaker_state
-                    provider_attempts.append(
-                        _attempt(
-                            "main_search",
-                            "OpenAI-compatible",
-                            "skipped",
-                            primary_start,
-                            error_type="network_error",
-                            error="model breaker open",
-                            extra=attempt_extra,
-                        )
-                    )
-                    continue
-            attempt_timeout = max(0.001, attempt_timeout)
-            attempt_extra["attempt_timeout_seconds"] = round(attempt_timeout, 3)
-            set_deadline = getattr(search_provider, "set_search_deadline", None)
-            if callable(set_deadline):
-                set_deadline(budget.deadline)
-            activity.progress("main_search", candidate_config["provider"], candidate_config.get("model", ""))
-            candidate_task = asyncio.create_task(search_provider.search(query, platform))
-            try:
-                candidate_result = await asyncio.wait_for(candidate_task, timeout=attempt_timeout)
-                transport_attempts = getattr(search_provider, "last_transport_attempts", [])
-                if _append_openai_transport_attempts(provider_attempts, search_provider, candidate_config, extra=attempt_extra):
-                    transport_fallback_used = transport_fallback_used or any(
-                        attempt.get("fallback_from_transport") for attempt in transport_attempts
-                    )
-                if candidate_result:
-                    primary_result = candidate_result
-                    successful_main_config = candidate_config
-                    if candidate_config["provider"] != "openai-compatible" or not transport_attempts:
-                        provider_attempts.append(
-                            _attempt(
-                                "main_search",
-                                search_provider.get_provider_name(),
-                                "ok",
-                                primary_start,
-                                result_count=1,
-                                extra=attempt_extra,
-                            )
-                        )
-                    if candidate_config["provider"] == "openai-compatible":
-                        _record_openai_model_success(
-                            candidate_config["api_url"],
-                            candidate_config["model"],
-                            candidate_config.get("api_mode", candidate_config.get("mode", "chat-completions")),
-                        )
-                    break
-                if candidate_config["provider"] == "openai-compatible":
-                    attempt_extra["breaker_state"] = _record_openai_model_failure(
-                        candidate_config["api_url"],
-                        candidate_config["model"],
-                        candidate_config.get("api_mode", candidate_config.get("mode", "chat-completions")),
-                    )
-                last_primary_error = _primary_search_error_result(
-                    start,
-                    session_id,
-                    query,
-                    candidate_config["mode"],
-                    "network_error",
-                    f"{search_provider.get_provider_name()} 返回空结果",
-                )
-                if candidate_config["provider"] != "openai-compatible" or not transport_attempts:
-                    provider_attempts.append(
-                        _attempt("main_search", search_provider.get_provider_name(), "empty", primary_start, extra=attempt_extra)
-                    )
-            except Exception as e:
-                error_result = _primary_search_exception_result(start, session_id, query, candidate_config["mode"], search_provider.get_provider_name(), e)
-                last_primary_error = error_result
-                transport_attempts = getattr(search_provider, "last_transport_attempts", [])
-                if _append_openai_transport_attempts(provider_attempts, search_provider, candidate_config, extra=attempt_extra):
-                    transport_fallback_used = transport_fallback_used or any(
-                        attempt.get("fallback_from_transport") for attempt in transport_attempts
-                    )
-                if candidate_config["provider"] == "openai-compatible":
-                    attempt_extra["breaker_state"] = _record_openai_model_failure(
-                        candidate_config["api_url"],
-                        candidate_config["model"],
-                        candidate_config.get("api_mode", candidate_config.get("mode", "chat-completions")),
-                    )
-                if candidate_config["provider"] != "openai-compatible" or not transport_attempts:
-                    provider_attempts.append(
-                        _attempt(
-                            "main_search",
-                            search_provider.get_provider_name(),
-                            "error",
-                            primary_start,
-                            error_type=error_result["error_type"],
-                            error=error_result["error"],
-                            extra=attempt_extra,
-                        )
-                    )
-                if isinstance(e, asyncio.TimeoutError) and (
-                    candidate_task.cancelled() or budget.remaining_seconds() <= 0
-                ):
-                    main_timed_out = True
-                    break
-        if main_timed_out:
-            break
-        if primary_result is not None:
-            break
-    if primary_result is None:
-        terminal_timeout = main_timed_out or budget.remaining_seconds() <= 0
-        if terminal_timeout:
-            execution.record(
-                "main_search",
-                "timeout",
-                main_phase_start,
-                main_phase_budget,
-                "main_search phase exhausted the shared search deadline",
-                {"main_search_reserve_ms": round(budget.main_reserve_seconds() * 1000, 2)},
-            )
-            if last_primary_error and last_primary_error.get("error_type") == "timeout":
-                result = last_primary_error
-            else:
-                result = _primary_search_error_result(
-                    start,
-                    session_id,
-                    query,
-                    primary_api_mode,
-                    "timeout",
-                    "Search deadline exhausted during main_search.",
-                )
-        else:
-            execution.record("main_search", "error", main_phase_start, main_phase_budget)
-            result = last_primary_error or _primary_search_error_result(
-                start,
-                session_id,
-                query,
-                primary_api_mode,
-                "network_error",
-                "搜索失败或无结果",
-            )
-        result["provider_attempts"] = provider_attempts
-        result["provider_notices"] = _provider_notices(provider_attempts)
-        result["providers_used"] = _provider_names_from_attempts(provider_attempts)
-        result["fallback_used"] = _fallback_used(provider_attempts)
-        result["transport_fallback_used"] = transport_fallback_used
-        result["model_fallback_used"] = model_fallback_used
-        result["routing_decision"] = routing_decision
-        result["validation_level"] = validation_level
-        result["minimum_profile_ok"] = minimum.get("ok", False)
-        result["capability_status"] = minimum.get("capability_status", {})
-        result.update(execution.telemetry())
-        return result
-
-    successful_main_config = successful_main_config or selected_main_provider_configs[0]
-    execution.record(
-        "main_search",
-        "ok",
-        main_phase_start,
-        main_phase_budget,
-        details={"main_search_reserve_ms": round(budget.main_reserve_seconds() * 1000, 2)},
-    )
-    primary_api_mode = successful_main_config["mode"]
-    effective_model = successful_main_config["model"]
-
-    extra_calls: list[tuple[str, Any]] = []
-    extra_providers = [
-        provider
-        for provider, wanted in (
-            ("tavily", tavily_count),
-            ("firecrawl", firecrawl_count),
-            ("tinyfish", tinyfish_count),
-        )
-        if wanted
-    ]
-    extra_runnable, extra_skipped = _plan_provider_health("web_search", extra_providers)
-    provider_attempts.extend(extra_skipped)
-    if tavily_count and "tavily" in extra_runnable:
-        extra_calls.append(("tavily", lambda: call_tavily_search(query, tavily_count)))
-    if firecrawl_count and "firecrawl" in extra_runnable:
-        extra_calls.append(("firecrawl", lambda: call_firecrawl_search(query, firecrawl_count)))
-    if tinyfish_count and "tinyfish" in extra_runnable:
-        extra_calls.append(("tinyfish", lambda: call_tinyfish_search(query, tinyfish_count)))
-
-    gathered = await _collect_extra_source_calls(extra_calls, budget, execution)
-    primary_result = primary_result or ""
-    tavily_results: list[dict] | None = None
-    firecrawl_results: list[dict] | None = None
-    tinyfish_results: list[dict] | None = None
-    for provider, attempt_start, result in gathered:
-        if isinstance(result, BaseException):
-            provider_attempts.append(_attempt_with_health("web_search", provider, attempt_start, result))
-            continue
-        if result:
-            if provider == "tinyfish":
-                tinyfish_results = result
-            elif provider == "tavily":
-                tavily_results = result
-            else:
-                firecrawl_results = result
-            _record_provider_result(provider, "ok")
-            provider_attempts.append(_attempt("web_search", provider, "ok", attempt_start, result_count=len(result)))
-        else:
-            provider_attempts.append(_attempt("web_search", provider, "empty", attempt_start))
-
-    answer, primary_sources = split_answer_and_sources(primary_result)
-    extra_source_items = extra_results_to_sources(tavily_results, firecrawl_results, tinyfish_results)
-
-    supplemental_sources: list[dict] = []
-    if validation_level in {"balanced", "strict"}:
-        if "docs_search" in supplemental_paths:
-            docs_ok, docs_result = await _run_budgeted_phase(
-                lambda: _run_docs_search_fallback(query, providers=providers, fallback=fallback_mode),
-                budget,
-                execution,
-                "supplemental",
-                timeout_reason="optional docs_search reached the shared search deadline",
-                details={"capability": "docs_search"},
-            )
-            if docs_ok and docs_result:
-                docs_sources, docs_attempts = docs_result
-                provider_attempts.extend(docs_attempts)
-                supplemental_sources.extend(docs_sources)
-        if "web_search" in supplemental_paths:
-            web_ok, web_result = await _run_budgeted_phase(
-                lambda: _run_web_search_fallback(
-                    query,
-                    count=max(1, extra_sources or 3),
-                    providers=providers,
-                    fallback=fallback_mode,
-                ),
-                budget,
-                execution,
-                "supplemental",
-                timeout_reason="optional web_search reached the shared search deadline",
-                details={"capability": "web_search"},
-            )
-            if web_ok and web_result:
-                web_sources, web_attempts = web_result
-                provider_attempts.extend(web_attempts)
-                supplemental_sources.extend(web_sources)
-        if "web_fetch" in supplemental_paths:
-            fetch_url = fetch_urls[0] if fetch_urls else query.strip()
-            fetch_ok, fetch_phase_result = await _run_budgeted_phase(
-                lambda: _run_web_fetch_fallback(fetch_url, fallback=fallback_mode),
-                budget,
-                execution,
-                "supplemental",
-                timeout_reason="optional web_fetch reached the shared search deadline",
-                details={"capability": "web_fetch"},
-            )
-            if fetch_ok and fetch_phase_result:
-                fetch_result, fetch_attempts = fetch_phase_result
-                provider_attempts.extend(fetch_attempts)
-                if fetch_result:
-                    supplemental_sources.append({"url": fetch_result["url"], "provider": fetch_result["provider"], "description": fetch_result["content"][:300]})
-        if "vertical_search" in supplemental_paths:
-            vertical_ok, vertical_result = await _run_budgeted_phase(
-                lambda: _run_vertical_search_fallback(query, providers=providers, fallback=fallback_mode),
-                budget,
-                execution,
-                "supplemental",
-                timeout_reason="optional vertical_search reached the shared search deadline",
-                details={"capability": "vertical_search"},
-            )
-            if vertical_ok and vertical_result:
-                vertical_sources, vertical_attempts = vertical_result
-                provider_attempts.extend(vertical_attempts)
-                supplemental_sources.extend(vertical_sources)
-
-    extra_source_items = merge_sources(extra_source_items, supplemental_sources)
-    sources = merge_sources(primary_sources, extra_source_items)
-    ok = bool(answer or sources)
-    if validation_level == "strict" and not sources:
-        ok = False
-    optional_phase_limited = any(
-        attempt.get("phase") in {"extra_sources", "supplemental"}
-        and attempt.get("status") in {"timeout", "skipped"}
-        for attempt in execution.phase_attempts
-    )
-    return {
-        "ok": ok,
-        "error_type": "" if ok else ("evidence_error" if validation_level == "strict" else "network_error"),
-        "error": "" if ok else (source_message('strict 模式证据不足') if validation_level == "strict" else source_message('搜索失败或无结果')),
-        "session_id": session_id,
-        "query": query,
-        "platform": platform,
-        "provider": successful_main_config["provider"] if successful_main_config else "",
-        "model": effective_model,
-        "primary_api_mode": primary_api_mode,
-        "content": answer,
-        "sources": sources,
-        "sources_count": len(sources),
-        "primary_sources": primary_sources,
-        "primary_sources_count": len(primary_sources),
-        "extra_sources": extra_source_items,
-        "extra_sources_count": len(extra_source_items),
-        "source_warning": SOURCE_PROVENANCE_WARNING if extra_source_items else "",
-        "routing_decision": routing_decision,
-        "providers_used": _provider_names_from_attempts(provider_attempts),
-        "provider_attempts": provider_attempts,
-        "provider_notices": _provider_notices(provider_attempts),
-        "fallback_used": _fallback_used(provider_attempts),
-        "transport_fallback_used": transport_fallback_used,
-        "model_fallback_used": model_fallback_used,
-        "validation_level": validation_level,
-        "minimum_profile_ok": minimum.get("ok", False),
-        "capability_status": minimum.get("capability_status", {}),
-        "elapsed_ms": _elapsed_ms(start),
-        **execution.telemetry(partial_success=bool(primary_result and optional_phase_limited)),
-    }
 
 
 async def route(
     query: str,
     validation: str = "",
     mode: str = "",
-    allow_remote: bool = True,
+    allow_remote: bool = False,
 ) -> dict[str, Any]:
     start = time.time()
     try:
         validation_level = (validation or config.validation_level).strip().lower()
         if validation_level not in config._ALLOWED_VALIDATION_LEVELS:
             raise ValueError(source_message('Invalid validation level: {0}', validation_level))
-        if (mode or config.intent_router_mode).strip().lower() == "jev":
-            return await jev_search.plan(query, validation_level, allow_remote=allow_remote)
-        route_result = await IntentRouter(config).route(
-            query,
-            validation_level=validation_level,
-            mode=mode,
-            allow_remote=allow_remote,
-        )
-    except ValueError as e:
-        return {
-            "ok": False,
-            "query": query,
-            "error_type": "parameter_error",
-            "error": str(e),
-            "elapsed_ms": _elapsed_ms(start),
-        }
-    data = route_result.to_dict()
-    router_status = intent_router_status()
-    preset_fields = {
-        key: router_status.get(key)
-        for key in (
-            "embedding_preset_id",
-            "embedding_preset_model",
-            "embedding_preset_api_url",
-            "embedding_preset_threshold",
-            "embedding_preset_margin",
-            "embedding_preset_threshold_matches",
-            "embedding_preset_margin_matches",
-            "embedding_preset_recommended",
-            "embedding_preset_recommendation",
-            "embedding_preset_commands",
-        )
-        if key in router_status
-    }
-    data.update(
-        {
-            "ok": True,
-            "query": query,
-            "validation_level": validation_level,
-            "executed_search": False,
-            "provider_selection": "not_executed",
-            "embedding_model": router_status.get("embedding_model", ""),
-            "embedding_threshold": router_status.get("embedding_threshold", ""),
-            "embedding_margin": router_status.get("embedding_margin", ""),
-            "embedding_threshold_source": router_status.get("embedding_threshold_source", ""),
-            "embedding_margin_source": router_status.get("embedding_margin_source", ""),
-            "elapsed_ms": _elapsed_ms(start),
-            **preset_fields,
-        }
-    )
-    return data
-
-
-class _CalibrationConfigProxy:
-    def __init__(self, base_config: Any, model: str, threshold: float, margin: float):
-        self._base_config = base_config
-        self._model = model
-        self._threshold = threshold
-        self._margin = margin
-
-    @property
-    def intent_router_mode(self) -> str:
-        return "hybrid"
-
-    @property
-    def intent_embedding_model(self) -> str:
-        return self._model
-
-    @property
-    def intent_embedding_threshold(self) -> float:
-        return self._threshold
-
-    @property
-    def intent_embedding_margin(self) -> float:
-        return self._margin
-
-    def get_config_source(self, key: str) -> str:
-        if key in {"INTENT_EMBEDDING_MODEL", "INTENT_EMBEDDING_THRESHOLD", "INTENT_EMBEDDING_MARGIN"}:
-            return "calibration"
-        getter = getattr(self._base_config, "get_config_source", None)
-        if callable(getter):
-            return str(getter(key))
-        return "default"
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._base_config, name)
-
-
-def _dedupe_preserve_order(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for value in values:
-        item = value.strip()
-        if item and item not in seen:
-            seen.add(item)
-            out.append(item)
-    return out
-
-
-def _parse_calibration_models(models: str = "") -> list[str]:
-    if models.strip():
-        return _dedupe_preserve_order([item.strip() for item in models.split(",")])
-    defaults = list(DEFAULT_ROUTE_CALIBRATION_MODELS)
-    current = config.intent_embedding_model
-    if current:
-        defaults.append(current)
-    return _dedupe_preserve_order(defaults)
-
-
-def _configured_embedding_threshold() -> float:
-    try:
-        return config.intent_embedding_threshold
-    except ValueError:
-        return DEFAULT_SEMANTIC_CONFIDENCE_THRESHOLD
-
-
-def _configured_embedding_margin() -> float:
-    try:
-        return config.intent_embedding_margin
-    except ValueError:
-        return DEFAULT_SEMANTIC_CONFIDENCE_MARGIN
-
-
-def _route_calibration_dataset() -> list[dict[str, Any]]:
-    examples: list[dict[str, Any]] = []
-    for label, queries in ROUTE_CALIBRATION_QUERIES.items():
-        expected = [] if label == "none" else [label]
-        for index, query_text in enumerate(queries, 1):
-            examples.append(
-                {
-                    "id": f"{label}-{index:02d}",
-                    "query": query_text,
-                    "expected_capabilities": list(expected),
-                    "expected_label": label,
-                }
-            )
-    return examples
-
-
-async def _embed_in_batches(router: IntentRouter, inputs: list[str], batch_size: int = 64) -> list[list[float]]:
-    embeddings: list[list[float]] = []
-    for start_index in range(0, len(inputs), batch_size):
-        embeddings.extend(await router._embed(inputs[start_index : start_index + batch_size]))
-    return embeddings
-
-
-def _label_present(capabilities: set[str], label: str) -> bool:
-    if label == "none":
-        return not capabilities
-    return label in capabilities
-
-
-def _macro_f1(expected: list[set[str]], predicted: list[set[str]], labels: list[str]) -> dict[str, Any]:
-    per_label: dict[str, float] = {}
-    for label in labels:
-        true_positive = 0
-        false_positive = 0
-        false_negative = 0
-        for expected_caps, predicted_caps in zip(expected, predicted):
-            expected_has = _label_present(expected_caps, label)
-            predicted_has = _label_present(predicted_caps, label)
-            if expected_has and predicted_has:
-                true_positive += 1
-            elif not expected_has and predicted_has:
-                false_positive += 1
-            elif expected_has and not predicted_has:
-                false_negative += 1
-        precision = true_positive / (true_positive + false_positive) if true_positive + false_positive else 0.0
-        recall = true_positive / (true_positive + false_negative) if true_positive + false_negative else 0.0
-        per_label[label] = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-    macro = sum(per_label.values()) / len(labels) if labels else 0.0
-    return {
-        "macro_f1": round(macro, 4),
-        "per_label_f1": {label: round(score, 4) for label, score in per_label.items()},
-    }
-
-
-def _confusion_label(capabilities: set[str]) -> str:
-    ordered = _ordered_capabilities(capabilities)
-    if not ordered:
-        return "none"
-    if len(ordered) == 1:
-        return ordered[0]
-    return "+".join(ordered)
-
-
-def _confusion_matrix(expected: list[set[str]], predicted: list[set[str]]) -> dict[str, dict[str, int]]:
-    matrix: dict[str, dict[str, int]] = {}
-    for expected_caps, predicted_caps in zip(expected, predicted):
-        actual = _confusion_label(expected_caps)
-        guessed = _confusion_label(predicted_caps)
-        matrix.setdefault(actual, {})
-        matrix[actual][guessed] = matrix[actual].get(guessed, 0) + 1
-    return matrix
-
-
-def _semantic_predictions(
-    records: list[dict[str, Any]],
-    threshold: float,
-    margin: float,
-) -> tuple[list[set[str]], list[dict[str, Any]]]:
-    predictions: list[set[str]] = []
-    summaries: list[dict[str, Any]] = []
-    for record in records:
-        summary = _semantic_summary(record["scores"], threshold, margin)
-        summaries.append(summary)
-        if summary["passed_threshold"] and summary["passed_margin"]:
-            predictions.append({str(summary["top_capability"])})
-        else:
-            predictions.append(set())
-    return predictions, summaries
-
-
-def _candidate_thresholds(records: list[dict[str, Any]]) -> list[float]:
-    values = {round(index / 100, 2) for index in range(50, 96)}
-    values.add(round(_configured_embedding_threshold(), 2))
-    for record in records:
-        summary = _semantic_summary(record["scores"], 0.0, 0.0)
-        top_score = float(summary["top_score"])
-        for delta in (-0.02, -0.01, 0.0, 0.01, 0.02):
-            value = max(0.0, min(1.0, top_score + delta))
-            values.add(round(value, 3))
-    return sorted(values)
-
-
-def _candidate_margins(records: list[dict[str, Any]]) -> list[float]:
-    values = {round(index / 100, 2) for index in range(0, 21)}
-    values.add(round(_configured_embedding_margin(), 2))
-    for record in records:
-        summary = _semantic_summary(record["scores"], 0.0, 0.0)
-        score_margin = float(summary["margin"])
-        for delta in (-0.02, -0.01, 0.0, 0.01, 0.02):
-            value = max(0.0, min(1.0, score_margin + delta))
-            values.add(round(value, 3))
-    return sorted(values)
-
-
-def _select_semantic_parameters(
-    records: list[dict[str, Any]],
-    expected: list[set[str]],
-    labels: list[str],
-) -> dict[str, Any]:
-    best: dict[str, Any] | None = None
-    thresholds = _candidate_thresholds(records)
-    margins = _candidate_margins(records)
-    for threshold in thresholds:
-        for margin in margins:
-            predictions, _ = _semantic_predictions(records, threshold, margin)
-            metrics = _macro_f1(expected, predictions, labels)
-            failures = sum(1 for left, right in zip(expected, predictions) if left != right)
-            candidate = {
-                "threshold": threshold,
-                "margin": margin,
-                "macro_f1": metrics["macro_f1"],
-                "per_label_f1": metrics["per_label_f1"],
-                "failures": failures,
-            }
-            if best is None:
-                best = candidate
-                continue
-            current_key = (candidate["macro_f1"], -candidate["failures"], candidate["threshold"], candidate["margin"])
-            best_key = (best["macro_f1"], -best["failures"], best["threshold"], best["margin"])
-            if current_key > best_key:
-                best = candidate
-    return best or {
-        "threshold": _configured_embedding_threshold(),
-        "margin": _configured_embedding_margin(),
-        "macro_f1": 0.0,
-        "per_label_f1": {},
-        "failures": len(records),
-    }
-
-
-def _representative_failures(
-    records: list[dict[str, Any]],
-    expected: list[set[str]],
-    predicted: list[set[str]],
-    summaries: list[dict[str, Any]],
-    limit: int = 12,
-) -> list[dict[str, Any]]:
-    failures: list[dict[str, Any]] = []
-    for record, expected_caps, predicted_caps, summary in zip(records, expected, predicted, summaries):
-        if expected_caps == predicted_caps:
-            continue
-        rounded_scores = {
-            capability: round(float(score), 4)
-            for capability, score in sorted(record["scores"].items(), key=lambda item: item[0])
-        }
-        failures.append(
-            {
-                "id": record["case"]["id"],
-                "query": record["case"]["query"],
-                "expected": _confusion_label(expected_caps),
-                "predicted": _confusion_label(predicted_caps),
-                "top_capability": summary["top_capability"],
-                "top_score": round(float(summary["top_score"]), 4),
-                "second_score": round(float(summary["second_score"]), 4),
-                "margin": round(float(summary["margin"]), 4),
-                "scores": rounded_scores,
-            }
-        )
-        if len(failures) >= limit:
-            break
-    return failures
-
-
-async def _full_route_predictions(
-    records: list[dict[str, Any]],
-    threshold: float,
-    margin: float,
-    model: str,
-) -> tuple[list[set[str]], list[dict[str, Any]], list[dict[str, Any]]]:
-    proxy = _CalibrationConfigProxy(config, model, threshold, margin)
-    router = IntentRouter(proxy)
-    predictions: list[set[str]] = []
-    summaries: list[dict[str, Any]] = []
-    component_failures: list[dict[str, Any]] = []
-    for record in records:
-        query_text = record["case"]["query"]
-        rules = build_rules_route(query_text, validation_level="balanced", mode="hybrid")
-        merged_caps = set(rules.required_capabilities)
-        summary = _semantic_summary(record["scores"], threshold, margin)
-        summaries.append(summary)
-        semantic = {"scores": record["scores"], **summary}
-        if summary["passed_threshold"] and summary["passed_margin"]:
-            merged_caps.add(str(summary["top_capability"]))
-        if router._classifier_configured():
-            try:
-                classifier = await router._classifier_route(query_text, rules.to_dict(), semantic)
-                for capability in classifier.get("required_capabilities") or []:
-                    if capability in ROUTABLE_CAPABILITIES and _classifier_can_add_capability(capability, rules):
-                        merged_caps.add(str(capability))
-            except Exception as exc:
-                if len(component_failures) < 10:
-                    component_failures.append(
-                        {
-                            "id": record["case"]["id"],
-                            "query": query_text,
-                            "component": "classifier",
-                            "error": str(exc),
-                        }
-                    )
-        predictions.append(set(_ordered_capabilities(merged_caps)))
-    return predictions, summaries, component_failures
-
-
-def _model_failure_result(model: str, start: float, error: str, error_type: str = "provider_error") -> dict[str, Any]:
-    return {
-        "model": model,
-        "ok": False,
-        "availability": "failed",
-        "error_type": error_type,
-        "error": error,
-        "dimension": 0,
-        "latency_ms": 0.0,
-        "semantic_macro_f1": 0.0,
-        "full_route_macro_f1": 0.0,
-        "recommended_threshold": None,
-        "recommended_margin": None,
-        "confusion_matrix": {},
-        "semantic_failures": [],
-        "full_route_failures": [],
-        "elapsed_ms": _elapsed_ms(start),
-    }
-
-
-async def _evaluate_calibration_model(model: str, dataset: list[dict[str, Any]], labels: list[str]) -> dict[str, Any]:
-    start = time.time()
-    proxy = _CalibrationConfigProxy(
-        config,
-        model,
-        _configured_embedding_threshold(),
-        _configured_embedding_margin(),
-    )
-    router = IntentRouter(proxy)
-    if not router._embeddings_configured():
-        return _model_failure_result(
-            model,
-            start,
-            "INTENT_EMBEDDING_API_URL and INTENT_EMBEDDING_API_KEY must be configured before calibration.",
-            "config_error",
-        )
-
-    utterances: list[tuple[str, str]] = []
-    for capability, examples in CAPABILITY_UTTERANCES.items():
-        for example in examples:
-            utterances.append((capability, example))
-    inputs = [item["query"] for item in dataset] + [example for _capability, example in utterances]
-    embed_start = time.time()
-    embeddings = await _embed_in_batches(router, inputs)
-    latency_ms = _elapsed_ms(embed_start)
-    if len(embeddings) != len(inputs):
-        return _model_failure_result(
-            model,
-            start,
-            f"Embedding response returned {len(embeddings)} rows for {len(inputs)} inputs.",
-        )
-    dimension = len(embeddings[0]) if embeddings else 0
-    query_embeddings = embeddings[: len(dataset)]
-    utterance_embeddings = embeddings[len(dataset) :]
-
-    records: list[dict[str, Any]] = []
-    for item, query_embedding in zip(dataset, query_embeddings):
-        scores: dict[str, float] = {}
-        for index, (capability, _example) in enumerate(utterances):
-            score = _cosine_similarity(query_embedding, utterance_embeddings[index])
-            scores[capability] = max(scores.get(capability, 0.0), score)
-        records.append({"case": item, "scores": scores})
-
-    expected = [set(item["expected_capabilities"]) for item in dataset]
-    best = _select_semantic_parameters(records, expected, labels)
-    semantic_predictions, semantic_summaries = _semantic_predictions(records, best["threshold"], best["margin"])
-    semantic_metrics = _macro_f1(expected, semantic_predictions, labels)
-    full_predictions, full_summaries, component_failures = await _full_route_predictions(
-        records,
-        best["threshold"],
-        best["margin"],
-        model,
-    )
-    full_metrics = _macro_f1(expected, full_predictions, labels)
-
-    return {
-        "model": model,
-        "ok": True,
-        "availability": "ok",
-        "dimension": dimension,
-        "latency_ms": latency_ms,
-        "semantic_macro_f1": semantic_metrics["macro_f1"],
-        "semantic_per_label_f1": semantic_metrics["per_label_f1"],
-        "full_route_macro_f1": full_metrics["macro_f1"],
-        "full_route_per_label_f1": full_metrics["per_label_f1"],
-        "recommended_threshold": round(float(best["threshold"]), 3),
-        "recommended_margin": round(float(best["margin"]), 3),
-        "recommendation_basis": "semantic_macro_f1",
-        "confusion_matrix": _confusion_matrix(expected, semantic_predictions),
-        "full_route_confusion_matrix": _confusion_matrix(expected, full_predictions),
-        "semantic_failures": _representative_failures(records, expected, semantic_predictions, semantic_summaries),
-        "full_route_failures": _representative_failures(records, expected, full_predictions, full_summaries),
-        "component_failures": component_failures,
-        "elapsed_ms": _elapsed_ms(start),
-    }
+        selected_mode = normalize_router_mode(mode or config.intent_router_mode)
+        return await jev_search.plan(query, validation_level, allow_remote=allow_remote, mode=selected_mode)
+    except ValueError as exc:
+        return {"ok": False, "query": query, "error_type": "parameter_error", "error": str(exc), "elapsed_ms": _elapsed_ms(start)}
 
 
 async def route_calibrate(models: str = "") -> dict[str, Any]:
-    start = time.time()
-    selected_models = _parse_calibration_models(models)
-    dataset = _route_calibration_dataset()
-    labels = [*sorted(ROUTABLE_CAPABILITIES), "none"]
-    results: list[dict[str, Any]] = []
-    for model in selected_models:
-        try:
-            results.append(await _evaluate_calibration_model(model, dataset, labels))
-        except Exception as exc:
-            results.append(_model_failure_result(model, start, str(exc)))
-
-    successful = [item for item in results if item.get("ok")]
-    failed_models = [item.get("model") for item in results if not item.get("ok")]
-    recommended = None
-    if successful:
-        recommended = max(
-            successful,
-            key=lambda item: (
-                float(item.get("semantic_macro_f1") or 0.0),
-                float(item.get("full_route_macro_f1") or 0.0),
-                -float(item.get("latency_ms") or 0.0),
-            ),
-        )
-    ok = bool(successful)
-    data: dict[str, Any] = {
-        "ok": ok,
-        "metric": "semantic_macro_f1",
-        "primary_metric": "semantic_macro_f1",
-        "full_route_metric_role": "validation",
-        "models": selected_models,
-        "model_results": results,
-        "failed_models": failed_models,
-        "dataset_size": len(dataset),
-        "dataset_counts": {label: len(queries) for label, queries in ROUTE_CALIBRATION_QUERIES.items()},
-        "capabilities": sorted(ROUTABLE_CAPABILITIES),
-        "labels": labels,
-        "default_threshold": _configured_embedding_threshold(),
-        "default_margin": _configured_embedding_margin(),
-        "embedding_model": config.intent_embedding_model,
-        "recommended_model": recommended.get("model") if recommended else "",
-        "recommended_threshold": recommended.get("recommended_threshold") if recommended else None,
-        "recommended_margin": recommended.get("recommended_margin") if recommended else None,
-        "elapsed_ms": _elapsed_ms(start),
-    }
-    if ok:
-        data["error_type"] = ""
-        data["error"] = ""
-    else:
-        error_types = {
-            str(item.get("error_type") or "provider_error")
-            for item in results
-            if not item.get("ok")
-        }
-        data["error_type"] = "config_error" if "config_error" in error_types else "provider_error"
-        data["error"] = "No embedding model could be calibrated. See model_results for per-model errors."
-    return data
-
-
-def _primary_search_exception_result(
-    start: float,
-    session_id: str,
-    query: str,
-    primary_api_mode: str,
-    provider_name: str,
-    exc: BaseException,
-) -> dict[str, Any]:
-    error_type, error = classify_provider_exception(
-        exc,
-        additional_secrets=(config.xai_api_key, config.openai_compatible_api_key),
-    )
-    return _primary_search_error_result(
-        start,
-        session_id,
-        query,
-        primary_api_mode,
-        error_type,
-        f"{provider_name} {error}",
-    )
-
-
-def _primary_search_error_result(
-    start: float,
-    session_id: str,
-    query: str,
-    primary_api_mode: str,
-    error_type: str,
-    error: str,
-) -> dict[str, Any]:
     return {
-        "ok": False,
-        "error_type": error_type,
-        "error": error,
-        "session_id": session_id,
-        "query": query,
-        "primary_api_mode": primary_api_mode,
-        "content": "",
-        "sources": [],
-        "sources_count": 0,
-        "primary_sources": [],
-        "primary_sources_count": 0,
-        "extra_sources": [],
-        "extra_sources_count": 0,
-        "source_warning": "",
-        "elapsed_ms": _elapsed_ms(start),
+        "ok": False, "error_type": "parameter_error", "deprecated": True,
+        "error": source_message('Embedding/classifier routing is retired. Use route for a local preview or route --remote for Jev diagnostics.'),
+        "executed_remote": False, "model_results": [], "elapsed_ms": 0.0,
     }
 
 
@@ -5443,11 +3763,9 @@ async def doctor() -> dict[str, Any]:
         primary_model=config.openai_compatible_model,
     )
     main_connection_tests = info.get("main_search_connection_tests") or {}
-    main_search_statuses = [item.get("status") for item in main_connection_tests.values() if isinstance(item, dict)]
     primary_test = info.get("primary_connection_test", {})
     primary_status = primary_test.get("status")
-    main_search_ok = any(status == "ok" for status in main_search_statuses) if main_connection_tests else primary_status == "ok"
-    if info["intent_router_status"].get("mode") == "jev":
+    if info["intent_router_status"].get("mode") == "jev" and info["intent_router_status"].get("configured"):
         try:
             settings = config.jev_settings()
             client = JevClient(settings, time.monotonic() + settings.timeout, verify=config.ssl_verify_enabled)
@@ -5457,7 +3775,6 @@ async def doctor() -> dict[str, Any]:
                 "diagnostic",
             )
             info["jev_connection_test"] = {"status": "ok", "model": settings.model, "usage": client.usage()}
-            main_search_ok = main_search_ok if settings.synthesis_mode == "true" else True
             if not main_provider_configs and settings.synthesis_mode != "true":
                 info["primary_connection_test"] = {"status": "not_required", "message": source_message('Jev evidence mode does not require a main model')}
         except (ValueError, ProviderCallError) as exc:
@@ -5465,8 +3782,17 @@ async def doctor() -> dict[str, Any]:
             info["jev_connection_test"] = {"status": "error", "error_type": error_type, "message": error}
             primary_test = info["jev_connection_test"]
             primary_status = "error"
-            main_search_ok = False
-    info["ok"] = main_search_ok and minimum.get("ok", False)
+    else:
+        info["jev_connection_test"] = {"status": "skipped", "message": source_message('Using local routing; no Jev probe was sent.')}
+    retrieval_tests = [*main_connection_tests.values(), *(info.get(f"{name}_connection_test", {}) for name in (
+        "exa", "tavily", "jina", "firecrawl", "zhipu", "zhipu_mcp", "context7", "tinyfish",
+    ))]
+    retrieval_ready = any(test.get("status") in {"ok", "configured"} for test in retrieval_tests)
+    info["retrieval_connection_verified"] = any(test.get("status") == "ok" for test in retrieval_tests)
+    info["degraded"] = info["jev_connection_test"].get("status") == "error"
+    info["ok"] = retrieval_ready and minimum.get("ok", False) and not info.get("config_parameter_errors")
+    if not main_provider_configs:
+        info["primary_connection_test"] = {"status": "not_required", "message": source_message('Search can use a retrieval channel without a main model.')}
     if info["ok"]:
         info["error_type"] = ""
         info["error"] = ""
@@ -5666,17 +3992,11 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
         )
     )
 
-    missing_minimum = _minimum_profile_result(
-        "standard",
-        {
-            **minimum_status,
-            "docs_search": {"configured": [], "fallback_chain": ["context7", "exa"], "ok": False},
-        },
-    )
+    missing_minimum = _minimum_profile_result("standard", {})
     cases.append(
         _case(
             "doctor minimum profile fails closed",
-            not missing_minimum["ok"] and missing_minimum["missing"] == ["docs_search"],
+            not missing_minimum["ok"] and missing_minimum["missing"] == ["retrieval"],
             {"missing": missing_minimum["missing"], "error_type": missing_minimum["error_type"]},
         )
     )
@@ -5860,18 +4180,11 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
         )
     )
 
-    missing_for_deep = _minimum_profile_result(
-        "standard",
-        {
-            **minimum_status,
-            "docs_search": {"configured": [], "fallback_chain": ["context7", "exa"], "ok": False},
-            "web_fetch": {"configured": [], "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish"], "ok": False},
-        },
-    )
+    missing_for_deep = _minimum_profile_result("standard", {})
     cases.append(
         _case(
             "deep_research missing provider gives capability guidance",
-            not missing_for_deep["ok"] and set(missing_for_deep["missing"]) == {"docs_search", "web_fetch"},
+            not missing_for_deep["ok"] and missing_for_deep["missing"] == ["retrieval"],
             {"missing": missing_for_deep["missing"], "error_type": missing_for_deep["error_type"]},
         )
     )
@@ -5907,48 +4220,17 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
             "route_enabled": {"anysearch": True, "sciverse": False},
         },
     }
-    docs_routes = _research_capability_routes("React useEffect API docs", docs_plan, "auto", capability_status=mock_research_status)
-    zh_routes = _research_capability_routes("今天国内 AI 政策最新公告", market_plan, "auto", capability_status=mock_research_status)
-    pdf_fetch_order = _research_fetch_order("summarize https://arxiv.org/pdf/2401.00001.pdf", capability_status=mock_research_status)
-    dynamic_fetch_order = _research_fetch_order("dynamic javascript cloudflare page", "https://example.com/app", capability_status=mock_research_status)
-    vertical_routes = _research_capability_routes("CVE OpenSSL 漏洞影响范围", claim_plan, "auto", capability_status=mock_research_status)
-
-    cases.append(
-        _case(
-            "research router docs api prefers context7 then exa",
-            docs_routes["capabilities"]["docs_search"]["providers"][:2] == ["context7", "exa"]
-            and docs_routes["capabilities"]["vertical_search"]["providers"] == [],
-            {"routing_decision": docs_routes},
-        )
-    )
-    cases.append(
-        _case(
-            "research router chinese current prefers zhipu web_search",
-            zh_routes["capabilities"]["web_search"]["providers"][0] == "zhipu",
-            {"routing_decision": zh_routes},
-        )
-    )
-    cases.append(
-        _case(
-            "research router known url pdf favors jina fetch",
-            pdf_fetch_order[0] == "jina",
-            {"fetch_order": pdf_fetch_order},
-        )
-    )
-    cases.append(
-        _case(
-            "research router js heavy favors firecrawl fetch",
-            dynamic_fetch_order[0] == "firecrawl",
-            {"fetch_order": dynamic_fetch_order},
-        )
-    )
-    cases.append(
-        _case(
-            "research router vertical intent uses anysearch only when matched",
-            vertical_routes["capabilities"]["vertical_search"]["providers"] == ["anysearch"],
-            {"routing_decision": vertical_routes},
-        )
-    )
+    from types import SimpleNamespace
+    local = SimpleNamespace(build_rules_route=build_rules_route, _extract_urls=_extract_urls,
+                            _research_fetch_order=lambda q, u: _research_fetch_order(q, u, mock_research_status))
+    channels = [{"provider": provider, "capability": capability, "operation": "search", "query": query,
+                 "preference_rank": 0, "url": ""}
+                for provider, capability, query in [("context7", "docs_search", "React docs"),
+                                                    ("zhipu", "web_search", "今天新闻"),
+                                                    ("anysearch", "vertical_search", "CVE")]]
+    for channel in channels:
+        selected = jev_search.fallback_channels(local, channel["query"], channels, 1)
+        cases.append(_case("local route " + channel["capability"], selected == [channel]))
 
     research_fallback_attempts = [
         _attempt("web_fetch", "jina", "empty", time.time()),

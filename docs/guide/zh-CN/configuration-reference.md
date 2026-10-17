@@ -1,10 +1,10 @@
 [手册目录](../README.md) · [English](../en/configuration-reference.md)
 
-# 全部配置项
+# 当前配置项
 
-由当前配置元数据生成。下表列出全部可保存键；申请 Key、配置优先级、运行环境变量及最低能力要求见[配置指南](configuration.md)。未设置的密钥必须由用户提供；可选服务未配置时不会自动启用。
+由当前配置元数据生成。下表列出当前使用的配置键；旧向量/分类字段仍可保存但已退役，不参与执行。申请 Key、配置优先级、运行环境变量及最低能力要求见[配置指南](configuration.md)。未设置的密钥必须由用户提供；可选服务未配置时不会自动启用。
 
-## 先配这三样
+## 开始配置
 
 | 配置键 | 用途及条件 | 类型 / 取值 | 默认值 |
 | --- | --- | --- | --- |
@@ -75,30 +75,21 @@
 
 | 配置键 | 用途及条件 | 类型 / 取值 | 默认值 |
 | --- | --- | --- | --- |
-| `SMART_SEARCH_INTENT_ROUTER` | jev 按语义选渠道并判断证据，需单独 Key；hybrid 结合规则和模型；rules 只用规则；off 关闭路由。 | `hybrid, jev, off, rules` | `hybrid` |
-| `TYPESAFE_API_KEY` | 可选语义路由的独立凭据；填写不会自动切换路由模式。 | `secret` | 未设置 |
+| `SMART_SEARCH_INTENT_ROUTER` | Jev 优先自动选路；本地模式不调用路由模型。普通搜索始终为单轮。 | `jev, local` | `jev` |
+| `TYPESAFE_API_KEY` | 可选。默认使用 Jev 选路；留空会在本地选择已配置的检索渠道。 | `secret` | 未设置 |
 | `TYPESAFE_API_URL` | 仅 JEV 模式使用的 TypeSafe 基础地址；默认 https://api.typesafe.ai/v1，程序会补上 /systemone。不是搜索服务商地址。 | `url` | `https://api.typesafe.ai/v1` |
 | `TYPESAFE_MODEL` | TypeSafe 用来判断渠道和证据的模型标识；与主搜索模型无关，通常保留默认值。 | `text` | `jev-latest` |
 | `SMART_SEARCH_JEV_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `15` |
-| `SMART_SEARCH_JEV_MAX_ROUNDS` | 最多进行几轮检索与证据判断；增加轮数可能提高耗时和费用。 | `int` | `3` |
-| `SMART_SEARCH_JEV_MAX_CHANNELS` | 每轮最多调用多少个检索渠道；数值越大可能产生更多请求。 | `int` | `3` |
+| `SMART_SEARCH_JEV_MAX_ROUNDS` | 仅影响深入搜索。证据足够会提前停止；普通搜索不使用此设置。 | `int` | `3` |
+| `SMART_SEARCH_JEV_MAX_CHANNELS` | 仅影响深入搜索，每轮并发渠道的上限；普通搜索只选择一个渠道。 | `int` | `3` |
 | `SMART_SEARCH_JEV_RESULTS_PER_CHANNEL` | 每个检索渠道请求的结果条数；通常保留默认值。 | `int` | `5` |
 | `SMART_SEARCH_JEV_ROUTE_THRESHOLD` | 0 到 1。渠道适用概率达到此值时才选用；调高会减少选中的渠道。 | `float` | `0.5` |
-| `SMART_SEARCH_JEV_SUFFICIENCY_THRESHOLD` | 0 到 1。证据充分概率达到此值时停止继续检索；调高要求更充分的证据。 | `float` | `0.75` |
-| `SMART_SEARCH_JEV_FILTER_RESULTS` | 会增加判断请求；无法保证总费用减少。 | `bool` | `false` |
-| `SMART_SEARCH_JEV_FILTER_THRESHOLD` | 0 到 1，仅启用证据过滤时生效；低于此相关性阈值的结果会被过滤。 | `float` | `0.1` |
-| `SMART_SEARCH_JEV_SYNTHESIZE` | false 返回证据；auto 按需汇总；true 使用已配置主模型汇总。 | `false, auto, true` | `false` |
-| `INTENT_EMBEDDING_API_URL` | 可选的向量模型完整接口地址，须包含 /v1/embeddings；用来判断问题需要哪类能力，不负责生成搜索答案。hybrid 模式中与 Key、模型名配齐后启用。 | `url` | 未设置 |
-| `INTENT_EMBEDDING_API_KEY` | 向量模型服务提供的 Key，需与上方接口地址和模型属于同一服务。留空则不启用向量判断。 | `secret` | 未设置 |
-| `INTENT_EMBEDDING_MODEL` | 向量模型的准确名称，例如 BAAI/bge-m3；不是聊天模型。由接口服务商提供。 | `text` | 未设置 |
-| `INTENT_EMBEDDING_THRESHOLD` | 0 到 1 之间。 | `float` | `0.74` |
-| `INTENT_EMBEDDING_MARGIN` | 0 到 1 之间。 | `float` | `0.05` |
-| `INTENT_CLASSIFIER_API_URL` | 可选分类模型的完整聊天接口地址，须包含 /v1/chat/completions；用来补充判断问题类型。hybrid 模式中与 Key、模型名配齐后启用，留空仍可按规则路由。 | `url` | 未设置 |
-| `INTENT_CLASSIFIER_API_KEY` | 分类模型服务的 Key；与此处接口地址配套，不会自动沿用主搜索 Key。 | `secret` | 未设置 |
-| `INTENT_CLASSIFIER_MODEL` | 用于输出分类结果的聊天模型名称；必须支持该接口的 JSON 输出，与主搜索模型分别配置。 | `text` | 未设置 |
-| `INTENT_ROUTER_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `8` |
-| `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` | 逗号分隔的 provider id，深度研究时优先走这些。 | `csv` | 未设置 |
-| `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` | 逗号分隔的 provider id，深度研究时完全不走这些。 | `csv` | 未设置 |
+| `SMART_SEARCH_JEV_SUFFICIENCY_THRESHOLD` | 仅影响深入搜索。0 到 1，证据充分概率达到此值时停止；不代表事实必然正确。 | `float` | `0.75` |
+| `SMART_SEARCH_JEV_FILTER_RESULTS` | 仅影响深入搜索，会增加判断请求；无法保证总费用减少。 | `bool` | `false` |
+| `SMART_SEARCH_JEV_FILTER_THRESHOLD` | 深入搜索开启过滤时生效，范围 0 到 0.49；低于阈值的无关片段才会被过滤。 | `float` | `0.1` |
+| `SMART_SEARCH_JEV_SYNTHESIZE` | 仅影响深入搜索：false 返回证据；auto 按需汇总；true 使用已配置主模型汇总。 | `false, auto, true` | `false` |
+| `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` | 逗号分隔的渠道标识。普通和深入搜索均尊重这些偏好及渠道能力。 | `csv` | 未设置 |
+| `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` | 逗号分隔的渠道标识。普通和深入搜索都不会自动使用这些渠道。 | `csv` | 未设置 |
 
 ## 超时与兜底
 

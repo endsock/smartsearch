@@ -230,7 +230,7 @@ class Invocation:
             return
         self._finished = True
         self._stop.set()
-        status = status or ("finished" if exit_code == 0 else "failed")
+        status = status or ("cancelled" if self._error_type == "cancelled" else "finished" if exit_code == 0 else "failed")
         if self._enabled:
             self._try(self.store.finish, self.run_id, exit_code, status, error_type=self._error_type,
                       sources_count=self._sources_count)

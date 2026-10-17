@@ -197,7 +197,7 @@ The CLI equivalents remain: `smart-search setup`, `smart-search config set KEY V
 | `sciverse-relations` | `sv-relations` | Experimental Sciverse citation/reference/related-work relations by `unique_id` |
 | `context7-library` | `c7`, `ctx7` | Resolve Context7 library candidates |
 | `context7-docs` | `c7d`, `c7docs`, `ctx7-docs` | Fetch Context7 docs |
-| `route-calibrate` | `route-cal`, `rcal` | Evaluate embedding router models and recommend threshold/margin |
+| `route-calibrate` | `route-cal`, `rcal` | Retired compatibility command; no remote calls |
 | `doctor` | `d` | Masked config and connectivity check |
 | `diagnose` | `diag` | Focused OpenAI-compatible troubleshooting report |
 | `setup` | `init` | Interactive or scripted setup |
@@ -214,7 +214,6 @@ Useful examples:
 ```powershell
 smart-search search "query" --validation balanced --extra-sources 3 --timeout 300 --format json --output result.json
 smart-search route "React useEffect API docs" --format markdown
-smart-search route-calibrate --models "Qwen/Qwen3-Embedding-8B" --format markdown
 smart-search research "query" --budget deep --fallback auto --format json --output research.json
 smart-search search "query" --stream --format json
 smart-search search "query" --no-stream --format json
@@ -256,13 +255,13 @@ smart-search route "React useEffect cleanup function docs" --format markdown
 
 Status: OK
 Query: `React useEffect cleanup function docs`
-Mode: `hybrid`
+Mode: `jev`
 Executed search: NO
 Required capabilities: `docs_search`
 Confidence: `0.82`
 Engines: `rules`
 Degraded: YES
-Degraded reason: embeddings not configured; classifier not configured
+Executed search: NO; provider_selection: not_executed
 
 ## Reasons
 - rules matched docs/API/library terms

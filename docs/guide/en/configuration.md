@@ -15,7 +15,7 @@ The runtime also recognizes environment-only inputs: `SMART_SEARCH_CONFIG_DIR` s
 ## Providers, keys and configuration
 
 Use `smart-search setup` for normal configuration. Environment variables remain supported for CI and advanced users.
-The default interactive setup wizard includes optional smart intent router prompts, so embeddings and classifier routing can be configured without `--advanced`.
+The default wizard offers Jev or local routing. The CLI browser page remains available through `smart-search ui`.
 
 | Provider / route | Used for | Main config keys | Official docs | Key / dashboard |
 | --- | --- | --- | --- | --- |
@@ -33,44 +33,27 @@ The default interactive setup wizard includes optional smart intent router promp
 | AnySearch | Experimental vertical search acceptance surface; not a default fallback | `ANYSEARCH_API_URL`, `ANYSEARCH_API_KEY`, `ANYSEARCH_TIMEOUT_SECONDS` | [AnySearch docs](https://www.anysearch.com/docs) | [AnySearch API keys](https://www.anysearch.com/console/api-keys) |
 | Sciverse | Explicit experimental academic search, semantic paper retrieval, document chunks, and citation/reference relations; not a default fallback | `SCIVERSE_API_TOKEN`, `SCIVERSE_API_URL`, `SCIVERSE_TIMEOUT_SECONDS` | [Sciverse Agent Tools](https://github.com/opendatalab/Sciverse-Agent-Tools) | Sciverse dashboard / token provider |
 
-Intent router configuration:
+## Routing and migration
 
-| Key | Purpose |
-| --- | --- |
-| `SMART_SEARCH_INTENT_ROUTER` | `hybrid`, `rules`, `off`, or `jev`; default `hybrid` |
-| `INTENT_EMBEDDING_API_URL` | Optional OpenAI-compatible embeddings endpoint for semantic capability routing; recommended setup preset uses `https://api.siliconflow.cn/v1/embeddings` |
-| `INTENT_EMBEDDING_API_KEY` | Optional embeddings API key; masked by `doctor` and config output |
-| `INTENT_EMBEDDING_MODEL` | Embeddings model name; recommended setup preset uses `Qwen/Qwen3-Embedding-8B` |
-| `INTENT_EMBEDDING_THRESHOLD` | Semantic route threshold, default `0.74`; recommended 8B setup value `0.475`; model-specific |
-| `INTENT_EMBEDDING_MARGIN` | Required top-vs-second semantic margin, default `0.05`; recommended 8B setup value `0.053`; ambiguous matches remain signals only |
-| `INTENT_CLASSIFIER_API_URL` | Optional OpenAI-compatible chat-completions endpoint for structured intent classification |
-| `INTENT_CLASSIFIER_API_KEY` | Optional classifier API key; masked by `doctor` and config output |
-| `INTENT_CLASSIFIER_MODEL` | Classifier model name |
-| `INTENT_ROUTER_TIMEOUT_SECONDS` | Timeout for optional remote router calls, default `8` |
-| `SMART_SEARCH_TIMEOUT_SECONDS` | Total monotonic `search` budget, default `300`; `search --timeout` overrides it for one invocation |
-| `SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS` | How long a repeatedly failing optional provider is skipped, default `900`; `0` disables the cooldown |
-| `SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD` | Consecutive soft failures before an optional provider is put on cooldown, default `2` |
+`search` and `research` are the two live search modes. Both share the configured channel catalog, execution, deadlines, and evidence records.
 
-`jev` is the recommended optional semantic route for `search` and `research`; the default remains `hybrid`. It selects configured channels using their capabilities and existing provider preferences, judges accumulated evidence, then selects a new query, another engine, or a discovered page to read. Research keeps its plan, budgets, reports, and fetched/read-only citations. Optional filtering is followed by a fresh evidence assessment. TypeSafe failures use an explicit local capability fallback when allowed, without a hidden legacy remote classifier. There is no mandatory Grok call. `route --router-mode jev` stays local; add `--remote` only to request a billable TypeSafe selection. See [Jev routing and filtering](../../jev-routing.md) for limits and diagnostics.
+- `search`: one Jev routing judgment selects one suitable channel, then returns results and sources. Necessary dependent requests (such as Context7 library resolution followed by docs) and same-capability failure fallback remain. It never runs evidence assessment, follow-up search, filtering, or synthesis. `--extra-sources N` limits results from that channel (up to 20), not the number of channels. `evidence_assessment.status=not_evaluated`; success is retrieval success, not factual verification. `--validation strict` requires source evidence and can return partial content with an evidence error.
+- `research`: Jev selects complementary actions in parallel, reads discovered pages, assesses evidence gaps, and continues while useful and within budget. It chooses from program-built original/subquestion/gap query candidates; Jev does not generate arbitrary queries or tool calls. Only fetched/read content enters `citations`. Optional filtering and `SMART_SEARCH_JEV_SYNTHESIZE=false|auto|true` apply only here.
+- `deep` remains an offline planner. Its `steps[].command` entries are suggestions for manual/AI orchestration; `research` records its actual actions separately in `routing_decision.rounds` and `stage_results`.
 
-Default `hybrid` is fail-open: if embeddings or classifier settings are missing or fail, routing records `degraded_reason` and falls back to local rules. Semantic routing may add a capability only when the top similarity score is at least `INTENT_EMBEDDING_THRESHOLD` and the top-vs-second score gap is at least `INTENT_EMBEDDING_MARGIN`; otherwise it records an ambiguous signal without adding a capability. The classifier may add capabilities, but unknown capability names and provider names are ignored. Providers are still selected only by capability.
+The default is `SMART_SEARCH_INTENT_ROUTER=jev`. Without a TypeSafe key or a valid judgment, `--fallback auto` uses local capability rules and reports degradation; `--fallback off` fails clearly. Explicit `local` never calls Jev. Legacy `hybrid` maps to `jev`; `rules` and `off` map to `local`. Old embedding/classifier keys remain stored but unused. `route-calibrate` is a retired, non-network compatibility command.
 
-For normal setup, use the Qwen3-Embedding-8B preset: `INTENT_EMBEDDING_API_URL=https://api.siliconflow.cn/v1/embeddings`, `INTENT_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-8B`, `INTENT_EMBEDDING_THRESHOLD=0.475`, and `INTENT_EMBEDDING_MARGIN=0.053`. `smart-search setup` automatically fills the 8B threshold/margin when the 8B model is selected and those values are not already configured.
+`route` previews local capabilities without calling a model or retrieval provider. Add `--remote` only for an explicit, potentially billable Jev diagnostic. Direct provider commands keep their explicit behavior.
 
-Embedding cosine scores are model-specific. Keep `route-calibrate` for advanced re-checks: run it after changing `INTENT_EMBEDDING_MODEL`, changing embedding endpoints, or expanding the real query calibration set:
+Only configured, enabled, allowed channels outside cooldown can run. `--providers`, provider enable switches, `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS`, and explicit-only boundaries are enforced before selection and dispatch. A failed ordinary channel can try another provider of the same capability; it cannot turn into a research loop. User preferences do not bypass these boundaries.
 
-```powershell
-smart-search route-calibrate --models "Qwen/Qwen3-Embedding-8B" --format markdown
-```
-
-Use the report's recommended `INTENT_EMBEDDING_THRESHOLD` and `INTENT_EMBEDDING_MARGIN` before judging routing quality. The primary calibration metric is semantic-only Macro-F1; full-route Macro-F1 is reported to verify rules/classifier fallback behavior.
+The shared total timeout defaults to 300 seconds (`SMART_SEARCH_TIMEOUT_SECONDS`, overridden by `search --timeout`). Research quick/standard/deep ceilings are 2/3/10 rounds, 1/2/10 channels per round, 3/5/20 results per channel, and 45/120/configured seconds, further limited by the configured Jev budgets. Sufficient evidence, exhaustion, no progress, or deadline stops the loop. Completed results survive optional judgment/filter/synthesis failure.
 
 Important boundaries:
 
 - xAI official live search uses `/responses` through `XAI_*`. OpenAI-compatible relays use `/chat/completions` by default; set `OPENAI_COMPATIBLE_API_MODE=responses` only for a relay that explicitly supports the documented Responses subset.
 - `OPENAI_COMPATIBLE_STREAM=true` or `smart-search search --stream` sets `stream=true` only for OpenAI-compatible `search` and provider-side `fetch` calls. It is a relay compatibility switch for long requests and does not change xAI Responses behavior, URL description, or source ranking.
 - `SMART_SEARCH_TIMEOUT_SECONDS` is the persistent total `search` budget. Environment values override the local config file; `search --timeout SECONDS` overrides both. The default is `300` seconds.
-- The service owns one monotonic deadline across router, main search, extra sources, and supplemental evidence. Hybrid remote routing shares a cap and reserves `min(240 seconds, two thirds of the total)` for main search; optional work may finish partially but cannot erase a primary answer.
 - The main-search provider uses the whole remaining budget as its read ceiling. There is no separate fixed provider read cap to cut a slow reasoning model short before the shared deadline.
 - `OPENAI_COMPATIBLE_FALLBACK_MODELS` is fail-over, not a time slice. The primary model keeps the remaining shared main-search budget. A fallback model is tried only after a hard failure such as `model_not_found`, auth, empty content, or a non-retryable protocol error. `doctor` and `diagnose openai-compatible` warn when a configured fallback id is missing from `/models`.
 - Legacy `SMART_SEARCH_API_URL`, `SMART_SEARCH_API_KEY`, `SMART_SEARCH_API_MODE`, `SMART_SEARCH_MODEL`, and `SMART_SEARCH_XAI_TOOLS` are not supported config keys. Use `XAI_*` or `OPENAI_COMPATIBLE_*` explicitly.
@@ -86,7 +69,6 @@ Important boundaries:
 - `FIRECRAWL_API_URL` defaults to `https://api.firecrawl.dev/v2`.
 - AnySearch uses JSON-RPC 2.0 `tools/call` at `https://api.anysearch.com/mcp` by default. It allows anonymous calls when no key is configured, but authenticated calls send `Authorization: Bearer ...`. HTTP 200 responses with `result.isError=true` are treated as provider errors, not as successful evidence. `--sub-domain-params` is decoded as a JSON object before repeatable `--param key=value` entries override matching keys; malformed parameters fail before a request.
 - Sciverse uses native HTTP/OpenAPI at `https://api.sciverse.space` by default. It requires `SCIVERSE_API_TOKEN`, returns `config_error` without a network request when the token is absent, sends `Authorization: Bearer ...` when configured, and remains explicit-only: not `docs_search`, not `standard`, and not default `search` / `research` fallback.
-- `doctor` and `route` report intent router status, embedding model, threshold, margin, their config source, timeout, and degradation behavior. They do not expose router API keys.
 
 Non-interactive setup example:
 
@@ -103,12 +85,7 @@ smart-search setup --non-interactive `
   --search-timeout "300" `
   --fallback-mode "auto" `
   --minimum-profile "standard" `
-  --intent-router "hybrid" `
-  --intent-embedding-api-url "https://api.siliconflow.cn/v1/embeddings" `
-  --intent-embedding-api-key "your-siliconflow-key" `
-  --intent-embedding-model "Qwen/Qwen3-Embedding-8B" `
-  --intent-embedding-threshold "0.475" `
-  --intent-embedding-margin "0.053" `
+  --intent-router "jev" `
   --exa-key "your-exa-key" `
   --context7-key "your-context7-key" `
   --zhipu-key "your-zhipu-key" `
@@ -122,15 +99,9 @@ smart-search setup --non-interactive `
   --firecrawl-key "your-firecrawl-key"
 ```
 
-Minimum profile defaults to `standard`, requiring at least:
+The `standard` minimum is at least one enabled automatic retrieval channel. Jev and a main model are optional. The requested operation still needs a capable channel; a page-reader alone cannot discover URLs.
 
-- one `main_search` provider: xAI Responses or OpenAI-compatible;
-- one `docs_search` provider: Exa or Context7;
-- one `web_fetch` provider: Tavily, Jina with `JINA_API_KEY`, Zhipu Coding Plan MCP Reader, Firecrawl, or TinyFish.
-
-Missing required capabilities fail closed with a configuration error. Use `SMART_SEARCH_MINIMUM_PROFILE=off` only for local experiments.
-
-Experimental AnySearch configuration is optional and does not satisfy or change the `standard` minimum profile:
+AnySearch is optional and supports vertical-intent retrieval:
 
 ```powershell
 smart-search setup --non-interactive --anysearch-api-url "https://api.anysearch.com/mcp" --anysearch-key "your-anysearch-key"

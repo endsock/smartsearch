@@ -28,26 +28,26 @@
 
 - Use `smart-search doctor --format json` for agent/script parsing and `smart-search doctor --format markdown` when a human wants a detailed diagnostic report.
 - If `smart-search doctor --format json` returns `ok: false`, follow the `error` field's guidance (`smart-search setup` or `smart-search config set KEY VALUE`); do not silently fall back to native web search.
-- `doctor --format markdown` must render a detailed diagnostic report with overall status, active/default/legacy config paths, log path resolution, file-logging status, masked config values with sources, minimum profile, capability status, providers currently on failure cooldown, main-search provider checks, provider connectivity checks, intent router status, embedding threshold/margin metadata, model metadata, and full long error/message detail.
+- `doctor --format markdown` must render a detailed diagnostic report with overall status, active/default/legacy config paths, log path resolution, file-logging status, masked config values with sources, minimum profile, capability status, providers currently on failure cooldown, main-search provider checks, provider connectivity checks, Jev/local router status, model metadata, and full long error/message detail.
 - Use `smart-search diagnose openai-compatible --format markdown` when `doctor` succeeds but OpenAI-compatible `search` appears to hang, returns a timeout, or differs between `--stream` and `--no-stream`. It is the beginner-facing one-command report for upstream/relay compatibility.
 - `diagnose openai-compatible --format markdown` must render a short copy-pasteable troubleshooting report with masked config, the selected API mode and endpoint, a quick selected-endpoint check, real search-shape `stream=false` and `stream=true` checks, fallback-model inventory against `/models`, the remaining-budget timeout policy, a plain-language summary, and a next command.
 
 ## Setup Workflow
 
-- Interactive `smart-search setup` is a language-selecting grouped wizard with arrow-key / Space / Enter provider selection. It guides users through required `main_search`, `docs_search`, and fetch capability, then optional `web_search` reinforcement and optional smart intent router configuration.
+- Interactive `smart-search setup` is a language-selecting grouped wizard with arrow-key / Space / Enter provider selection. It groups optional providers by capability; configure one retrieval channel, then add Jev or page reading as needed.
 - Default `smart-search setup` shows a Smart Search ASCII banner, asks for `zh` or `en`, offers user-level `smart-search-cli` skill installation, then shows a grouped provider wizard.
 - The grouped wizard should use an arrow-key / Space / Enter selector when packaged TUI dependencies are available, with a text fallback for non-TTY and tests.
 - Use `smart-search setup --lang en` for an English wizard.
-- Use `smart-search setup --advanced` only when low-level config keys must be shown one by one; normal intent router, embeddings, and classifier setup is available in the default wizard. `--advanced` does not show the skill prompt unless `--install-skills` is explicit.
+- Use `smart-search setup --advanced` only when low-level config keys must be shown one by one; Jev/local routing is available in the default wizard. `--advanced` does not show the skill prompt unless `--install-skills` is explicit.
 - `--non-interactive` keeps script behavior and only saves values passed as flags.
-- Required groups are `main_search`, `docs_search`, and `web_fetch`; `web_search` is optional reinforcement, followed by optional smart intent router configuration.
+- Provider groups are optional choices: configure at least one usable retrieval channel, then add Jev and research page reading as needed.
 - Unchecking a configured provider must not delete existing config values; use `smart-search config unset KEY` for deletion.
 - Interactive output should summarize `minimum_profile_ok`, missing required capabilities, and next-step commands.
 - Beginner filling examples for official-service and relay/pooled-endpoint minimum profiles must appear in the grouped wizard on stderr, not stdout. They must cover `main_search`, `docs_search`, and `web_fetch`.
 
 ## Browser Config UI
 
-- `smart-search ui` opens a temporary local config page. Suggest it to users who find the 68 config keys or the terminal wizard hard to navigate; it is the browser equivalent of `smart-search setup` plus `smart-search providers status`.
+- `smart-search ui` opens a temporary local config page for users who prefer forms to the terminal wizard. Its test page supports offline route preview and ordinary single-pass search; start research from the App or CLI.
 - It binds `127.0.0.1` on a random port, prints a URL carrying a one-time token, and exits once the browser tab stops sending heartbeats. It is not a daemon and needs no extra install: stdlib `http.server` plus one bundled HTML file.
 - Flags: `--no-browser` (print the URL only), `--port N`, `--idle-timeout SEC` (default `900`, `0` disables), `--lang zh|en`, `--check` (verify the bundled page resolves, then exit), plus the usual `--format`.
 - On a headless host, SSH session, or container the browser is deliberately not opened; the URL is printed and a `ssh -L` forwarding recipe is shown. Use `--port` to pin the port for forwarding.
@@ -76,7 +76,7 @@
 
 - Setup and config output should include `ok` and `config_file`. Saved API keys must be masked in command output.
 - Use `smart-search setup --non-interactive --zhipu-api-url "https://open.bigmodel.cn/api" --zhipu-search-engine "search_std"` to save Zhipu Web Search API endpoint and search service without prompts.
-- Interactive setup asks for Zhipu API key, API URL, and search service when optional `web_search` reinforcement selects Zhipu.
+- Interactive setup asks for Zhipu API key, API URL, and search service when the user selects Zhipu in the provider wizard.
 - `config set ZHIPU_SEARCH_ENGINE VALUE` must remain free-form so newly added official services do not require a CLI release.
 - `ZHIPU_API_URL` defaults to `https://open.bigmodel.cn/api`.
 - `ZHIPU_SEARCH_ENGINE` defaults to `search_std`.
@@ -95,14 +95,14 @@
 - `ANYSEARCH_API_URL` defaults to `https://api.anysearch.com/mcp`; `ANYSEARCH_TIMEOUT_SECONDS` defaults to `30`.
 - `SCIVERSE_API_URL` defaults to `https://api.sciverse.space`; `SCIVERSE_TIMEOUT_SECONDS` defaults to `30`.
 - `FIRECRAWL_API_URL` defaults to `https://api.firecrawl.dev/v2`. Use it only for a Firecrawl-compatible REST base.
-- Use `smart-search setup --non-interactive --tinyfish-key "key"` to add TinyFish to `web_search` and `web_fetch`. It never satisfies `main_search` or `docs_search`, and it is appended after every existing provider.
+- Use `smart-search setup --non-interactive --tinyfish-key "key"` to add TinyFish to `web_search` and `web_fetch`. It never satisfies `main_search` or `docs_search`; Jev can select it among the allowed channels.
 - `TINYFISH_SEARCH_API_URL` defaults to `https://api.search.tinyfish.ai`, and `TINYFISH_FETCH_API_URL` defaults to `https://api.fetch.tinyfish.ai`. Both authenticate with the `X-API-Key` header, not a bearer token.
 - `TINYFISH_TIMEOUT_SECONDS` defaults to `60` and covers both TinyFish search and fetch reads.
 
 ## Provider Failure Cooldown
 
-- Optional providers (`web_search`, `docs_search`, `web_fetch`, `vertical_search`) are additive. When one keeps failing, Smart Search records it in `provider_health.json` next to `config.json` and skips it instead of re-calling it on every invocation. Main-search providers are never skipped this way.
-- A hard failure (`auth_error`, `config_error`) opens the cooldown on the first occurrence and is never probed, because a bad key does not heal itself. Soft failures (timeout, `5xx`, rate limit) need `SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD` consecutive failures and stay probeable, so a recovered provider returns without user action.
+- Optional providers (`web_search`, `docs_search`, `web_fetch`, `vertical_search`) are additive. When one keeps failing, Smart Search records it in `provider_health.json` next to `config.json` and skips it instead of re-calling it on every invocation. Search-model channels also respect the shared health gate.
+- A hard failure (`auth_error`, `config_error`) opens the cooldown on the first occurrence and is never probed, because a bad key does not heal itself. Soft failures (timeout, `5xx`, rate limit) need `SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD` consecutive failures and automatic search waits until cooldown expiry or an explicit reset.
 - An empty result set is not a failure and never opens a cooldown.
 - The record is keyed to a fingerprint of the provider's credentials, so re-keying a provider with `smart-search config set` clears its cooldown automatically. A successful `smart-search doctor` probe also clears it.
 - `smart-search providers test PROVIDER [PROVIDER...]` checks whether saved credentials still work for one provider at a time, instead of `doctor`'s all-at-once fan-out. Each run is a real API request. `--timeout` caps each probe. A passing test clears that provider's cooldown, the same way a `doctor` probe does. Firecrawl reports `probe: presence` because only key presence can be checked.
@@ -112,14 +112,22 @@
 
 ## Intent Router Setup
 
-- Interactive setup asks for `SMART_SEARCH_INTENT_ROUTER`, `INTENT_EMBEDDING_*`, `INTENT_CLASSIFIER_*`, and `INTENT_ROUTER_TIMEOUT_SECONDS` when optional smart intent routing is selected. Keep examples official or neutral and keep keys masked.
 - `--search-timeout` (also `--search-timeout-seconds`) is the non-interactive setup flag for the total search budget; it does not change individual provider endpoint timeouts.
-- Default guided setup can configure `SMART_SEARCH_INTENT_ROUTER`, `INTENT_EMBEDDING_*`, `INTENT_CLASSIFIER_*`, and `INTENT_ROUTER_TIMEOUT_SECONDS` without `--advanced`.
-- Default guided setup recommends SiliconFlow + `Qwen/Qwen3-Embedding-8B` for embeddings and auto-fills threshold `0.475` plus margin `0.053` when no explicit threshold/margin exists.
-- Existing mismatched threshold/margin values should produce a warning rather than being silently overwritten.
 
 ## Language and complete handbook
 
 From v0.1.21, Smart Search supports `smart-search --lang en --help`, `smart-search search QUERY --lang zh`, and saved `SMART_SEARCH_LANGUAGE=auto|zh|en` through `config set`. Priority is per-call flag, dedicated environment variable, saved configuration, then system locale. Command/JSON identifiers and source content stay unchanged. App language is independent.
 
 The [bilingual handbook](https://github.com/konbakuyomu/smartsearch/tree/main/docs/guide) contains the [complete command reference](https://github.com/konbakuyomu/smartsearch/blob/main/docs/guide/en/cli-reference.md) and [all saved configuration keys](https://github.com/konbakuyomu/smartsearch/blob/main/docs/guide/en/configuration-reference.md).
+
+## Current routing configuration
+
+`SMART_SEARCH_INTENT_ROUTER=jev|local` defaults to `jev`. `hybrid` maps to `jev`; `rules`/`off` map to `local`. Retired `INTENT_EMBEDDING_*`, `INTENT_CLASSIFIER_*`, and `INTENT_ROUTER_TIMEOUT_SECONDS` keys stay stored, without remote calls or preset changes.
+
+```powershell
+smart-search config set TYPESAFE_API_KEY "your-key"
+smart-search config set SMART_SEARCH_INTENT_ROUTER jev
+smart-search route "React docs" --format json
+```
+
+`TYPESAFE_API_KEY` is optional with `--fallback auto`; local routing needs no router credentials. See `references/provider-routing.md` for the two-mode execution contract.

@@ -8,17 +8,18 @@
 
 ```text
 用法：smart-search [-h] [--lang {auto,zh,en}] [-v]
-                {agent-guide,search,s,route,rt,route-calibrate,route-cal,rcal,fetch,f,map,m,exa-search,exa,x,exa-similar,xs,zhipu-search,z,zp,zhipu-mcp-search,zmcp-search,zhipu-mcp-reader,zmcp-reader,zhipu-mcp-search-doc,zmcp-doc,zhipu-mcp-repo-structure,zmcp-tree,zhipu-mcp-read-file,zmcp-file,anysearch-domains,as-domains,anysearch-search,as-search,as,anysearch-extract,as-extract,anysearch-batch,as-batch,sciverse-catalog,sv-catalog,sciverse-search,sv-search,sv,sciverse-semantic,sv-semantic,sciverse-read,sv-read,sciverse-relations,sv-relations,context7-library,c7,ctx7,context7-docs,c7d,c7docs,ctx7-docs,deep,dr,research,rs,smoke,sm,doctor,d,diagnose,diag,model,mdl,skills,skill,providers,prov,ui,web,setup,init,config,cfg,regression,reg} ...
+                {agent-guide,search,s,route,rt,route-calibrate,route-cal,rcal,fetch,f,map,m,exa-search,exa,x,exa-similar,xs,zhipu-search,z,zp,zhipu-mcp-search,zmcp-search,zhipu-mcp-reader,zmcp-reader,zhipu-mcp-search-doc,zmcp-doc,zhipu-mcp-repo-structure,zmcp-tree,zhipu-mcp-read-file,zmcp-file,anysearch-domains,as-domains,anysearch-search,as-search,as,anysearch-extract,as-extract,anysearch-batch,as-batch,sciverse-catalog,sv-catalog,sciverse-search,sv-search,sv,sciverse-semantic,sv-semantic,sciverse-read,sv-read,sciverse-relations,sv-relations,context7-library,c7,ctx7,context7-docs,c7d,c7docs,ctx7-docs,deep,dr,research,rs,smoke,sm,doctor,d,diagnose,diag,model,mdl,skills,skill,providers,prov,ui,web,setup,init,config,cfg,regression,reg}
+                ...
 
 供 AI 联网研究使用的 Smart Search 命令行工具。
 
 位置参数:
   {agent-guide,search,s,route,rt,route-calibrate,route-cal,rcal,fetch,f,map,m,exa-search,exa,x,exa-similar,xs,zhipu-search,z,zp,zhipu-mcp-search,zmcp-search,zhipu-mcp-reader,zmcp-reader,zhipu-mcp-search-doc,zmcp-doc,zhipu-mcp-repo-structure,zmcp-tree,zhipu-mcp-read-file,zmcp-file,anysearch-domains,as-domains,anysearch-search,as-search,as,anysearch-extract,as-extract,anysearch-batch,as-batch,sciverse-catalog,sv-catalog,sciverse-search,sv-search,sv,sciverse-semantic,sv-semantic,sciverse-read,sv-read,sciverse-relations,sv-relations,context7-library,c7,ctx7,context7-docs,c7d,c7docs,ctx7-docs,deep,dr,research,rs,smoke,sm,doctor,d,diagnose,diag,model,mdl,skills,skill,providers,prov,ui,web,setup,init,config,cfg,regression,reg}
     agent-guide         读取当前 CLI 提供给 Agent 的使用说明。
-    search (s)          运行 OpenAI 兼容接口联网搜索。
+    search (s)          通过一个选中的渠道执行单轮检索。
     route (rt)          解释意图路由，不运行服务商。
     route-calibrate (route-cal, rcal)
-                        评估向量意图路由模型并推荐阈值和间距。
+                        已退役的兼容命令；不执行远程校准。
     fetch (f)           将 URL 抓取为 Markdown。
     map (m)             生成网站结构图。
     exa-search (exa, x)
@@ -133,7 +134,7 @@
 ```text
 用法：smart-search route [-h] [--lang {auto,zh,en}]
                       [--validation {fast,balanced,strict}] [--remote]
-                      [--router-mode {hybrid,rules,off,jev}]
+                      [--router-mode {jev,local,hybrid,rules,off}]
                       [--format {json,markdown,content}] [--output OUTPUT]
                       query
 
@@ -145,7 +146,7 @@
   --lang {auto,zh,en}   本次调用的界面语言，不改变已保存的偏好。
   --validation {fast,balanced,strict}
   --remote              显式允许远程路由判断，可能产生 API 费用，不执行检索。
-  --router-mode {hybrid,rules,off,jev}
+  --router-mode {jev,local,hybrid,rules,off}
                         仅为本次诊断覆盖 SMART_SEARCH_INTENT_ROUTER。
   --format {json,markdown,content}
   --output OUTPUT       将渲染后的输出写入文件。
@@ -165,7 +166,8 @@
 选项:
   -h, --help            显示此帮助并退出
   --lang {auto,zh,en}   本次调用的界面语言，不改变已保存的偏好。
-  --models MODELS       向量模型名称，用逗号分隔。默认使用已知候选和已配置的模型。
+  --models MODELS       Ignored compatibility option; remote calibration is
+                        retired.
   --format {json,markdown,content}
   --output OUTPUT       将渲染后的输出写入文件。
 ```
@@ -792,9 +794,9 @@
 别名：`sm`
 
 ```text
-用法：smart-search smoke [-h] [--lang {auto,zh,en}] [--mode {mock,live} |
-                      --mock | --live] [--format {json,markdown,content}]
-                      [--output OUTPUT]
+用法：smart-search smoke [-h] [--lang {auto,zh,en}]
+                      [--mode {mock,live} | --mock | --live]
+                      [--format {json,markdown,content}] [--output OUTPUT]
 
 选项:
   -h, --help            显示此帮助并退出
@@ -1117,15 +1119,6 @@
                       [--minimum-profile MINIMUM_PROFILE]
                       [--intent-router INTENT_ROUTER]
                       [--search-timeout SEARCH_TIMEOUT]
-                      [--intent-embedding-api-url INTENT_EMBEDDING_API_URL]
-                      [--intent-embedding-api-key INTENT_EMBEDDING_API_KEY]
-                      [--intent-embedding-model INTENT_EMBEDDING_MODEL]
-                      [--intent-embedding-threshold INTENT_EMBEDDING_THRESHOLD]
-                      [--intent-embedding-margin INTENT_EMBEDDING_MARGIN]
-                      [--intent-classifier-api-url INTENT_CLASSIFIER_API_URL]
-                      [--intent-classifier-api-key INTENT_CLASSIFIER_API_KEY]
-                      [--intent-classifier-model INTENT_CLASSIFIER_MODEL]
-                      [--intent-router-timeout INTENT_ROUTER_TIMEOUT]
                       [--provider-cooldown PROVIDER_COOLDOWN]
                       [--provider-failure-threshold PROVIDER_FAILURE_THRESHOLD]
                       [--exa-key EXA_KEY] [--context7-key CONTEXT7_KEY]
@@ -1196,27 +1189,9 @@
                         保存 SMART_SEARCH_MINIMUM_PROFILE。
   --intent-router INTENT_ROUTER
                         保存 SMART_SEARCH_INTENT_ROUTER。
-  --search-timeout, --search-timeout-seconds SEARCH_TIMEOUT
+  --search-timeout SEARCH_TIMEOUT, --search-timeout-seconds SEARCH_TIMEOUT
                         保存 SMART_SEARCH_TIMEOUT_SECONDS。
-  --intent-embedding-api-url INTENT_EMBEDDING_API_URL
-                        保存 INTENT_EMBEDDING_API_URL。
-  --intent-embedding-api-key INTENT_EMBEDDING_API_KEY
-                        保存 INTENT_EMBEDDING_API_KEY。
-  --intent-embedding-model INTENT_EMBEDDING_MODEL
-                        保存 INTENT_EMBEDDING_MODEL。
-  --intent-embedding-threshold INTENT_EMBEDDING_THRESHOLD
-                        保存 INTENT_EMBEDDING_THRESHOLD。
-  --intent-embedding-margin INTENT_EMBEDDING_MARGIN
-                        保存 INTENT_EMBEDDING_MARGIN。
-  --intent-classifier-api-url INTENT_CLASSIFIER_API_URL
-                        保存 INTENT_CLASSIFIER_API_URL。
-  --intent-classifier-api-key INTENT_CLASSIFIER_API_KEY
-                        保存 INTENT_CLASSIFIER_API_KEY。
-  --intent-classifier-model INTENT_CLASSIFIER_MODEL
-                        保存 INTENT_CLASSIFIER_MODEL。
-  --intent-router-timeout INTENT_ROUTER_TIMEOUT
-                        保存 INTENT_ROUTER_TIMEOUT_SECONDS。
-  --provider-cooldown, --provider-cooldown-seconds PROVIDER_COOLDOWN
+  --provider-cooldown PROVIDER_COOLDOWN, --provider-cooldown-seconds PROVIDER_COOLDOWN
                         保存 SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS；0
                         表示关闭可选服务商失败冷却。
   --provider-failure-threshold PROVIDER_FAILURE_THRESHOLD
@@ -1279,7 +1254,7 @@
   --output OUTPUT       将渲染后的输出写入文件。
 ```
 
-解析器默认值：`--non-interactive` = `False`; `--advanced` = `False`; `--skip-skills` = `False`; `--install-skills` = ``; `--skills-root` = ``; `--xai-api-url` = ``; `--xai-api-key` = ``; `--xai-model` = ``; `--xai-tools-explicit` = ``; `--openai-compatible-api-url` = ``; `--openai-compatible-api-key` = ``; `--openai-compatible-model` = ``; `--openai-compatible-fallback-models` = ``; `--openai-compatible-api-mode` = ``; `--openai-compatible-stream` = ``; `--validation-level` = ``; `--fallback-mode` = ``; `--minimum-profile` = ``; `--intent-router` = ``; `--search-timeout / --search-timeout-seconds` = ``; `--intent-embedding-api-url` = ``; `--intent-embedding-api-key` = ``; `--intent-embedding-model` = ``; `--intent-embedding-threshold` = ``; `--intent-embedding-margin` = ``; `--intent-classifier-api-url` = ``; `--intent-classifier-api-key` = ``; `--intent-classifier-model` = ``; `--intent-router-timeout` = ``; `--provider-cooldown / --provider-cooldown-seconds` = ``; `--provider-failure-threshold` = ``; `--exa-key` = ``; `--context7-key` = ``; `--zhipu-key` = ``; `--zhipu-api-url` = ``; `--zhipu-search-engine` = ``; `--zhipu-mcp-key` = ``; `--zhipu-mcp-search-api-url` = ``; `--zhipu-mcp-reader-api-url` = ``; `--zhipu-mcp-zread-api-url` = ``; `--zhipu-mcp-timeout` = ``; `--jina-key` = ``; `--jina-reader-api-url` = ``; `--jina-respond-with` = ``; `--jina-timeout` = ``; `--tavily-api-url` = ``; `--tavily-key` = ``; `--firecrawl-api-url` = ``; `--firecrawl-key` = ``; `--tinyfish-key` = ``; `--tinyfish-search-api-url` = ``; `--tinyfish-fetch-api-url` = ``; `--tinyfish-timeout` = ``; `--anysearch-api-url` = ``; `--anysearch-key` = ``; `--anysearch-timeout` = ``; `--sciverse-api-url` = ``; `--sciverse-token` = ``; `--sciverse-timeout` = ``; `--format` = `json`; `--output` = ``.
+解析器默认值：`--non-interactive` = `False`; `--advanced` = `False`; `--skip-skills` = `False`; `--install-skills` = ``; `--skills-root` = ``; `--xai-api-url` = ``; `--xai-api-key` = ``; `--xai-model` = ``; `--xai-tools-explicit` = ``; `--openai-compatible-api-url` = ``; `--openai-compatible-api-key` = ``; `--openai-compatible-model` = ``; `--openai-compatible-fallback-models` = ``; `--openai-compatible-api-mode` = ``; `--openai-compatible-stream` = ``; `--validation-level` = ``; `--fallback-mode` = ``; `--minimum-profile` = ``; `--intent-router` = ``; `--search-timeout / --search-timeout-seconds` = ``; `--provider-cooldown / --provider-cooldown-seconds` = ``; `--provider-failure-threshold` = ``; `--exa-key` = ``; `--context7-key` = ``; `--zhipu-key` = ``; `--zhipu-api-url` = ``; `--zhipu-search-engine` = ``; `--zhipu-mcp-key` = ``; `--zhipu-mcp-search-api-url` = ``; `--zhipu-mcp-reader-api-url` = ``; `--zhipu-mcp-zread-api-url` = ``; `--zhipu-mcp-timeout` = ``; `--jina-key` = ``; `--jina-reader-api-url` = ``; `--jina-respond-with` = ``; `--jina-timeout` = ``; `--tavily-api-url` = ``; `--tavily-key` = ``; `--firecrawl-api-url` = ``; `--firecrawl-key` = ``; `--tinyfish-key` = ``; `--tinyfish-search-api-url` = ``; `--tinyfish-fetch-api-url` = ``; `--tinyfish-timeout` = ``; `--anysearch-api-url` = ``; `--anysearch-key` = ``; `--anysearch-timeout` = ``; `--sciverse-api-url` = ``; `--sciverse-token` = ``; `--sciverse-timeout` = ``; `--format` = `json`; `--output` = ``.
 
 ## `smart-search config`
 

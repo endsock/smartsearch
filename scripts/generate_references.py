@@ -42,14 +42,14 @@ def reference_pages(language):
             parts.append("```text\n" + parser.format_help().rstrip() + "\n```")
             defaults = [f"`{' / '.join(action.option_strings)}` = `{action.default}`"
                         for action in parser._actions if action.option_strings and action.default not in (None, argparse.SUPPRESS)
-                        and action.dest not in {"help", "version"}]
+                        and action.dest not in {"help", "version"} and action.help != argparse.SUPPRESS]
             if defaults:
                 parts.append(("解析器默认值：" if zh else "Parser defaults: ") + "; ".join(defaults) + ".")
         yield ROOT / "docs/guide" / folder / "cli-reference.md", "\n\n".join(parts) + "\n"
 
-    parts = [navigation("configuration-reference"), "# 全部配置项" if zh else "# All configuration keys",
-             ("由当前配置元数据生成。下表列出全部可保存键；申请 Key、配置优先级、运行环境变量及最低能力要求见[配置指南](configuration.md)。未设置的密钥必须由用户提供；可选服务未配置时不会自动启用。" if zh else
-              "Generated from current configuration metadata. All saved keys appear below. See the [configuration guide](configuration.md) for key registration, precedence, runtime environment variables, and the minimum capability profile. Supply your own credentials; unconfigured optional providers are not enabled automatically.")]
+    parts = [navigation("configuration-reference"), "# 当前配置项" if zh else "# Active configuration keys",
+             ("由当前配置元数据生成。下表列出当前使用的配置键；旧向量/分类字段仍可保存但已退役，不参与执行。申请 Key、配置优先级、运行环境变量及最低能力要求见[配置指南](configuration.md)。未设置的密钥必须由用户提供；可选服务未配置时不会自动启用。" if zh else
+              "Generated from current configuration metadata. Active keys appear below. Retired embedding/classifier fields remain storable but are not executed. See the [configuration guide](configuration.md) for key registration, precedence, runtime environment variables, and the minimum capability profile. Supply your own credentials; unconfigured optional providers are not enabled automatically.")]
     for section in SECTIONS:
         fields = [item for item in CONFIG_FIELDS if item.section == section.id]
         if not fields:

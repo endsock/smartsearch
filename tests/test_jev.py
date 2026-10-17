@@ -1,3 +1,9 @@
+"""Research-loop mechanics and typed judgments.
+
+Public single-pass search is covered by test_search_modes.py. These cases exercise
+loop decisions independently of the research report's fetched-only citation layer.
+"""
+
 import asyncio
 import json
 import time
@@ -7,8 +13,20 @@ import pytest
 
 from smart_search import service
 from smart_search.jev import JevClient, assess_evidence, filter_evidence, noul
-from smart_search.jev_search import available_channels
+from smart_search.jev_search import available_channels, search as execute_loop
 from smart_search.provider_errors import ProviderCallError
+
+
+async def run_loop(query, **kwargs):
+    return await execute_loop(
+        query,
+        validation=kwargs.pop("validation", "") or service.config.validation_level,
+        fallback=kwargs.pop("fallback", "") or service.config.fallback_mode,
+        providers=kwargs.pop("providers", "auto"),
+        timeout_seconds=kwargs.pop("timeout_seconds", None) or service.config.search_timeout,
+        single_pass=False,
+        **kwargs,
+    )
 
 
 @pytest.fixture
@@ -70,7 +88,7 @@ async def test_only_allowed_configured_operations_reach_jev(monkeypatch, configu
     monkeypatch.setenv("SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS", "context7")
     calls = scripted_jev(monkeypatch, [{"exa:search"}], [])
 
-    result = await service.route("TaskGroup cancellation", mode="jev")
+    result = await service.route("TaskGroup cancellation", mode="jev", allow_remote=True)
 
     assert result["ok"]
     assert result["executed_search"] is False
@@ -104,7 +122,7 @@ async def test_parallel_multiselect_does_not_require_or_call_grok(monkeypatch, c
 
     monkeypatch.setattr(service, "exa_search", exa)
     monkeypatch.setattr(service, "zhipu_search", zhipu)
-    result = await service.search("Compare these two sources")
+    result = await run_loop("Compare these two sources")
 
     assert result["ok"]
     assert set(result["providers_used"]) == {"exa", "zhipu"}
@@ -149,7 +167,7 @@ async def test_tinyfish_registration_can_search_then_fetch_new_evidence(monkeypa
     monkeypatch.setattr(service, "call_tinyfish_search", search, raising=False)
     monkeypatch.setattr(service, "call_tinyfish_fetch", fetch, raising=False)
 
-    result = await service.search("Find the complete explanation")
+    result = await run_loop("Find the complete explanation")
 
     assert result["ok"]
     assert dispatched == [("search", "Find the complete explanation"), ("fetch", "https://example.org/tinyfish")]
@@ -174,7 +192,7 @@ async def test_partial_results_trigger_new_channels_with_failure_and_gap_context
 
     monkeypatch.setattr(service, "exa_search", exa)
     monkeypatch.setattr(service, "zhipu_search", zhipu)
-    result = await service.search("Current announcement")
+    result = await run_loop("Current announcement")
 
     assert result["ok"]
     assert len(result["routing_decision"]["rounds"]) == 2
@@ -200,7 +218,7 @@ async def test_provider_failure_advances_to_another_configured_channel(monkeypat
 
     monkeypatch.setattr(service, "exa_search", exa)
     monkeypatch.setattr(service, "zhipu_search", zhipu)
-    result = await service.search("question")
+    result = await run_loop("question")
 
     assert result["ok"]
     assert calls[1][0]["search_history"][0]["attempts"][0]["error_type"] == "auth_error"
@@ -221,7 +239,7 @@ async def test_search_limits_stop_without_repeating_a_channel(monkeypatch, confi
         return {"ok": True, "results": [hit("Partial answer")]}
 
     monkeypatch.setattr(service, "exa_search", exa)
-    result = await service.search("question")
+    result = await run_loop("question")
     assert result["partial_success"]
     assert result["routing_decision"]["stop_reason"] == stop
     assert len(calls) == 2
@@ -253,7 +271,7 @@ async def test_newly_discovered_url_can_be_fetched_but_unconfigured_readers_cann
     monkeypatch.setattr(JevClient, "_request", request)
     monkeypatch.setattr(service, "exa_search", exa)
     monkeypatch.setattr(service, "call_tavily_extract", extract)
-    result = await service.search("Need the full technical explanation")
+    result = await run_loop("Need the full technical explanation")
     assert result["ok"]
     assert all(item["operation"] == "search" for item in seen_candidates[0])
     assert {item["provider"] for item in seen_candidates[1] if item["operation"] == "fetch"} == {"tavily"}
@@ -272,7 +290,7 @@ async def test_mixed_results_stop_search_and_filter_only_when_enabled(monkeypatc
         return {"ok": True, "results": [hit("required answer"), hit("unrelated advertisement", "https://example.org/ad")]}
 
     monkeypatch.setattr(service, "exa_search", exa)
-    result = await service.search("question")
+    result = await run_loop("question")
     assert result["ok"]
     assert len(result["routing_decision"]["rounds"]) == 1
     assert "unrelated advertisement" not in json.dumps(result)
@@ -355,7 +373,7 @@ async def test_filter_outage_returns_evidence_without_another_auto_judgment(monk
     monkeypatch.setattr(JevClient, "_request", request)
     monkeypatch.setattr(service, "exa_search", exa)
     monkeypatch.setattr("smart_search.jev_search.ChannelExecutor.synthesis_config", lambda *args: {"model": "test"})
-    result = await service.search("question")
+    result = await run_loop("question")
     assert calls == ["selection", "assessment", "filter"]
     assert result["ok"] and result["degraded"]
     assert result["synthesis"]["reason"] == "judgment_unavailable"
@@ -401,7 +419,7 @@ async def test_unknown_response_ids_do_not_invent_channels(monkeypatch, configur
         return data
 
     monkeypatch.setattr(JevClient, "_request", request)
-    result = await service.search("question", fallback="off")
+    result = await run_loop("question", fallback="off")
     assert result["ok"] is False
     assert result["provider_attempts"] == []
     assert result["routing_decision"]["stop_reason"] == "no_suitable_channels"
@@ -418,7 +436,7 @@ async def test_deadline_cancels_remote_judgment_and_reports_timeout(monkeypatch,
             cancelled.set()
 
     monkeypatch.setattr(JevClient, "_request", request)
-    result = await service.search("question", timeout_seconds=0.03)
+    result = await run_loop("question", timeout_seconds=0.03)
     assert result["error_type"] == "timeout"
     assert result["timeout_phase"] == "selection"
     assert cancelled.is_set()
@@ -441,7 +459,7 @@ async def test_assessment_failure_returns_evidence_with_unknown_status(monkeypat
 
     monkeypatch.setattr(JevClient, "_request", request)
     monkeypatch.setattr(service, "exa_search", exa)
-    result = await service.search("question")
+    result = await run_loop("question")
     assert result["ok"] is True
     assert result["degraded"]
     assert result["evidence_assessment"]["status"] == "unverified"
@@ -475,7 +493,7 @@ async def test_context7_resolves_actual_library_and_fetches_documents(monkeypatc
     monkeypatch.setattr(JevClient, "_request", request)
     monkeypatch.setattr(service, "context7_library", library)
     monkeypatch.setattr(service, "context7_docs", docs)
-    result = await service.search("React useEffect cleanup")
+    result = await run_loop("React useEffect cleanup")
     assert result["ok"]
     assert "Cleanup executes" in result["content"]
     assert "qrcode" not in result["content"]
@@ -526,7 +544,7 @@ def test_chinese_sentence_punctuation_does_not_become_part_of_fetch_url(query, e
 @pytest.mark.asyncio
 async def test_missing_jev_key_is_config_error_without_search(monkeypatch, configured):
     monkeypatch.delenv("TYPESAFE_API_KEY")
-    result = await service.search("question", fallback="off")
+    result = await run_loop("question", fallback="off")
     assert result["error_type"] == "config_error"
     assert result["provider_attempts"] == []
 
@@ -597,7 +615,7 @@ async def test_synthesis_modes_use_only_filtered_evidence(monkeypatch, configure
 
     monkeypatch.setattr(service, "exa_search", exa)
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "_execute_with_transport_fallback", complete)
-    result = await service.search("question")
+    result = await run_loop("question")
     assert result["ok"]
     assert result["synthesis"]["mode"] == mode
     assert result["synthesis"]["enabled"] is should_synthesize
@@ -632,7 +650,7 @@ async def test_synthesis_failure_preserves_returned_evidence(monkeypatch, config
         return {"ok": True, "results": [hit("Evidence remains available without a main model")]}
 
     monkeypatch.setattr(service, "exa_search", exa)
-    result = await service.search("question")
+    result = await run_loop("question")
     assert result["ok"]
     assert result["synthesis"]["status"] == "failed"
     assert "Evidence remains available" in result["content"]
@@ -667,7 +685,7 @@ async def test_strict_filtering_cannot_replace_source_evidence_with_citations(mo
         ]}
 
     monkeypatch.setattr(service, "exa_search", exa)
-    result = await service.search("verify this claim", validation="strict")
+    result = await run_loop("verify this claim", validation="strict")
 
     assert result["ok"] is False
     assert result["error_type"] == "evidence_error"
@@ -695,7 +713,7 @@ async def test_main_search_credential_change_and_reset_clear_jev_cooldown(monkey
 
     provider_type = service.OpenAICompatibleSearchProvider if provider == "openai-compatible" else service.XAIResponsesSearchProvider
     monkeypatch.setattr(provider_type, "search", rejected)
-    failed = await service.search("question", providers=provider)
+    failed = await run_loop("question", providers=provider)
 
     assert failed["ok"] is False
     assert not available_channels(service, "question", [])
@@ -758,7 +776,7 @@ async def test_slow_channel_is_cancelled_while_other_evidence_is_retained(monkey
 
     monkeypatch.setattr(service, "exa_search", exa)
     monkeypatch.setattr(service, "zhipu_search", zhipu)
-    result = await service.search("question", timeout_seconds=0.1)
+    result = await run_loop("question", timeout_seconds=0.1)
     assert result["ok"]
     assert result["timeout_phase"] == "retrieval"
     assert "Fast useful evidence" in result["content"]
@@ -786,12 +804,12 @@ async def test_doctor_checks_jev_without_requiring_a_main_model(monkeypatch, con
 
     monkeypatch.setattr(JevClient, "_request", request)
     result = await service.doctor()
-    assert result["ok"] is not rejected
+    assert result["ok"]  # A usable retrieval channel still supports local fallback.
+    assert result["degraded"] is rejected
     assert result["intent_router_status"]["mode"] == "jev"
     if rejected:
-        assert result["error_type"] == "auth_error"
-    else:
-        assert result["primary_connection_test"]["status"] == "not_required"
+        assert result["jev_connection_test"]["error_type"] == "auth_error"
+    assert result["primary_connection_test"]["status"] == "not_required"
 
 
 @pytest.mark.asyncio
@@ -814,7 +832,7 @@ async def test_auto_synthesis_judgment_failure_keeps_evidence(monkeypatch, confi
 
     monkeypatch.setattr(service, "exa_search", exa)
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "_execute_with_transport_fallback", complete)
-    result = await service.search("question")
+    result = await run_loop("question")
     assert result["ok"]
     assert not model_calls
     assert "Retained evidence after judgment failure" in result["content"]
@@ -841,7 +859,7 @@ async def test_auto_synthesis_skips_without_an_allowed_main_model(monkeypatch, c
         return {"ok": True, "results": [hit("Useful evidence without synthesis")]}
 
     monkeypatch.setattr(service, "exa_search", exa)
-    result = await service.search("question", providers="exa" if restriction == "provider_filter" else "auto")
+    result = await run_loop("question", providers="exa" if restriction == "provider_filter" else "auto")
     assert result["ok"]
     assert len(calls) == 2
     assert result["synthesis"]["reason"] == "no_allowed_main_model"
@@ -861,7 +879,7 @@ async def test_auto_synthesis_does_not_run_without_useful_evidence(monkeypatch, 
         return {"ok": True, "results": [hit("Irrelevant source")]}
 
     monkeypatch.setattr(service, "exa_search", exa)
-    result = await service.search("question")
+    result = await run_loop("question")
     assert not result["ok"]
     assert len(calls) == 2
     assert result["synthesis"]["reason"] == "no_confirmed_useful_evidence"
@@ -903,7 +921,7 @@ async def test_jev_failure_uses_only_allowed_local_capability_fallback(monkeypat
 
     monkeypatch.setattr(JevClient, "_request", judge)
     monkeypatch.setattr(service, "exa_search", exa)
-    result = await service.search("general question", providers="exa")
+    result = await run_loop("general question", providers="exa")
     assert calls and result["degraded"]
     assert result["routing_decision"]["rounds"][0]["selection_source"] == "capability_fallback"
     assert result["providers_used"] == ["exa"]
@@ -932,7 +950,7 @@ async def test_gap_can_trigger_a_new_query_on_the_same_engine(monkeypatch, confi
 
     monkeypatch.setattr(JevClient, "_request", judge)
     monkeypatch.setattr(service, "exa_search", exa)
-    result = await service.search("Company announcement")
+    result = await run_loop("Company announcement")
     assert result["ok"]
     assert len(queries) == 2 and queries[0] != queries[1]
     assert "latest official news" in queries[1]
@@ -950,7 +968,7 @@ async def test_filtering_rechecks_sufficiency_of_the_remaining_source(monkeypatc
         return {"ok": True, "results": [hit("needed answer", "https://example.org/answer"), hit("noise", "https://example.org/noise")]}
 
     monkeypatch.setattr(service, "exa_search", exa)
-    result = await service.search("question", validation="strict")
+    result = await run_loop("question", validation="strict")
     assert not result["ok"] and not result["evidence_assessment"]["sufficient"]
     assert result["routing_decision"]["stop_reason"] == "filtered_evidence_insufficient"
 
@@ -972,7 +990,7 @@ async def test_no_provider_is_started_after_selection_exhausts_deadline(monkeypa
     monkeypatch.setattr(jev_search, "select_channels", select)
     monkeypatch.setattr(service.SearchBudget, "remaining_seconds", lambda self: 0 if exhausted else 10)
     monkeypatch.setattr(service, "exa_search", exa)
-    result = await service.search("question")
+    result = await run_loop("question")
     assert not calls
     assert result["routing_decision"]["stop_reason"] == "deadline"
 

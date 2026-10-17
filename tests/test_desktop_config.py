@@ -20,6 +20,7 @@ def chinese_presentation():
 
 from smart_search import activity, service, ui_api
 from smart_search.config import config
+from smart_search.desktop_backend import Backend
 
 
 def test_rejects_stale_revision_and_preserves_broken_file(tmp_path):
@@ -32,6 +33,40 @@ def test_rejects_stale_revision_and_preserves_broken_file(tmp_path):
     with pytest.raises(ValueError, match="原文件未修改"):
         config.set_config_value("EXA_API_KEY", "second")
     assert config.config_file.read_text() == '{"broken":'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("include_secrets", [False, True])
+async def test_native_router_save_and_reopen_preserves_legacy_credentials(tmp_path, include_secrets):
+    saved = {"SMART_SEARCH_INTENT_ROUTER": "hybrid", "TYPESAFE_API_KEY": "synthetic-jev",
+             "INTENT_EMBEDDING_API_KEY": "synthetic-retired", "EXA_API_KEY": "synthetic-exa"}
+    config._save_config_file(saved)
+    before = config.config_file.read_bytes()
+    parameters = {"protocol_version": 1, "config_dir": str(tmp_path), "enable_update_checks": False,
+                  "include_config_secrets": include_secrets, "independent_cli": True}
+    backend = Backend(lambda _: None)
+    try:
+        state = await backend.handle("initialize", parameters)
+        fields = {item["key"]: item for item in state["metadata"]["fields"]}
+        assert fields["SMART_SEARCH_INTENT_ROUTER"]["choices"] == ["jev", "local"]
+        assert not config.RETIRED_ROUTER_KEYS.intersection(fields)
+        assert state["values"]["SMART_SEARCH_INTENT_ROUTER"] == "jev"
+        assert config.config_file.read_bytes() == before
+        applied = await backend.handle("config.apply", {"revision": state["revision"], "set": {
+            "SMART_SEARCH_INTENT_ROUTER": "local", "SMART_SEARCH_JEV_MAX_ROUNDS": "4"}})
+        assert applied["ok"]
+    finally:
+        await backend.close()
+    reopened = Backend(lambda _: None)
+    try:
+        state = await reopened.handle("initialize", parameters)
+        assert state["values"]["SMART_SEARCH_INTENT_ROUTER"] == "local"
+        assert state["values"]["SMART_SEARCH_JEV_MAX_ROUNDS"] == "4"
+        assert state["secret_presence"]["TYPESAFE_API_KEY"]
+        assert json.loads(config.config_file.read_text(encoding="utf-8")) == {
+            **saved, "SMART_SEARCH_INTENT_ROUTER": "local", "SMART_SEARCH_JEV_MAX_ROUNDS": "4"}
+    finally:
+        await reopened.close()
 
 
 def test_state_values_and_revision_are_one_snapshot_even_when_file_changes(monkeypatch):

@@ -88,7 +88,7 @@ def test_openai_compatible_endpoint_normalizes_known_completion_suffixes(api_url
 
 
 @pytest.mark.asyncio
-async def test_responses_mode_fetch_describe_and_rank_use_non_stream_responses_payloads(monkeypatch):
+async def test_responses_fetch_respects_stream_while_describe_and_rank_stay_non_stream(monkeypatch):
     provider = OpenAICompatibleSearchProvider(
         "https://api.example.com/v1",
         "test-key",
@@ -108,12 +108,13 @@ async def test_responses_mode_fetch_describe_and_rank_use_non_stream_responses_p
         return "fetched content"
 
     monkeypatch.setattr(provider, "_execute_completion_with_retry", fake_execute)
+    monkeypatch.setattr(provider, "_execute_stream_with_retry", fake_execute)
 
     assert await provider.fetch("https://example.com/page") == "fetched content"
     assert (await provider.describe_url("https://example.com"))["title"] == "Example"
     assert await provider.rank_sources("query", "1. Source", 1) == [1]
     assert len(payloads) == 3
-    assert all(payload["stream"] is False for payload in payloads)
+    assert [payload["stream"] for payload in payloads] == [True, False, False]
     assert all("instructions" in payload and "input" in payload for payload in payloads)
     assert all("messages" not in payload and "tools" not in payload for payload in payloads)
 

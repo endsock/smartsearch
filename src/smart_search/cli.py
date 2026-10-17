@@ -14,10 +14,6 @@ from urllib.parse import urlsplit, urlunsplit
 
 from . import activity, service
 from .i18n import LANGUAGE_KEY, current_language, normalize, parser_error, render_messages, resolve, tr, use_language
-from .embedding_presets import (
-    QWEN3_EMBEDDING_8B_PRESET,
-    embedding_preset_for_model,
-)
 from .providers.anysearch import parse_sub_domain_params
 from .sciverse_schema import (
     SciverseParameterError,
@@ -659,28 +655,13 @@ def _format_doctor_markdown(data: dict[str, Any]) -> str:
                 ["Field", "Value"],
                 [
                     ["mode", router.get("mode", "")],
-                    ["embeddings_configured", _yes_no(router.get("embeddings_configured"))],
-                    ["classifier_configured", _yes_no(router.get("classifier_configured"))],
-                    ["embedding_model", router.get("embedding_model", "")],
-                    ["embedding_threshold", router.get("embedding_threshold", "")],
-                    ["embedding_margin", router.get("embedding_margin", "")],
-                    ["embedding_threshold_source", router.get("embedding_threshold_source", "")],
-                    ["embedding_margin_source", router.get("embedding_margin_source", "")],
-                    ["embedding_preset", router.get("embedding_preset_id", "")],
-                    ["embedding_preset_threshold", router.get("embedding_preset_threshold", "")],
-                    ["embedding_preset_margin", router.get("embedding_preset_margin", "")],
-                    ["embedding_preset_recommended", _yes_no(router.get("embedding_preset_recommended"))],
-                    ["classifier_model", router.get("classifier_model", "")],
+                    ["jev_configured", _yes_no(router.get("configured"))],
+                    ["model", router.get("model", "")],
                     ["timeout_seconds", router.get("timeout_seconds", "")],
                     ["degrades_to_rules", _yes_no(router.get("degrades_to_rules"))],
                 ],
             )
         )
-        if router.get("embedding_preset_recommendation"):
-            lines.extend(["", tr('### Embedding Preset Recommendation'), "", router.get("embedding_preset_recommendation")])
-            commands = router.get("embedding_preset_commands") or []
-            if commands:
-                lines.extend(_markdown_code_block("\n".join(str(command) for command in commands)))
         if router.get("error"):
             lines.append(tr('Intent router error: {0}', router.get('error')))
 
@@ -821,16 +802,8 @@ def _format_route_markdown(data: dict[str, Any]) -> str:
         tr('Required capabilities: `{0}`', ', '.join(data.get('required_capabilities') or [])),
         tr('Confidence: `{0}`', data.get('confidence', '')),
         tr('Engines: `{0}`', ', '.join(data.get('router_engines_used') or [])),
-        tr('Embedding model: `{0}`', data.get('embedding_model', '')),
-        tr('Embedding threshold: `{0}` ({1})', data.get('embedding_threshold', ''), data.get('embedding_threshold_source', '')),
-        tr('Embedding margin: `{0}` ({1})', data.get('embedding_margin', ''), data.get('embedding_margin_source', '')),
         tr('Degraded: {0}', _yes_no(data.get('degraded'))),
     ]
-    if data.get("embedding_preset_recommendation"):
-        lines.extend(["", tr('## Embedding Preset Recommendation'), "", data.get("embedding_preset_recommendation")])
-        commands = data.get("embedding_preset_commands") or []
-        if commands:
-            lines.extend(_markdown_code_block("\n".join(str(command) for command in commands)))
     if data.get("degraded_reason"):
         lines.append(tr('Degraded reason: {0}', data.get('degraded_reason')))
     if data.get("intent_router_mode") == "jev":
@@ -850,66 +823,7 @@ def _format_route_markdown(data: dict[str, Any]) -> str:
 
 
 def _format_route_calibrate_markdown(data: dict[str, Any]) -> str:
-    lines = [
-        tr('# Route Calibration'),
-        "",
-        tr('Status: {0}', _status_label(data.get('ok'))),
-        tr('Primary metric: `{0}`', data.get('primary_metric', data.get('metric', ''))),
-        tr('Dataset size: `{0}`', data.get('dataset_size', '')),
-        tr('Recommended model: `{0}`', data.get('recommended_model') or '-'),
-        tr('Recommended threshold: `{0}`', data.get('recommended_threshold') if data.get('recommended_threshold') is not None else '-'),
-        tr('Recommended margin: `{0}`', data.get('recommended_margin') if data.get('recommended_margin') is not None else '-'),
-    ]
-    results = data.get("model_results") or []
-    if results:
-        rows = []
-        for item in results:
-            rows.append(
-                [
-                    item.get("model", ""),
-                    _status_label(item.get("ok")),
-                    item.get("dimension", ""),
-                    _latency_text(item.get("latency_ms")),
-                    item.get("semantic_macro_f1", ""),
-                    item.get("full_route_macro_f1", ""),
-                    item.get("recommended_threshold", ""),
-                    item.get("recommended_margin", ""),
-                    item.get("error", ""),
-                ]
-            )
-        lines.extend(["", tr('## Models')])
-        lines.extend(
-            _markdown_table(
-                ["Model", "Status", "Dim", "Latency", "Semantic F1", "Full-route F1", "Threshold", "Margin", "Error"],
-                rows,
-            )
-        )
-    failed = data.get("failed_models") or []
-    if failed:
-        lines.extend(["", tr('## Failed Models')])
-        for model in failed:
-            lines.append(f"- `{model}`")
-    best = next((item for item in results if item.get("model") == data.get("recommended_model")), None)
-    if isinstance(best, dict):
-        failures = best.get("semantic_failures") or []
-        if failures:
-            lines.extend(["", tr('## Representative Semantic Failures')])
-            rows = []
-            for failure in failures[:8]:
-                rows.append(
-                    [
-                        failure.get("id", ""),
-                        failure.get("expected", ""),
-                        failure.get("predicted", ""),
-                        failure.get("top_capability", ""),
-                        failure.get("top_score", ""),
-                        failure.get("margin", ""),
-                        failure.get("query", ""),
-                    ]
-                )
-            lines.extend(_markdown_table(["Case", "Expected", "Predicted", "Top", "Score", "Margin", "Query"], rows))
-    lines.extend(_error_lines(data))
-    return "\n".join(lines).strip() + "\n"
+    return "\n".join([tr('# Route Calibration'), "", *_error_lines(data)]).strip() + "\n"
 
 
 def _format_config_markdown(data: dict[str, Any]) -> str:
@@ -1094,13 +1008,13 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
                 lines.append(tr('\n## Primary Sources'))
                 for item in primary_sources:
                     url = item.get("url", "")
-                    title = item.get("title") or item.get("provider") or url
+                    title = item.get("title") or url or item.get("provider")
                     lines.append(f"- [{title}]({url})")
             if extra_sources:
                 lines.append(tr('\n## Extra Sources'))
                 for item in extra_sources:
                     url = item.get("url", "")
-                    title = item.get("title") or item.get("provider") or url
+                    title = item.get("title") or url or item.get("provider")
                     lines.append(f"- [{title}]({url})")
             return "\n".join(lines).strip() + "\n"
 
@@ -1109,7 +1023,7 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
             lines.append(tr('\n## Sources'))
             for item in sources:
                 url = item.get("url", "")
-                title = item.get("title") or item.get("provider") or url
+                title = item.get("title") or url or item.get("provider")
                 lines.append(f"- [{title}]({url})")
         return "\n".join(lines).strip() + "\n"
     if command == "fetch":
@@ -1267,33 +1181,14 @@ def _format_content(command: str, data: dict[str, Any]) -> str:
         lines = [
             tr('Intent route {0}: capabilities={1}', _status_label(data.get('ok')), capabilities),
             tr('mode={0}; confidence={1}; engines={2}', data.get('intent_router_mode', ''), data.get('confidence', ''), ','.join(data.get('router_engines_used') or [])),
-            tr('embedding_model={0}; threshold={1}({2}); margin={3}({4})', data.get('embedding_model', ''), data.get('embedding_threshold', ''), data.get('embedding_threshold_source', ''), data.get('embedding_margin', ''), data.get('embedding_margin_source', '')),
         ]
-        if data.get("embedding_preset_recommendation"):
-            lines.append(
-                tr('embedding_preset_recommendation=threshold={0} margin={1}', data.get('embedding_preset_threshold'), data.get('embedding_preset_margin'))
-            )
         if data.get("degraded_reason"):
             lines.append(tr('degraded={0}', data.get('degraded_reason')))
         if data.get("error"):
             lines.append(tr('Error: {0}', _error_summary(data)))
         return "\n".join(lines).strip() + "\n"
     if command == "route-calibrate":
-        results = data.get("model_results") or []
-        ok_count = sum(1 for item in results if item.get("ok"))
-        lines = [
-            tr('Route calibration {0}: {1}/{2} models calibrated', _status_label(data.get('ok')), ok_count, len(results)),
-            tr('primary_metric={0}; dataset={1}', data.get('primary_metric', data.get('metric', '')), data.get('dataset_size', '')),
-        ]
-        if data.get("recommended_model"):
-            lines.append(
-                tr('recommended={0} threshold={1} margin={2}', data.get('recommended_model'), data.get('recommended_threshold'), data.get('recommended_margin'))
-            )
-        if data.get("failed_models"):
-            lines.append("failed=" + ",".join(str(item) for item in data.get("failed_models") or []))
-        if data.get("error"):
-            lines.append(tr('Error: {0}', _error_summary(data)))
-        return "\n".join(lines).strip() + "\n"
+        return (_error_summary(data) or tr('旧向量路由校准已退役，不调用模型。')) + "\n"
     if command == "deep" or data.get("mode") == "deep_research":
         lines = [
             tr('Deep Research plan for: {0}', data.get('question', '')),
@@ -1333,10 +1228,6 @@ def _format_content(command: str, data: dict[str, Any]) -> str:
         if capability_bits:
             lines.append(tr('Capabilities: ') + ", ".join(capability_bits))
         router = data.get("intent_router_status") or {}
-        if router.get("embedding_preset_recommendation"):
-            lines.append(
-                tr('Embedding preset recommendation: threshold={0} margin={1}', router.get('embedding_preset_threshold'), router.get('embedding_preset_margin'))
-            )
         cooling = (data.get("provider_health") or {}).get("cooldown_providers") or []
         if cooling:
             lines.append(
@@ -1644,98 +1535,6 @@ def _normalize_jina_reader_api_url(url: str) -> str:
     return _normalize_custom_base_url(url)
 
 
-def _config_value_source(key: str) -> str:
-    getter = getattr(service.config, "get_config_source", None)
-    if callable(getter):
-        return str(getter(key))
-    return "default"
-
-
-def _current_config_value(key: str, current: dict[str, str]) -> str:
-    value = str(current.get(key, "") or "")
-    if value:
-        return value
-    if key == "INTENT_EMBEDDING_API_URL":
-        return str(getattr(service.config, "intent_embedding_api_url", "") or "")
-    if key == "INTENT_EMBEDDING_THRESHOLD":
-        try:
-            return str(getattr(service.config, "intent_embedding_threshold", "") or "")
-        except ValueError:
-            return ""
-    if key == "INTENT_EMBEDDING_MARGIN":
-        try:
-            return str(getattr(service.config, "intent_embedding_margin", "") or "")
-        except ValueError:
-            return ""
-    return ""
-
-
-def _matches_float_text(value: str, expected: str) -> bool:
-    try:
-        return abs(float(str(value).strip()) - float(expected)) < 0.0005
-    except (TypeError, ValueError):
-        return False
-
-
-def _apply_embedding_setup_preset(
-    values: dict[str, str],
-    current: dict[str, str],
-    *,
-    interactive: bool,
-    lang: str,
-) -> list[str]:
-    warnings: list[str] = []
-    merged = _merge_setup_values(current, values)
-    model = merged.get("INTENT_EMBEDDING_MODEL", "")
-    preset = embedding_preset_for_model(model)
-    if not preset:
-        return warnings
-
-    for key, preset_value in (
-        ("INTENT_EMBEDDING_API_URL", preset.api_url),
-        ("INTENT_EMBEDDING_THRESHOLD", preset.threshold),
-        ("INTENT_EMBEDDING_MARGIN", preset.margin),
-    ):
-        if values.get(key):
-            continue
-        source = _config_value_source(key)
-        current_value = _current_config_value(key, current)
-        if source == "default" or not current_value:
-            values[key] = preset_value
-            continue
-        if key == "INTENT_EMBEDDING_API_URL":
-            matches = current_value.rstrip("/") == preset_value
-        else:
-            matches = _matches_float_text(current_value, preset_value)
-        if not matches:
-            warning = (
-                f"{key} is currently {current_value}; recommended for {preset.model} is {preset_value}."
-            )
-            warnings.append(warning)
-            if interactive:
-                _write_stderr(
-                    _t(
-                        lang,
-                        f"提示: {warning}\n",
-                        f"Note: {warning}\n",
-                    )
-                )
-    return warnings
-
-
-def _has_embedding_setup_values(values: dict[str, str]) -> bool:
-    return any(
-        bool(values.get(key))
-        for key in (
-            "INTENT_EMBEDDING_API_URL",
-            "INTENT_EMBEDDING_API_KEY",
-            "INTENT_EMBEDDING_MODEL",
-            "INTENT_EMBEDDING_THRESHOLD",
-            "INTENT_EMBEDDING_MARGIN",
-        )
-    )
-
-
 def _is_tavily_hikari_key(api_key: str) -> bool:
     return api_key.strip().lower().startswith("th-")
 
@@ -1757,7 +1556,7 @@ def _merge_setup_values(current: dict[str, str], values: dict[str, str]) -> dict
 def _write_setup_status(status: dict[str, Any], lang: str, *, final: bool = False) -> None:
     title = _t(lang, "最低配置检查", "Minimum profile check") if final else _t(lang, "当前状态", "Current status")
     _write_stderr(f"\n{title}:\n")
-    required = {"main_search", "docs_search", "web_fetch"}
+    required = set(status.get("required", []))
     labels = {
         "main_search": _t(lang, "main_search 主搜索", "main_search primary search"),
         "docs_search": _t(lang, "docs_search 文档搜索", "docs_search documentation search"),
@@ -2004,8 +1803,8 @@ def _prompt_main_search(values: dict[str, str], current: dict[str, str], lang: s
     _write_stderr(
         _t(
             lang,
-            "\n[1/3 必选] main_search 主搜索\n用途: 负责综合搜索回答和最终合成。\n推荐: 有 xAI key 选 xai；有中转服务选 openai；两者都配可以同能力兜底。\n",
-            "\n[1/3 Required] main_search primary search\nPurpose: broad search answers and final synthesis.\nRecommended: choose xai for an xAI key, openai for a relay, or both for same-capability fallback.\n",
+            "\n[1/3 按需] main_search 主搜索\n用途: 负责综合搜索回答和最终合成。\n推荐: 有 xAI key 选 xai；有中转服务选 openai；两者都配可以同能力兜底。\n",
+            "\n[1/3 Optional] main_search primary search\nPurpose: broad search answers and final synthesis.\nRecommended: choose xai for an xAI key, openai for a relay, or both for same-capability fallback.\n",
         )
     )
     selected = _prompt_provider_multi_select(
@@ -2078,8 +1877,8 @@ def _prompt_docs_search(values: dict[str, str], current: dict[str, str], lang: s
     _write_stderr(
         _t(
             lang,
-            "\n[2/3 必选] docs_search 文档搜索\n用途: 查官方文档、SDK、API、框架和库说明。\n推荐: 文档/API/库优先 Context7；官方域名、论文和低噪声发现再配 Exa。\n",
-            "\n[2/3 Required] docs_search documentation search\nPurpose: official docs, SDKs, APIs, frameworks, and library references.\nRecommended: Context7 for docs/API/library intent; Exa for official domains, papers, and low-noise discovery.\n",
+            "\n[2/3 按需] docs_search 文档搜索\n用途: 查官方文档、SDK、API、框架和库说明。\n推荐: 文档/API/库优先 Context7；官方域名、论文和低噪声发现再配 Exa。\n",
+            "\n[2/3 Optional] docs_search documentation search\nPurpose: official docs, SDKs, APIs, frameworks, and library references.\nRecommended: Context7 for docs/API/library intent; Exa for official domains, papers, and low-noise discovery.\n",
         )
     )
     selected = _prompt_provider_multi_select(
@@ -2267,8 +2066,8 @@ def _prompt_web_fetch(values: dict[str, str], current: dict[str, str], lang: str
     _write_stderr(
         _t(
             lang,
-            "\n[3/3 必选] web_fetch 网页抓取\n用途: 已知 URL 抓正文；高风险事实核验必须用。\n推荐: Tavily 优先；Jina 需要 key 才算标准配置；Firecrawl 可作为抓取兜底。\n",
-            "\n[3/3 Required] web_fetch page fetch\nPurpose: extract known URLs; required for high-risk fact checks.\nRecommended: Tavily first; Jina requires a key to satisfy standard config; Firecrawl as fetch fallback.\n",
+            "\n[3/3 按需] web_fetch 网页抓取\n用途: 已知 URL 抓正文；高风险事实核验必须用。\n推荐: Tavily 优先；Jina 需要 key 才算标准配置；Firecrawl 可作为抓取兜底。\n",
+            "\n[3/3 Optional] web_fetch page fetch\nPurpose: extract known URLs; required for high-risk fact checks.\nRecommended: Tavily first; Jina requires a key to satisfy standard config; Firecrawl as fetch fallback.\n",
         )
     )
     selected = _prompt_provider_multi_select(
@@ -2354,155 +2153,42 @@ def _prompt_optional_enhancements(values: dict[str, str], current: dict[str, str
         )
 
 
-def _has_intent_router_config(values: dict[str, str]) -> bool:
-    keys = {
-        "SMART_SEARCH_INTENT_ROUTER",
-        "TYPESAFE_API_KEY",
-        "INTENT_EMBEDDING_API_URL",
-        "INTENT_EMBEDDING_API_KEY",
-        "INTENT_EMBEDDING_MODEL",
-        "INTENT_EMBEDDING_THRESHOLD",
-        "INTENT_EMBEDDING_MARGIN",
-        "INTENT_CLASSIFIER_API_URL",
-        "INTENT_CLASSIFIER_API_KEY",
-        "INTENT_CLASSIFIER_MODEL",
-        "INTENT_ROUTER_TIMEOUT_SECONDS",
-    }
-    return any(bool(values.get(key)) for key in keys)
-
-
 def _prompt_intent_router(values: dict[str, str], current: dict[str, str], lang: str) -> None:
     merged = _merge_setup_values(current, values)
-    _write_stderr(
-        _t(
-            lang,
-            "\n[可选增强] 智能意图路由\n用途: 先判断问题需要 docs_search、web_search、web_fetch 还是 vertical_search，再进入同能力 provider 兜底。\n说明: rules 永远可本地兜底；hybrid 可额外配置 embeddings 语义路由和 classifier 结构化分类。\n",
-            "\n[Optional] smart intent routing\nPurpose: decide whether a query needs docs_search, web_search, web_fetch, or vertical_search before same-capability provider fallback.\nNote: rules always remain the local fallback; hybrid can add semantic embeddings and structured classifier routing.\n",
-        )
-    )
-    default_configure = _has_intent_router_config(merged)
-    if not _prompt_yes_no(
-        _t(lang, "是否配置/更新智能意图路由?", "Configure or update smart intent routing?"),
-        default=default_configure,
-    ):
+    _write_stderr(_t(lang,
+        "\n普通搜索选路一次；深入搜索按证据缺口继续。Jev 可选，未配置时使用本地路由。\n",
+        "\nSearch selects once; research follows evidence gaps. Jev is optional, with local routing when unavailable.\n"))
+    if not _prompt_yes_no(_t(lang, "是否配置/更新智能意图路由?", "Configure or update smart intent routing?"),
+                          default=bool(merged.get("SMART_SEARCH_INTENT_ROUTER") or merged.get("TYPESAFE_API_KEY"))):
         return
-
-    mode_default = values.get("SMART_SEARCH_INTENT_ROUTER") or current.get("SMART_SEARCH_INTENT_ROUTER") or "hybrid"
-    if mode_default not in {"hybrid", "rules", "off", "jev"}:
-        mode_default = "hybrid"
-    mode = _prompt_select(
-        _t(lang, "选择 intent router 模式", "Choose intent router mode"),
-        [
-            {"name": _t(lang, "hybrid: 规则 + embeddings + classifier，缺配置自动降级 rules", "hybrid: rules + embeddings + classifier, degrading to rules when optional config is missing"), "value": "hybrid"},
-            {"name": _t(lang, "rules: 只用本地规则", "rules: local rules only"), "value": "rules"},
-            {"name": _t(lang, "off: 关闭额外意图路由", "off: disable additional intent routing"), "value": "off"},
-            {"name": _t(lang, "jev: 多渠道搜索、按结果补搜、可选结果过滤", "jev: multiple channels, evidence-driven follow-up, optional filtering"), "value": "jev"},
-        ],
-        mode_default,
-    )
+    raw_mode = merged.get("SMART_SEARCH_INTENT_ROUTER") or "jev"
+    mode_default = service.normalize_router_mode(raw_mode) if raw_mode in service.config._ALLOWED_INTENT_ROUTER_MODES else "jev"
+    mode = _prompt_select(_t(lang, "选择路由方式", "Choose routing"), [
+        {"name": _t(lang, "Jev 自动选路（未配置时本地回退）", "Jev routing with local fallback"), "value": "jev"},
+        {"name": _t(lang, "本地选路（不调用路由模型）", "Local routing (no router model)"), "value": "local"},
+    ], mode_default)
     values["SMART_SEARCH_INTENT_ROUTER"] = mode
-    if mode == "jev":
-        values["TYPESAFE_API_KEY"] = _prompt_value(
-            "TYPESAFE_API_KEY", "TypeSafe API key", merged.get("TYPESAFE_API_KEY", ""), optional=False, lang=lang,
-        )
-        values["SMART_SEARCH_JEV_FILTER_RESULTS"] = str(_prompt_yes_no(
-            _t(lang, "使用 Jev 剔除无关结果?", "Use Jev to remove irrelevant evidence?"),
-            default=merged.get("SMART_SEARCH_JEV_FILTER_RESULTS", "false").lower() in {"true", "1", "yes", "on"},
-        )).lower()
-        synthesis_default = merged.get("SMART_SEARCH_JEV_SYNTHESIZE", "false").strip().lower()
-        if synthesis_default in {"1", "yes", "on"}:
-            synthesis_default = "true"
-        if synthesis_default not in {"true", "false", "auto"}:
-            synthesis_default = "false"
-        values["SMART_SEARCH_JEV_SYNTHESIZE"] = _prompt_select(
-            _t(lang, "选择主模型汇总模式", "Choose main-model synthesis mode"),
-            [
-                {"name": _t(lang, "true: 使用主模型汇总", "true: synthesize with the main model"), "value": "true"},
-                {"name": _t(lang, "false: 直接返回证据", "false: return evidence directly"), "value": "false"},
-                {"name": _t(lang, "auto: 由 Jev 判断是否需要汇总", "auto: let Jev decide whether synthesis is needed"), "value": "auto"},
-            ],
-            synthesis_default,
-        )
+    if mode == "local":
         return
-    if mode != "hybrid":
+    values["TYPESAFE_API_KEY"] = _prompt_value(
+        "TYPESAFE_API_KEY", "TypeSafe API key", merged.get("TYPESAFE_API_KEY", ""), optional=True, lang=lang)
+    if not _prompt_yes_no(_t(lang, "配置深入搜索的过滤与汇总?", "Configure research filtering and synthesis?"), default=False):
         return
-
-    if _prompt_yes_no(
-        _t(lang, "配置 embeddings 语义路由?", "Configure embeddings semantic routing?"),
-        default=bool(merged.get("INTENT_EMBEDDING_API_URL") or merged.get("INTENT_EMBEDDING_API_KEY") or merged.get("INTENT_EMBEDDING_MODEL")),
-    ):
-        _write_stderr(
-            _t(
-                lang,
-                "推荐 preset: SiliconFlow + Qwen/Qwen3-Embedding-8B；setup 会自动使用 threshold=0.475、margin=0.053。\n",
-                "Recommended preset: SiliconFlow + Qwen/Qwen3-Embedding-8B; setup will use threshold=0.475 and margin=0.053 automatically.\n",
-            )
-        )
-        raw_url = _prompt_value(
-            "INTENT_EMBEDDING_API_URL",
-            _t(
-                lang,
-                f"Embeddings API 地址（推荐: {QWEN3_EMBEDDING_8B_PRESET.api_url}）",
-                f"Embeddings API URL (recommended: {QWEN3_EMBEDDING_8B_PRESET.api_url})",
-            ),
-            current.get("INTENT_EMBEDDING_API_URL", ""),
-            optional=True,
-            lang=lang,
-        )
-        values["INTENT_EMBEDDING_API_URL"] = _normalize_custom_base_url(raw_url)
-        values["INTENT_EMBEDDING_API_KEY"] = _prompt_value(
-            "INTENT_EMBEDDING_API_KEY",
-            "Embeddings API key",
-            current.get("INTENT_EMBEDDING_API_KEY", ""),
-            optional=True,
-            lang=lang,
-        )
-        values["INTENT_EMBEDDING_MODEL"] = _prompt_value(
-            "INTENT_EMBEDDING_MODEL",
-            _t(lang, "Embeddings 模型（推荐: Qwen/Qwen3-Embedding-8B）", "Embeddings model (recommended: Qwen/Qwen3-Embedding-8B)"),
-            current.get("INTENT_EMBEDDING_MODEL", "") or QWEN3_EMBEDDING_8B_PRESET.model,
-            optional=True,
-            lang=lang,
-        )
-
-    if _prompt_yes_no(
-        _t(lang, "配置 classifier 模型路由?", "Configure classifier model routing?"),
-        default=bool(merged.get("INTENT_CLASSIFIER_API_URL") or merged.get("INTENT_CLASSIFIER_API_KEY") or merged.get("INTENT_CLASSIFIER_MODEL")),
-    ):
-        raw_url = _prompt_value(
-            "INTENT_CLASSIFIER_API_URL",
-            _t(
-                lang,
-                "Classifier API 地址（示例: https://api.openai.com/v1/chat/completions）",
-                "Classifier API URL (example: https://api.openai.com/v1/chat/completions)",
-            ),
-            current.get("INTENT_CLASSIFIER_API_URL", ""),
-            optional=True,
-            lang=lang,
-        )
-        values["INTENT_CLASSIFIER_API_URL"] = _normalize_custom_base_url(raw_url)
-        values["INTENT_CLASSIFIER_API_KEY"] = _prompt_value(
-            "INTENT_CLASSIFIER_API_KEY",
-            "Classifier API key",
-            current.get("INTENT_CLASSIFIER_API_KEY", ""),
-            optional=True,
-            lang=lang,
-        )
-        values["INTENT_CLASSIFIER_MODEL"] = _prompt_value(
-            "INTENT_CLASSIFIER_MODEL",
-            _t(lang, "Classifier 模型", "Classifier model"),
-            current.get("INTENT_CLASSIFIER_MODEL", ""),
-            optional=True,
-            lang=lang,
-        )
-
-    values["INTENT_ROUTER_TIMEOUT_SECONDS"] = _prompt_value(
-        "INTENT_ROUTER_TIMEOUT_SECONDS",
-        _t(lang, "Intent router 超时秒数", "Intent router timeout seconds"),
-        current.get("INTENT_ROUTER_TIMEOUT_SECONDS", ""),
-        optional=True,
-        lang=lang,
-    )
+    values["SMART_SEARCH_JEV_FILTER_RESULTS"] = str(_prompt_yes_no(
+        _t(lang, "深入搜索时过滤无关证据?", "Filter irrelevant evidence during research?"),
+        default=merged.get("SMART_SEARCH_JEV_FILTER_RESULTS", "false").lower() in {"true", "1", "yes", "on"},
+    )).lower()
+    synthesis_default = merged.get("SMART_SEARCH_JEV_SYNTHESIZE", "false").strip().lower()
+    if synthesis_default in {"1", "yes", "on"}:
+        synthesis_default = "true"
+    if synthesis_default not in {"true", "false", "auto"}:
+        synthesis_default = "false"
+    values["SMART_SEARCH_JEV_SYNTHESIZE"] = _prompt_select(
+        _t(lang, "深入搜索汇总方式", "Research synthesis"), [
+            {"name": _t(lang, "false: 直接返回证据", "false: return evidence directly"), "value": "false"},
+            {"name": _t(lang, "auto: 由 Jev 判断是否需要汇总", "auto: let Jev decide whether synthesis is needed"), "value": "auto"},
+            {"name": _t(lang, "true: 使用主模型汇总", "true: synthesize with the main model"), "value": "true"},
+        ], synthesis_default)
 
 
 def _write_setup_keep_note(lang: str) -> None:
@@ -2519,17 +2205,17 @@ def _write_setup_examples(lang: str) -> None:
     _write_stderr(
         _t(
             lang,
-            "\n不知道怎么填: 先配齐 main_search + docs_search + web_fetch。\n"
+            "\n不知道怎么填: 先配置一个检索渠道；深入搜索再按需添加网页读取。\n"
             "  main_search: xAI Responses，或 OpenAI-compatible（示例: https://api.openai.com/v1）\n"
             "  docs_search: 文档/API 优先 Context7；官方域名、论文和低噪声发现再配 Exa。\n"
             "  web_fetch: Tavily 官方地址是 https://api.tavily.com；号池填 https://<host>/api/tavily。\n"
-            "  intent embeddings: 推荐 SiliconFlow + Qwen/Qwen3-Embedding-8B，setup 会自动补 threshold=0.475、margin=0.053。\n"
+            "  路由: 可选 TypeSafe Jev；普通搜索单轮，research 才会按缺口继续。\n"
             "  key 都填你自己控制台里的；Zhipu / Firecrawl 可以之后再补。\n",
-            "\nIf unsure: first configure main_search + docs_search + web_fetch.\n"
+            "\nIf unsure: configure one retrieval channel; add page reading for research.\n"
             "  main_search: xAI Responses, or OpenAI-compatible (example: https://api.openai.com/v1)\n"
             "  docs_search: Context7 for docs/API first; add Exa for official domains, papers, and low-noise discovery.\n"
             "  web_fetch: official Tavily endpoint is https://api.tavily.com; pooled endpoints use https://<host>/api/tavily.\n"
-            "  intent embeddings: recommended SiliconFlow + Qwen/Qwen3-Embedding-8B; setup auto-fills threshold=0.475 and margin=0.053.\n"
+            "  Routing: optional TypeSafe Jev; search is single-pass and research follows gaps.\n"
             "  Use keys from your own provider consoles. Zhipu / Firecrawl can be added later.\n",
         )
     )
@@ -2549,8 +2235,8 @@ def _run_guided_setup_prompts(
     _write_panel(
         _t(
             lang,
-            f"\nSmart Search 配置向导\n配置文件: {config_file}\n\n目标: standard 最低可用配置\n操作: 方向键移动，空格勾选，回车确认；API key 输入不显示。\n最低要求: main_search + docs_search + web_fetch 各至少一个 provider。\n",
-            f"\nSmart Search setup wizard\nConfig file: {config_file}\n\nGoal: standard minimum profile\nKeys: move with arrow keys, select with Space, confirm with Enter; API key input is hidden.\nMinimum: at least one provider in each of main_search + docs_search + web_fetch.\n",
+            f"\nSmart Search 配置向导\n配置文件: {config_file}\n\n目标: standard 最低可用配置\n操作: 方向键移动，空格勾选，回车确认；API key 输入不显示。\n最低要求: 至少一个可用检索渠道；Jev 可选。\n",
+            f"\nSmart Search setup wizard\nConfig file: {config_file}\n\nGoal: standard minimum profile\nKeys: move with arrow keys, select with Space, confirm with Enter; API key input is hidden.\nMinimum: one enabled retrieval channel; Jev is optional.\n",
         ),
         lang,
     )
@@ -2605,18 +2291,12 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("SMART_SEARCH_VALIDATION_LEVEL", "Validation level (fast/balanced/strict)", True),
         ("SMART_SEARCH_FALLBACK_MODE", "Fallback mode (auto/off)", True),
         ("SMART_SEARCH_MINIMUM_PROFILE", "Minimum profile (standard/off)", True),
-        ("SMART_SEARCH_INTENT_ROUTER", "Intent router mode (hybrid/rules/off/jev)", True),
+        ("SMART_SEARCH_INTENT_ROUTER", "Routing (jev/local)", True),
+        ("TYPESAFE_API_KEY", "TypeSafe API key (optional)", True),
+        ("TYPESAFE_API_URL", "TypeSafe API URL", True),
+        ("TYPESAFE_MODEL", "Jev model", True),
         ("SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS", "Optional-provider failure cooldown seconds (0 disables)", True),
         ("SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD", "Consecutive soft failures before cooldown", True),
-        ("INTENT_EMBEDDING_API_URL", "Intent embedding API URL", True),
-        ("INTENT_EMBEDDING_API_KEY", "Intent embedding API key", True),
-        ("INTENT_EMBEDDING_MODEL", "Intent embedding model", True),
-        ("INTENT_EMBEDDING_THRESHOLD", "Intent embedding threshold (0-1)", True),
-        ("INTENT_EMBEDDING_MARGIN", "Intent embedding margin (0-1)", True),
-        ("INTENT_CLASSIFIER_API_URL", "Intent classifier API URL", True),
-        ("INTENT_CLASSIFIER_API_KEY", "Intent classifier API key", True),
-        ("INTENT_CLASSIFIER_MODEL", "Intent classifier model", True),
-        ("INTENT_ROUTER_TIMEOUT_SECONDS", "Intent router timeout seconds", True),
         ("EXA_API_KEY", "Exa API key", True),
         ("CONTEXT7_API_KEY", "Context7 API key", True),
         ("ZHIPU_API_KEY", "Zhipu API key", True),
@@ -2647,7 +2327,7 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("SCIVERSE_TIMEOUT_SECONDS", "Sciverse timeout seconds", True),
     ]
     for key, label, optional in prompts:
-        if values[key]:
+        if values.get(key):
             continue
         value = _prompt_value(key, label, current.get(key, ""), optional=optional, lang=lang)
         if key == "TAVILY_API_URL":
@@ -3085,12 +2765,8 @@ def _run_setup(args: argparse.Namespace) -> int:
         else:
             skill_targets_for_prompt = selected_skill_targets if not args.skip_skills and not selected_skill_targets else None
             _run_guided_setup_prompts(values, current_for_setup, lang, skill_targets=skill_targets_for_prompt, show_banner=False)
-        if _has_embedding_setup_values(values):
-            setup_warnings.extend(_apply_embedding_setup_preset(values, current_for_setup, interactive=True, lang=lang))
-    else:
-        current_for_setup = service.config_list(show_secrets=True)["values"]
-        if _has_embedding_setup_values(values):
-            setup_warnings.extend(_apply_embedding_setup_preset(values, current_for_setup, interactive=False, lang=lang))
+    if any(values.get(key) for key in service.config.RETIRED_ROUTER_KEYS):
+        setup_warnings.append("Embedding/classifier settings are retained for compatibility but no longer used. No preset was applied.")
 
     # Validate all local enum/numeric constraints before persisting any setup
     # field, so an invalid API mode cannot leave a partial provider profile.
@@ -3145,9 +2821,7 @@ def _run_setup(args: argparse.Namespace) -> int:
         if skill_result is not None:
             _write_skill_install_summary(skill_result, lang)
         _write_setup_status(final_status, lang, final=True)
-        missing = [capability for capability in ("main_search", "docs_search", "web_fetch") if not final_status[capability]["ok"]]
-        if service.config.intent_router_mode == "jev":
-            missing = service.validate_minimum_profile().get("missing", [])
+        missing = service._minimum_profile_result("standard", final_status)["missing"]
         if missing:
             _write_stderr(
                 _t(
@@ -3210,7 +2884,7 @@ def build_parser() -> argparse.ArgumentParser:
     guide.add_argument("section", nargs="?", default="SKILL.md")
 
     search_parser = sub.add_parser(
-        "search", aliases=COMMAND_ALIASES["search"], help="Run OpenAI-compatible web search."
+        "search", aliases=COMMAND_ALIASES["search"], help="Run single-pass retrieval through one selected channel."
     )
     search_parser.set_defaults(command="search")
     search_parser.add_argument("query")
@@ -3241,7 +2915,7 @@ def build_parser() -> argparse.ArgumentParser:
     route_parser.add_argument("--remote", action="store_true", help="Explicitly allow remote routing judgments; may incur API charges. No retrieval is executed.")
     route_parser.add_argument(
         "--router-mode",
-        choices=["hybrid", "rules", "off", "jev"],
+        choices=["jev", "local", "hybrid", "rules", "off"],
         default="",
         help="Override SMART_SEARCH_INTENT_ROUTER for this diagnostic call.",
     )
@@ -3250,13 +2924,13 @@ def build_parser() -> argparse.ArgumentParser:
     route_calibrate_parser = sub.add_parser(
         "route-calibrate",
         aliases=COMMAND_ALIASES["route-calibrate"],
-        help="Evaluate embedding intent-routing models and recommend threshold/margin.",
+        help="Retired compatibility command; no remote calibration is performed.",
     )
     route_calibrate_parser.set_defaults(command="route-calibrate")
     route_calibrate_parser.add_argument(
         "--models",
         default="",
-        help="Comma-separated embedding model names. Defaults to known candidates plus the configured model.",
+        help="Ignored compatibility option; remote calibration is retired.",
     )
     _add_format_args(route_calibrate_parser)
 
@@ -3723,15 +3397,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Save SMART_SEARCH_TIMEOUT_SECONDS.",
     )
-    setup_parser.add_argument("--intent-embedding-api-url", default="", help="Save INTENT_EMBEDDING_API_URL.")
-    setup_parser.add_argument("--intent-embedding-api-key", default="", help="Save INTENT_EMBEDDING_API_KEY.")
-    setup_parser.add_argument("--intent-embedding-model", default="", help="Save INTENT_EMBEDDING_MODEL.")
-    setup_parser.add_argument("--intent-embedding-threshold", default="", help="Save INTENT_EMBEDDING_THRESHOLD.")
-    setup_parser.add_argument("--intent-embedding-margin", default="", help="Save INTENT_EMBEDDING_MARGIN.")
-    setup_parser.add_argument("--intent-classifier-api-url", default="", help="Save INTENT_CLASSIFIER_API_URL.")
-    setup_parser.add_argument("--intent-classifier-api-key", default="", help="Save INTENT_CLASSIFIER_API_KEY.")
-    setup_parser.add_argument("--intent-classifier-model", default="", help="Save INTENT_CLASSIFIER_MODEL.")
-    setup_parser.add_argument("--intent-router-timeout", default="", help="Save INTENT_ROUTER_TIMEOUT_SECONDS.")
+    setup_parser.add_argument("--intent-embedding-api-url", default="", help=argparse.SUPPRESS)
+    setup_parser.add_argument("--intent-embedding-api-key", default="", help=argparse.SUPPRESS)
+    setup_parser.add_argument("--intent-embedding-model", default="", help=argparse.SUPPRESS)
+    setup_parser.add_argument("--intent-embedding-threshold", default="", help=argparse.SUPPRESS)
+    setup_parser.add_argument("--intent-embedding-margin", default="", help=argparse.SUPPRESS)
+    setup_parser.add_argument("--intent-classifier-api-url", default="", help=argparse.SUPPRESS)
+    setup_parser.add_argument("--intent-classifier-api-key", default="", help=argparse.SUPPRESS)
+    setup_parser.add_argument("--intent-classifier-model", default="", help=argparse.SUPPRESS)
+    setup_parser.add_argument("--intent-router-timeout", default="", help=argparse.SUPPRESS)
     setup_parser.add_argument(
         "--provider-cooldown",
         "--provider-cooldown-seconds",

@@ -566,10 +566,6 @@ private struct IntentRoutingEditor: View {
                 }
             }
             switch mode {
-            case "hybrid":
-                fieldPanel(L("向量模型"), fields: fields.filter { $0.key.hasPrefix("INTENT_EMBEDDING_") })
-                fieldPanel(L("分类模型"), fields: fields.filter { $0.key.hasPrefix("INTENT_CLASSIFIER_") })
-                fieldPanel(L("请求设置"), fields: fields.filter { $0.key == "INTENT_ROUTER_TIMEOUT_SECONDS" })
             case "jev":
                 fieldPanel(L("JEV 连接"), fields: fields.filter { $0.key.hasPrefix("TYPESAFE_") })
                 fieldPanel(L("检索与判断"), fields: fields.filter {
@@ -586,10 +582,8 @@ private struct IntentRoutingEditor: View {
 
     private var modeDescription: String {
         switch mode {
-        case "hybrid": return L("以规则为基础，可按需配置向量模型和分类模型增强判断。未配置的模型不会被调用。")
-        case "jev": return L("使用 JEV 选择检索渠道并判断证据是否充分，需要单独配置 TypeSafe 凭据。")
-        case "rules": return L("仅使用本地规则判断意图，无需填写模型接口或密钥。")
-        case "off": return L("关闭自动意图路由，无需填写路由参数。")
+        case "jev": return L("普通搜索只选路一次；深入搜索按证据缺口继续。未配置 Jev 时使用本地路由。")
+        case "local": return L("仅使用本地规则判断意图，无需填写模型接口或密钥。")
         default: return L("请选择一种路由模式。")
         }
     }
@@ -619,10 +613,8 @@ private func configurationBooleanValue(_ value: String) -> Bool {
 private func configurationChoiceLabel(_ choice: String, for field: ConfigField) -> String {
     if field.key == "SMART_SEARCH_INTENT_ROUTER" {
         switch choice {
-        case "hybrid": return L("混合路由")
         case "jev": return L("JEV 语义路由")
-        case "rules": return L("规则路由")
-        case "off": return L("关闭路由")
+        case "local": return L("本地路由")
         default: return choice
         }
     }
