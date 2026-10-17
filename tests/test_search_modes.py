@@ -243,13 +243,12 @@ async def test_selected_model_keeps_configured_failure_fallback(monkeypatch):
             called.append(configs[0]["model"])
             if configs[0]["model"] == "primary":
                 raise RuntimeError("primary unavailable")
-            return "Retrieved answer"
+            return "Retrieved answer https://example.com/source"
         return [SimpleNamespace(search=search)]
 
     monkeypatch.setattr(service, "_main_search_providers", providers)
     result = await service.search("Find this source")
-    assert not result["ok"]
-    assert result["error_type"] == "evidence_error"
+    assert result["ok"]
     assert called == ["primary", "backup"]
     assert result["model"] == "backup"
     assert result["model_fallback_used"]
@@ -348,6 +347,38 @@ async def test_model_answer_with_sources_keeps_success(monkeypatch, provider):
     assert len(result["provider_attempts"]) == 1
     assert result["provider_attempts"][0]["status"] == "ok"
     assert result["provider_attempts"][0]["error_type"] == ""
+
+
+@pytest.mark.asyncio
+async def test_model_answer_with_body_markdown_link_keeps_success_without_fallback(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS", "openai-compatible")
+    answer = "The [official guide](https://example.com/source) explains this behavior.\n\nAdditional explanation follows."
+    called = []
+
+    async def search(self, query, platform="", ctx=None):
+        called.append("openai-compatible")
+        return answer
+
+    async def backup(self, query, platform="", ctx=None):
+        called.append("xai-responses")
+        raise AssertionError("A body source URL must not trigger fallback")
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", search)
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", backup)
+    result = await service.search("Find this source")
+
+    assert result["ok"]
+    assert result["content"] == answer
+    assert result["sources"] == []
+    assert result["primary_sources"] == []
+    assert called == ["openai-compatible"]
+    assert not result["fallback_used"]
+    assert len(result["provider_attempts"]) == 1
+    assert result["provider_attempts"][0]["status"] == "ok"
 
 
 @pytest.mark.asyncio

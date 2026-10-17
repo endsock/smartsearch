@@ -930,14 +930,13 @@ async def test_search_accepts_only_openai_compatible_as_main_provider(monkeypatc
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
 
     async def fake_search(self, query, platform="", ctx=None):
-        return "Relay answer."
+        return "Relay answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
     result = await service.search("what is example")
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
+    assert result["ok"] is True
     assert result["primary_api_mode"] == "chat-completions"
     assert result["routing_decision"]["main_search_chain"] == ["openai-compatible"]
     assert result["capability_status"]["main_search"]["configured"] == ["openai-compatible"]
@@ -953,14 +952,13 @@ async def test_search_passes_openai_compatible_responses_mode_and_mode_telemetry
     async def fake_search(self, query, platform="", ctx=None):
         captured["api_mode"] = self.api_mode
         captured["endpoint"] = self._api_endpoint()
-        return "Relay answer."
+        return "Relay answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
     result = await service.search("what is example", providers="openai-compatible")
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
+    assert result["ok"] is True
     assert result["primary_api_mode"] == "responses"
     assert captured == {"api_mode": "responses", "endpoint": "https://relay.example.com/v1/responses"}
     assert result["routing_decision"]["openai_compatible_api_mode"] == "responses"
@@ -1003,15 +1001,14 @@ async def test_search_passes_openai_compatible_stream_config_and_cli_override(mo
 
     async def fake_search(self, query, platform="", ctx=None):
         captured["stream"] = self.stream
-        return "Relay answer."
+        return "Relay answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
     kwargs = {} if override_stream is None else {"stream": override_stream}
     result = await service.search("what is example", **kwargs)
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
+    assert result["ok"] is True
     assert captured["stream"] is expected_stream
     assert result["routing_decision"]["openai_compatible_stream"] is expected_stream
 
@@ -1040,14 +1037,13 @@ async def test_search_openai_compatible_primary_model_falls_back_to_configured_m
         ]
         if self.model == "primary-model":
             return ""
-        return "Fallback answer."
+        return "Fallback answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
     result = await service.search("what is example", providers="openai-compatible")
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
+    assert result["ok"] is True
     assert result["model"] == "fallback-model"
     assert result["model_fallback_used"] is True
     assert result["fallback_used"] is True
@@ -1113,14 +1109,13 @@ async def test_search_fallback_off_disables_model_fallback_but_keeps_transport_a
                 "fallback_from_transport": "stream",
             },
         ]
-        return "Rescued answer."
+        return "Rescued answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
     result = await service.search("what is example", providers="openai-compatible", fallback="off")
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
+    assert result["ok"] is True
     assert seen_models == ["primary-model"]
     assert result["transport_fallback_used"] is True
     assert result["model_fallback_used"] is False
@@ -1141,14 +1136,13 @@ async def test_search_model_breaker_skips_primary_model(monkeypatch):
 
     async def fake_search(self, query, platform="", ctx=None):
         seen_models.append(self.model)
-        return "Fallback answer."
+        return "Fallback answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
 
     result = await service.search("what is example", providers="openai-compatible")
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
+    assert result["ok"] is True
     assert seen_models == ["fallback-model"]
     assert result["model"] == "fallback-model"
     assert result["model_fallback_used"] is True
@@ -1218,8 +1212,7 @@ async def test_search_does_not_cap_primary_timeout_when_fallback_configured(monk
 
     result = await service.search("what is example", providers="openai-compatible", timeout_seconds=90)
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
+    assert result["ok"] is True
     assert result["model"] == "primary-model"
     assert result["model_fallback_used"] is False
     assert result["routing_decision"]["openai_compatible_timeout_policy"] == "remaining_budget"
@@ -1255,8 +1248,7 @@ async def test_search_gives_fallback_remaining_budget_after_primary_hard_failure
 
     result = await service.search("what is example", providers="openai-compatible", timeout_seconds=90)
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
+    assert result["ok"] is True
     assert result["model"] == "fallback-model"
     assert result["model_fallback_used"] is True
     assert len(result["provider_attempts"]) == 2
@@ -1472,15 +1464,14 @@ async def test_search_provider_filter_can_select_openai_compatible(monkeypatch):
         raise AssertionError("xAI should be filtered out")
 
     async def fallback_openai(self, query, platform="", ctx=None):
-        return "Relay answer."
+        return "Relay answer. https://example.com/source"
 
     monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", should_not_run)
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fallback_openai)
 
     result = await service.search("what is example", providers="openai-compatible")
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
+    assert result["ok"] is True
     assert result["routing_decision"]["main_search_chain"] == ["openai-compatible"]
     assert [a["provider"] for a in result["provider_attempts"]] == ["openai-compatible"]
 
@@ -2794,7 +2785,7 @@ async def test_tavily_disabled_removes_capability_routes_and_blocks_network_boun
             raise AssertionError("Tavily disabled paths must not create an HTTP client")
 
     async def fake_primary_search(self, query, platform="", ctx=None):
-        return "Answer."
+        return "Answer. https://example.com/source"
 
     async def fake_primary_connection(api_url, api_key, model):
         return {"status": "ok", "message": "relay available"}
@@ -2815,8 +2806,7 @@ async def test_tavily_disabled_removes_capability_routes_and_blocks_network_boun
     assert "tavily" not in capability_status["web_search"]["configured"]
     assert "tavily" not in capability_status["web_fetch"]["configured"]
     assert "tavily" not in service._research_fetch_order("https://example.com")
-    assert search_result["ok"] is False
-    assert search_result["error_type"] == "evidence_error"
+    assert search_result["ok"] is True
     assert not any(attempt["provider"] == "tavily" for attempt in search_result["provider_attempts"])
     assert await service.call_tavily_search("query") is None
     assert await service.call_tavily_extract("https://example.com") is None
@@ -2899,7 +2889,7 @@ async def test_search_timeout_config_precedence_and_default(monkeypatch, tmp_pat
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
 
     async def fake_primary_search(self, query, platform="", ctx=None):
-        return "Answer."
+        return "Answer. https://example.com/source"
 
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
 
@@ -2914,7 +2904,7 @@ async def test_search_timeout_config_precedence_and_default(monkeypatch, tmp_pat
     assert configured_result["timeout_seconds"] == 210
     assert environment_result["timeout_seconds"] == 240
     assert override_result["timeout_seconds"] == 420
-    assert all(result["ok"] is False and result["error_type"] == "evidence_error" for result in (default_result, configured_result, environment_result, override_result))
+    assert all(result["ok"] is True for result in (default_result, configured_result, environment_result, override_result))
 
 
 @pytest.mark.asyncio
@@ -2958,15 +2948,14 @@ async def test_normal_search_does_not_wait_for_unselected_extra_channels(monkeyp
     monkeypatch.setenv("XAI_API_KEY", "xai-test")
     monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-test")
     async def answer(*args, **kwargs):
-        return "Primary answer."
+        return 'Primary answer.\n\nsources([{"url":"https://example.com/source"}])'
     async def forbidden(*args, **kwargs):
         raise AssertionError("no optional extra search")
     monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", answer)
     monkeypatch.setattr(service, "call_firecrawl_search", forbidden)
     result = await service.search("general question", extra_sources=2, timeout_seconds=0.2)
-    assert not result["ok"]
-    assert result["error_type"] == "evidence_error"
-    assert result["content"] == ""
+    assert result["ok"]
+    assert result["content"] == "Primary answer."
     assert result["timeout_phase"] == ""
     assert len(result["provider_attempts"]) == 1
 
@@ -3014,16 +3003,15 @@ async def test_main_provider_timeout_keeps_remaining_budget_for_peer_failover(mo
         raise asyncio.TimeoutError("xAI transport timeout")
 
     async def recover_openai(self, query, platform="", ctx=None):
-        return "Peer fallback answer."
+        return 'Peer fallback answer.\n\nsources([{"url":"https://example.com/source"}])'
 
     monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", timeout_xai)
     monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", recover_openai)
 
     result = await service.search("peer timeout failover", validation="fast", timeout_seconds=5)
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
-    assert result["content"] == ""
+    assert result["ok"] is True
+    assert result["content"] == "Peer fallback answer."
     assert [attempt["provider"] for attempt in result["provider_attempts"]] == ["xai-responses", "openai-compatible"]
     assert result["provider_attempts"][0]["error_type"] == "timeout"
 
@@ -3305,14 +3293,13 @@ async def test_main_search_shares_its_deadline_with_the_xai_provider(monkeypatch
     async def fake_xai_search(self, query, platform="", ctx=None):
         seen["deadline"] = self._search_deadline_monotonic
         seen["read_timeout"] = self._request_timeout().read
-        return "Answer."
+        return "Answer. https://example.com/source"
 
     monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", fake_xai_search)
 
     result = await service.search("deadline sharing", validation="fast", timeout_seconds=280)
 
-    assert result["ok"] is False
-    assert result["error_type"] == "evidence_error"
+    assert result["ok"] is True
     assert seen["deadline"] is not None
     # The provider gets the whole remaining budget rather than a fixed 120s read.
     assert seen["read_timeout"] > 240.0
