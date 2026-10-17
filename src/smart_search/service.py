@@ -300,6 +300,11 @@ MODEL_BREAKER_COOLDOWN_SECONDS = 600.0
 _OPENAI_COMPATIBLE_MODEL_BREAKERS: dict[tuple[str, str, str], dict[str, Any]] = {}
 
 
+# asyncio may fire a timer up to one clock tick early (15.6 ms for Windows
+# time.monotonic() before Python 3.13), so a sub-tick remainder counts as spent.
+_CLOCK_RESOLUTION = time.get_clock_info("monotonic").resolution
+
+
 class SearchBudget:
     """Internal monotonic deadline shared by one fast-search execution."""
 
@@ -314,7 +319,8 @@ class SearchBudget:
         return max(0.0, time.monotonic() - self.started_at)
 
     def remaining_seconds(self) -> float:
-        return max(0.0, self.deadline - time.monotonic())
+        remaining = self.deadline - time.monotonic()
+        return remaining if remaining > _CLOCK_RESOLUTION else 0.0
 
 
 class SearchExecutionState:
@@ -1677,7 +1683,7 @@ async def _search_model_channel(
                               "api_mode": provider_config.get("api_mode", provider_config["mode"])}
     for candidate in candidates:
         remaining = deadline - time.monotonic()
-        if remaining <= 0:
+        if remaining <= _CLOCK_RESOLUTION:
             result.update(error_type="timeout", error="Search deadline exhausted")
             break
         started = time.time()
@@ -1806,7 +1812,7 @@ async def _run_web_fetch_fallback(
     for provider in providers:
         start = time.time()
         remaining = deadline - time.monotonic() if deadline is not None else None
-        if remaining is not None and remaining <= 0:
+        if remaining is not None and remaining <= _CLOCK_RESOLUTION:
             attempts.append(_attempt("web_fetch", provider, "skipped", start,
                                      error_type="timeout", error="fetch deadline exhausted"))
             break
