@@ -1,10 +1,13 @@
 import asyncio
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from smart_search import service
 from smart_search.jev import JevClient
+from smart_search.jev_search import ChannelExecutor
+from smart_search.provider_errors import ProviderCallError
 
 
 def response(questions, values):
@@ -245,7 +248,8 @@ async def test_selected_model_keeps_configured_failure_fallback(monkeypatch):
 
     monkeypatch.setattr(service, "_main_search_providers", providers)
     result = await service.search("Find this source")
-    assert result["ok"]
+    assert not result["ok"]
+    assert result["error_type"] == "evidence_error"
     assert called == ["primary", "backup"]
     assert result["model"] == "backup"
     assert result["model_fallback_used"]
@@ -275,3 +279,151 @@ async def test_empty_context7_document_does_not_become_a_read_citation(monkeypat
     assert not result["ok"]
     assert result["citations"] == []
     assert result["evidence_items"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fallback", ["auto", "off"])
+@pytest.mark.parametrize("primary", ["openai-compatible", "xai-responses"])
+async def test_model_answer_without_sources_uses_same_capability_fallback(monkeypatch, primary, fallback):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS", primary)
+    monkeypatch.setenv("SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS", "300")
+    monkeypatch.setenv("SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD", "1")
+    called = []
+    backup = "xai-responses" if primary == "openai-compatible" else "openai-compatible"
+
+    async def search(self, query, platform="", ctx=None):
+        provider = "openai-compatible" if isinstance(self, service.OpenAICompatibleSearchProvider) else "xai-responses"
+        called.append(provider)
+        if provider == primary:
+            return "我先检索权威来源。"
+        return 'Retrieved answer.\n\nsources([{"url":"https://example.org/source","title":"Source"}])'
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", search)
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", search)
+    result = await service.search("Find this source", fallback=fallback)
+
+    assert called == ([primary, backup] if fallback == "auto" else [primary])
+    assert result["ok"] == (fallback == "auto")
+    assert result["error_type"] == ("" if fallback == "auto" else "evidence_error")
+    assert {item["capability"] for item in result["provider_attempts"]} == {"main_search"}
+    attempt = [item for item in result["provider_attempts"] if item["provider"] == primary][-1]
+    assert attempt["status"] == "empty"
+    assert attempt["error_type"] == "evidence_error"
+    assert attempt["error"] == "Search model answer contained no source URLs"
+    assert attempt["result_count"] == 0
+    assert "我先检索" not in result["content"]
+    health = service._provider_health_status(primary)
+    assert health["state"] == "closed"
+    assert health["consecutive_failures"] == 0
+    if fallback == "auto":
+        assert result["content"] == "Retrieved answer."
+        assert result["provider"] == backup
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["openai-compatible", "xai-responses"])
+async def test_model_answer_with_sources_keeps_success(monkeypatch, provider):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+
+    async def search(self, query, platform="", ctx=None):
+        return 'Retrieved answer.\n\nsources([{"url":"https://example.org/source","title":"Source"}])'
+
+    provider_type = service.OpenAICompatibleSearchProvider if provider == "openai-compatible" else service.XAIResponsesSearchProvider
+    monkeypatch.setattr(provider_type, "search", search)
+    result = await service.search("Find this source", providers=provider, fallback="off")
+
+    assert result["ok"]
+    assert result["content"] == "Retrieved answer."
+    assert result["provider"] == provider
+    assert result["primary_sources_count"] == 1
+    assert result["primary_sources"][0]["url"] == "https://example.org/source"
+    assert result["primary_sources"][0]["kind"] == "citation"
+    assert len(result["provider_attempts"]) == 1
+    assert result["provider_attempts"][0]["status"] == "ok"
+    assert result["provider_attempts"][0]["error_type"] == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("research", [False, True])
+async def test_context7_without_jev_selects_first_library(monkeypatch, research):
+    async def libraries(*args, **kwargs):
+        return {"ok": True, "results": [
+            {"id": "/first/library", "title": "First candidate"},
+            {"id": "/reactjs/react.dev", "title": "React"},
+        ]}
+
+    async def docs(library_id, query):
+        assert library_id == "/first/library"
+        return {"ok": True, "content": "Documentation"}
+
+    monkeypatch.setattr(service, "context7_library", libraries)
+    monkeypatch.setattr(service, "context7_docs", docs)
+    client = SimpleNamespace(settings=SimpleNamespace(api_key=""), last_error=None)
+    results = await ChannelExecutor(service, client, research=research)._context7("React API docs")
+    assert results[0]["url"] == "context7:/first/library"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed", [False, True])
+async def test_context7_jev_unresolved_selects_first_library(monkeypatch, failed):
+    async def libraries(*args, **kwargs):
+        return {"ok": True, "results": [{"id": "/first/library"}, {"id": "/second/library"}]}
+
+    async def evaluate(*args):
+        if failed:
+            raise ProviderCallError("network_error", "Jev unavailable")
+        return {"library_0": 0.1, "library_1": 0.4}
+
+    async def docs(library_id, query):
+        assert library_id == "/first/library"
+        return {"ok": True, "content": "Documentation"}
+
+    monkeypatch.setattr(service, "context7_library", libraries)
+    monkeypatch.setattr(service, "context7_docs", docs)
+    client = SimpleNamespace(settings=SimpleNamespace(api_key="jev-test"), last_error=None, evaluate=evaluate)
+    results = await ChannelExecutor(service, client, research=True)._context7("React API docs")
+    assert results[0]["url"] == "context7:/first/library"
+
+
+@pytest.mark.asyncio
+async def test_context7_no_relevant_snippets_is_empty_and_uses_fallback(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("CONTEXT7_API_KEY", "context7-test")
+    monkeypatch.setenv("EXA_API_KEY", "exa-test")
+    monkeypatch.setenv("SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS", "context7,exa")
+    monkeypatch.setenv("SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS", "300")
+    monkeypatch.setenv("SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD", "1")
+    called = []
+
+    def handler(request):
+        called.append(request.url.path)
+        if request.url.path == "/api/v2/libs/search":
+            return httpx.Response(200, json={"results": [{"id": "/reactjs/react.dev", "title": "React"}]})
+        assert request.url.path == "/api/v2/context"
+        assert request.url.params["libraryId"] == "/reactjs/react.dev"
+        return httpx.Response(404, json={"error": "no_relevant_snippets", "message": "No documentation matched this query."})
+
+    async def exa(*args, **kwargs):
+        called.append("exa")
+        return {"ok": True, "results": [{"url": "https://example.org/docs", "content": "Fallback documentation"}]}
+
+    client = httpx.AsyncClient
+    monkeypatch.setattr("smart_search.providers.context7.httpx.AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr(service, "exa_search", exa)
+    result = await service.search("React API docs")
+
+    assert called == ["/api/v2/libs/search", "/api/v2/context", "exa"]
+    assert result["ok"]
+    assert "Fallback documentation" in result["content"]
+    assert [(item["provider"], item["status"]) for item in result["provider_attempts"]] == [("context7", "empty"), ("exa", "ok")]
+    assert {item["capability"] for item in result["provider_attempts"]} == {"docs_search"}
+    health = service._provider_health_status("context7")
+    assert health["state"] == "closed"
+    assert health["consecutive_failures"] == 0

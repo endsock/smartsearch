@@ -461,106 +461,6 @@ def _research_plan(query: str) -> dict:
     return service.build_deep_research_plan(query, budget="deep", evidence_dir="C:/tmp/smart-search-evidence/test")
 
 
-def test_context7_candidate_selection_prefers_relevant_react_library():
-    selected = service._select_context7_library_candidate(
-        [
-            {
-                "id": "/devopshq/artifactory-cleanup",
-                "title": "Artifactory Cleanup",
-                "description": "Delete old Artifactory artifacts.",
-                "trust_score": 99,
-            },
-            {
-                "id": "/reactjs/react.dev",
-                "title": "React",
-                "description": "Official React documentation for hooks and effects.",
-                "trust_score": 90,
-            },
-        ],
-        "React useEffect cleanup docs",
-    )
-
-    assert selected["id"] == "/reactjs/react.dev"
-
-
-def test_context7_candidate_selection_prefers_more_specific_react_ecosystem_library():
-    selected = service._select_context7_library_candidate(
-        [
-            {
-                "id": "/reactjs/react.dev",
-                "title": "React",
-                "description": "Official React documentation.",
-                "trust_score": 90,
-            },
-            {
-                "id": "/react-native/react-native",
-                "title": "React Native",
-                "description": "Official React Native documentation.",
-                "trust_score": 90,
-            },
-        ],
-        "React Native docs",
-    )
-
-    assert selected["id"] == "/react-native/react-native"
-
-
-def test_context7_candidate_selection_keeps_exact_title_and_id_match_after_conversational_prefix():
-    selected = service._select_context7_library_candidate(
-        [
-            {
-                "id": "/acme/needle",
-                "title": "Needle",
-                "description": "Needle reference documentation.",
-                "trust_score": 90,
-            }
-        ],
-        "Please could you show me Needle docs",
-    )
-
-    assert selected["id"] == "/acme/needle"
-
-
-@pytest.mark.parametrize(
-    ("library_id", "title", "query"),
-    [
-        ("/microsoft/csharp", "C#", "C# async API docs"),
-        ("/isocpp/cppreference", "C++", "C++ standard library docs"),
-    ],
-)
-def test_context7_candidate_selection_normalizes_symbolic_library_names(library_id, title, query):
-    selected = service._select_context7_library_candidate(
-        [
-            {
-                "id": library_id,
-                "title": title,
-                "description": f"{title} reference documentation.",
-                "trust_score": 90,
-            }
-        ],
-        query,
-    )
-
-    assert selected["id"] == library_id
-
-
-def test_context7_candidate_selection_rejects_description_only_high_trust_match():
-    selected = service._select_context7_library_candidate(
-        [
-            {
-                "id": "/acme/pruner",
-                "title": "Artifact Pruner",
-                "description": "React useEffect documentation and examples.",
-                "trust_score": 100,
-                "benchmark_score": 100,
-            }
-        ],
-        "React useEffect cleanup docs",
-    )
-
-    assert selected is None
-
-
 @pytest.mark.asyncio
 async def test_research_context7_docs_uses_selected_library(monkeypatch, tmp_path):
     monkeypatch.setenv("CONTEXT7_API_KEY", "ctx-test")
@@ -569,13 +469,13 @@ async def test_research_context7_docs_uses_selected_library(monkeypatch, tmp_pat
             {"id": "/wrong/library", "title": "Unrelated"},
             {"id": "/reactjs/react.dev", "title": "React"}]}
     async def docs(library_id, query):
-        assert library_id == "/reactjs/react.dev"
+        assert library_id == "/wrong/library"
         return {"ok": True, "content": "React useEffect cleanup docs"}
     monkeypatch.setattr(service, "context7_library", libraries)
     monkeypatch.setattr(service, "context7_docs", docs)
     result = await service.research("React useEffect API docs", budget="standard", evidence_dir=str(tmp_path))
     assert result["ok"]
-    assert result["citations"][0]["url"] == "context7:/reactjs/react.dev"
+    assert result["citations"][0]["url"] == "context7:/wrong/library"
     assert result["degraded"]  # Retrieval succeeded; Jev verification was unavailable.
 
 
@@ -614,10 +514,15 @@ async def test_docs_search_falls_back_to_exa_when_context7_has_no_eligible_candi
             ],
         }
 
+    async def fake_context7_docs(library_id, query):
+        assert library_id == "/acme/pruner"
+        return {"ok": True, "content": ""}
+
     async def fake_exa_search(*args, **kwargs):
         return {"ok": True, "results": [{"url": "https://react.dev/reference/react/useEffect", "title": "useEffect"}]}
 
     monkeypatch.setattr(service, "context7_library", fake_context7_library)
+    monkeypatch.setattr(service, "context7_docs", fake_context7_docs)
     monkeypatch.setattr(service, "exa_search", fake_exa_search)
 
     result = await service.search("React useEffect API docs")
@@ -1031,7 +936,8 @@ async def test_search_accepts_only_openai_compatible_as_main_provider(monkeypatc
 
     result = await service.search("what is example")
 
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
     assert result["primary_api_mode"] == "chat-completions"
     assert result["routing_decision"]["main_search_chain"] == ["openai-compatible"]
     assert result["capability_status"]["main_search"]["configured"] == ["openai-compatible"]
@@ -1053,7 +959,8 @@ async def test_search_passes_openai_compatible_responses_mode_and_mode_telemetry
 
     result = await service.search("what is example", providers="openai-compatible")
 
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
     assert result["primary_api_mode"] == "responses"
     assert captured == {"api_mode": "responses", "endpoint": "https://relay.example.com/v1/responses"}
     assert result["routing_decision"]["openai_compatible_api_mode"] == "responses"
@@ -1103,7 +1010,8 @@ async def test_search_passes_openai_compatible_stream_config_and_cli_override(mo
     kwargs = {} if override_stream is None else {"stream": override_stream}
     result = await service.search("what is example", **kwargs)
 
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
     assert captured["stream"] is expected_stream
     assert result["routing_decision"]["openai_compatible_stream"] is expected_stream
 
@@ -1138,7 +1046,8 @@ async def test_search_openai_compatible_primary_model_falls_back_to_configured_m
 
     result = await service.search("what is example", providers="openai-compatible")
 
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
     assert result["model"] == "fallback-model"
     assert result["model_fallback_used"] is True
     assert result["fallback_used"] is True
@@ -1210,7 +1119,8 @@ async def test_search_fallback_off_disables_model_fallback_but_keeps_transport_a
 
     result = await service.search("what is example", providers="openai-compatible", fallback="off")
 
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
     assert seen_models == ["primary-model"]
     assert result["transport_fallback_used"] is True
     assert result["model_fallback_used"] is False
@@ -1237,7 +1147,8 @@ async def test_search_model_breaker_skips_primary_model(monkeypatch):
 
     result = await service.search("what is example", providers="openai-compatible")
 
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
     assert seen_models == ["fallback-model"]
     assert result["model"] == "fallback-model"
     assert result["model_fallback_used"] is True
@@ -1307,7 +1218,8 @@ async def test_search_does_not_cap_primary_timeout_when_fallback_configured(monk
 
     result = await service.search("what is example", providers="openai-compatible", timeout_seconds=90)
 
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
     assert result["model"] == "primary-model"
     assert result["model_fallback_used"] is False
     assert result["routing_decision"]["openai_compatible_timeout_policy"] == "remaining_budget"
@@ -1343,7 +1255,8 @@ async def test_search_gives_fallback_remaining_budget_after_primary_hard_failure
 
     result = await service.search("what is example", providers="openai-compatible", timeout_seconds=90)
 
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
     assert result["model"] == "fallback-model"
     assert result["model_fallback_used"] is True
     assert len(result["provider_attempts"]) == 2
@@ -1566,7 +1479,8 @@ async def test_search_provider_filter_can_select_openai_compatible(monkeypatch):
 
     result = await service.search("what is example", providers="openai-compatible")
 
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
     assert result["routing_decision"]["main_search_chain"] == ["openai-compatible"]
     assert [a["provider"] for a in result["provider_attempts"]] == ["openai-compatible"]
 
@@ -1630,9 +1544,9 @@ async def test_strict_does_not_add_searches_to_a_source_free_answer(monkeypatch)
     monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", answer)
     result = await service.search("plain evergreen query", validation="strict")
     assert not result["ok"]
-    assert result["content"] == "Unverified answer."
+    assert result["content"] == ""
     assert result["error_type"] == "evidence_error"
-    assert result["partial_success"]
+    assert not result["partial_success"]
     assert len(result["provider_attempts"]) == 1
     assert result["routing_decision"]["supplemental_paths"] == []
 
@@ -2901,7 +2815,8 @@ async def test_tavily_disabled_removes_capability_routes_and_blocks_network_boun
     assert "tavily" not in capability_status["web_search"]["configured"]
     assert "tavily" not in capability_status["web_fetch"]["configured"]
     assert "tavily" not in service._research_fetch_order("https://example.com")
-    assert search_result["ok"] is True
+    assert search_result["ok"] is False
+    assert search_result["error_type"] == "evidence_error"
     assert not any(attempt["provider"] == "tavily" for attempt in search_result["provider_attempts"])
     assert await service.call_tavily_search("query") is None
     assert await service.call_tavily_extract("https://example.com") is None
@@ -2999,7 +2914,7 @@ async def test_search_timeout_config_precedence_and_default(monkeypatch, tmp_pat
     assert configured_result["timeout_seconds"] == 210
     assert environment_result["timeout_seconds"] == 240
     assert override_result["timeout_seconds"] == 420
-    assert all(result["ok"] is True for result in (default_result, configured_result, environment_result, override_result))
+    assert all(result["ok"] is False and result["error_type"] == "evidence_error" for result in (default_result, configured_result, environment_result, override_result))
 
 
 @pytest.mark.asyncio
@@ -3049,8 +2964,9 @@ async def test_normal_search_does_not_wait_for_unselected_extra_channels(monkeyp
     monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", answer)
     monkeypatch.setattr(service, "call_firecrawl_search", forbidden)
     result = await service.search("general question", extra_sources=2, timeout_seconds=0.2)
-    assert result["ok"]
-    assert result["content"] == "Primary answer."
+    assert not result["ok"]
+    assert result["error_type"] == "evidence_error"
+    assert result["content"] == ""
     assert result["timeout_phase"] == ""
     assert len(result["provider_attempts"]) == 1
 
@@ -3063,8 +2979,8 @@ async def test_strict_keeps_partial_content_without_optional_work(monkeypatch):
     monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", answer)
     result = await service.search("strict evidence", validation="strict", timeout_seconds=0.2)
     assert not result["ok"]
-    assert result["content"] == "Generated content without citations."
-    assert result["partial_success"]
+    assert result["content"] == ""
+    assert not result["partial_success"]
     assert result["timeout_phase"] == ""
 
 
@@ -3105,8 +3021,9 @@ async def test_main_provider_timeout_keeps_remaining_budget_for_peer_failover(mo
 
     result = await service.search("peer timeout failover", validation="fast", timeout_seconds=5)
 
-    assert result["ok"] is True
-    assert result["content"] == "Peer fallback answer."
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
+    assert result["content"] == ""
     assert [attempt["provider"] for attempt in result["provider_attempts"]] == ["xai-responses", "openai-compatible"]
     assert result["provider_attempts"][0]["error_type"] == "timeout"
 
@@ -3394,7 +3311,8 @@ async def test_main_search_shares_its_deadline_with_the_xai_provider(monkeypatch
 
     result = await service.search("deadline sharing", validation="fast", timeout_seconds=280)
 
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
     assert seen["deadline"] is not None
     # The provider gets the whole remaining budget rather than a fixed 120s read.
     assert seen["read_timeout"] > 240.0

@@ -185,6 +185,10 @@ class ChannelExecutor:
             self.model_results[channel["id"]] = data
             raw = _check_data(data)["content"]
             answer, sources = svc.split_answer_and_sources(raw)
+            if not sources:
+                data["attempts"][-1].update(status="empty", result_count=0, error_type="evidence_error",
+                                           error="Search model answer contained no source URLs")
+                return []
             results = [{"title": "Search model response", "content": answer, "kind": "model_answer"}]
             # An answer's prose is not silently attributed to each cited page.
             results.extend({**source, "content": source.get("description") or source.get("title") or source.get("url", ""), "kind": "citation"} for source in sources)
@@ -218,11 +222,12 @@ class ChannelExecutor:
             except ProviderCallError:
                 # A router outage is not a Context7 authentication failure.
                 pass
-        if not self.research or self.client.last_error is not None or not self.client.settings.api_key:
-            library = self.svc._select_context7_library_candidate(libraries, query)
         if library is None:
+            library = libraries[0]
+        data = await self.svc.context7_docs(library["id"], query)
+        if data.get("error_type") == "evidence_error":
             return []
-        data = _check_data(await self.svc.context7_docs(library["id"], query))
+        _check_data(data)
         content = data.get("content", "")
         # Older provider adapters serialize Context7's {content, results} wrapper.
         try:
