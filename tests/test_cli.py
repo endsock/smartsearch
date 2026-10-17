@@ -248,6 +248,10 @@ def test_fetch_parser_accepts_timeout():
 
 
 def test_diagnose_openai_compatible_defaults_to_markdown(monkeypatch, capsys):
+    async def fake_web(*args, **kwargs):
+        return {"name": "联网搜索能力", "status": "ok", "message": "返回 1 个来源", "has_content": True}
+
+    monkeypatch.setattr(cli.service, "_probe_openai_compatible_web_search", fake_web)
     async def fake_diagnose(timeout_seconds=30.0):
         return {
             "ok": False,
@@ -293,6 +297,10 @@ def test_diagnose_openai_compatible_defaults_to_markdown(monkeypatch, capsys):
 
 
 def test_diagnose_openai_compatible_json(monkeypatch, capsys):
+    async def fake_web(*args, **kwargs):
+        return {"name": "联网搜索能力", "status": "ok", "message": "返回 1 个来源", "has_content": True}
+
+    monkeypatch.setattr(cli.service, "_probe_openai_compatible_web_search", fake_web)
     async def fake_diagnose(timeout_seconds=30.0):
         return {"ok": True, "provider": "openai-compatible", "summary": "ok", "timeout_seconds": timeout_seconds}
 

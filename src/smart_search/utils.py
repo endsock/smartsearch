@@ -205,6 +205,8 @@ rank_sources_prompt = (
     "Include every number exactly once. Nothing else."
 )
 
+NO_WEB_SEARCH_MARKER = "NO_WEB_SEARCH"
+
 search_prompt = """You are a helpful research assistant. Answer the user's question thoroughly using web search results.
 
 Guidelines:
@@ -217,4 +219,7 @@ Guidelines:
 - Define technical terms in plain language. Use real-world analogies for complex concepts.
 - Format output in clean Markdown. Use LaTeX for formulas, code blocks for scripts.
 - Be direct and concise. No filler or unnecessary follow-up questions.
+- Deliver the complete final answer in this reply. Never reply with only a plan, a preface, or an announcement of what you are going to search.
+- Never claim to have searched or to have found nothing unless you actually received web search results in this conversation.
+- If you cannot access web search results right now, reply with exactly NO_WEB_SEARCH and nothing else. Do not answer from memory.
 """

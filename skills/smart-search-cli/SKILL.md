@@ -54,6 +54,7 @@ Use the local `smart-search` command as the default execution layer for web rese
 - In sandboxed runtimes, set `SMART_SEARCH_CONFIG_DIR` to an absolute writable path when the default config directory is unavailable or must be pinned.
 - The standard minimum profile requires at least one enabled retrieval channel. Jev and a main model are optional; the requested operation still needs a capable channel.
 - Fallback stays within the same capability family; model answers and web search are mutual fallbacks in ordinary search. Do not use Context7 for broad news/web facts or page-extraction providers as documentation search replacements.
+- Inspect `answer_check` and `primary_sources_count` before trusting `content`.
 - xAI Responses and OpenAI-compatible are peer `main_search` providers. Do not reuse one provider's URL/key to fabricate the other provider as fallback.
 - For current-news, policy, finance, health, and other high-risk facts, do not answer from broad `search.content` alone. Fetch key pages and summarize only what fetched text supports.
 - Native `web_search` is disabled in this CLI-first workflow unless the user explicitly configures another approved route; do not silently fall back to another web-search route.
