@@ -437,6 +437,8 @@ async def search(
                 break
             if budget.remaining_seconds() <= 0:
                 stopped = "deadline"
+                execution.record("selection" if judge_available else "retrieval", "timeout", time.monotonic(), 0,
+                                 "shared deadline exhausted before this phase")
                 break
             selected, scores = [], {}
             selection_source = "jev"
@@ -469,6 +471,7 @@ async def search(
             # after the shared deadline, even with a nominal 0.001-second timeout.
             if budget.remaining_seconds() <= 0:
                 stopped = "deadline"
+                execution.record("retrieval", "timeout", time.monotonic(), 0, "shared deadline exhausted before this phase")
                 break
             attempted.update(item["id"] for item in selected)
             phase_start = time.monotonic()
@@ -637,8 +640,9 @@ async def search(
     if validation == "strict":
         ok = ok and has_source_evidence(evidence) and (not is_research or assessment["sufficient"])
     terminal_error = next((item for item in reversed(attempts) if item.get("error_type")), {})
-    error_type = "" if ok else (failure.error_type if failure else "evidence_error")
-    error = "" if ok else (failure.error if failure else "Search did not obtain enough verified useful evidence")
+    error_type = "" if ok else (failure.error_type if failure else "timeout" if stopped == "deadline" else "evidence_error")
+    error = "" if ok else (failure.error if failure else "Search deadline exhausted" if stopped == "deadline"
+                           else "Search did not obtain enough verified useful evidence")
     if not ok and not evidence and terminal_error:
         error_type, error = terminal_error["error_type"], terminal_error.get("error", error)
     if stopped == "cancelled":

@@ -445,6 +445,20 @@ async def test_unknown_response_ids_do_not_invent_channels(monkeypatch, configur
 
 
 @pytest.mark.asyncio
+async def test_deadline_spent_before_selection_reports_timeout(monkeypatch, configured):
+    async def request(self, state, questions, timeout):
+        raise AssertionError("no Jev request after the shared deadline")
+
+    monkeypatch.setattr(JevClient, "_request", request)
+    monkeypatch.setattr(service.SearchBudget, "remaining_seconds", lambda self: 0.0)
+    result = await run_loop("question", timeout_seconds=0.2)
+    assert result["error_type"] == "timeout"
+    assert result["timeout_phase"] == "selection"
+    assert result["routing_decision"]["stop_reason"] == "deadline"
+    assert result["provider_attempts"] == []
+
+
+@pytest.mark.asyncio
 async def test_deadline_cancels_remote_judgment_and_reports_timeout(monkeypatch, configured):
     cancelled = asyncio.Event()
 
@@ -455,7 +469,7 @@ async def test_deadline_cancels_remote_judgment_and_reports_timeout(monkeypatch,
             cancelled.set()
 
     monkeypatch.setattr(JevClient, "_request", request)
-    result = await run_loop("question", timeout_seconds=0.03)
+    result = await run_loop("question", timeout_seconds=0.2)
     assert result["error_type"] == "timeout"
     assert result["timeout_phase"] == "selection"
     assert cancelled.is_set()

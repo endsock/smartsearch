@@ -195,7 +195,7 @@ async def test_ordinary_deadline_cancels_retrieval(monkeypatch):
             cancelled.set()
 
     monkeypatch.setattr(service, "exa_search", slow)
-    result = await service.search("Find this source", timeout_seconds=0.02)
+    result = await service.search("Find this source", timeout_seconds=0.2)
     assert cancelled.is_set()
     assert not result["ok"]
     assert result["error_type"] == "timeout"
