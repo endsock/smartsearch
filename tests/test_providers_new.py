@@ -201,6 +201,17 @@ async def test_context7_library_uses_official_search_endpoint(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_context7_library_without_query_searches_by_name(monkeypatch):
+    def handler(request):
+        assert dict(request.url.params) == {"libraryName": "react", "query": "react"}
+        return httpx.Response(200, json={"results": []})
+
+    client = httpx.AsyncClient
+    monkeypatch.setattr("smart_search.providers.context7.httpx.AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs))
+    assert json.loads(await Context7Provider("https://context7.com", "key").library("react"))["ok"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status,body,error_type", [
     (404, {"error": "not_found"}, "provider_error"),
     (404, "Not found", "provider_error"),

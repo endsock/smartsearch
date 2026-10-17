@@ -58,7 +58,7 @@ class Context7Provider(BaseSearchProvider):
 
     async def library(self, name: str, query: str = "", ctx=None) -> str:
         request_query = f"{name} {query}".strip()
-        endpoint = f"{self.api_url}/api/v2/libs/search?libraryName={quote(name)}&query={quote(query)}"
+        endpoint = f"{self.api_url}/api/v2/libs/search?libraryName={quote(name)}&query={quote(query or name)}"
         await log_info(ctx, f"Context7 library: {request_query}", config.debug_enabled)
         start_time = time.time()
         try:

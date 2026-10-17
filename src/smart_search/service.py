@@ -1793,6 +1793,9 @@ async def _run_web_fetch_fallback(
     providers, skipped = _plan_provider_health("web_fetch", providers)
     attempts.extend(skipped)
 
+    def bounded(call):
+        return call if deadline is None else asyncio.wait_for(call, deadline - time.monotonic())
+
     for provider in providers:
         start = time.time()
         remaining = deadline - time.monotonic() if deadline is not None else None
@@ -1803,9 +1806,9 @@ async def _run_web_fetch_fallback(
         activity.progress("web_fetch", provider)
         try:
             if provider == "tavily":
-                content = await call_tavily_extract(url) if deadline is None else await asyncio.wait_for(call_tavily_extract(url), remaining)
+                content = await bounded(call_tavily_extract(url))
             elif provider == "jina":
-                data = await jina_fetch(url) if deadline is None else await asyncio.wait_for(jina_fetch(url), remaining)
+                data = await bounded(jina_fetch(url))
                 content = data.get("content") if data.get("ok") else None
                 if not data.get("ok"):
                     status = _attempt_status_for_result(data)
@@ -1813,7 +1816,7 @@ async def _run_web_fetch_fallback(
                     attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
                     continue
             elif provider == "zhipu-mcp-reader":
-                data = await zhipu_mcp_reader(url) if deadline is None else await asyncio.wait_for(zhipu_mcp_reader(url), remaining)
+                data = await bounded(zhipu_mcp_reader(url))
                 content = data.get("content") if data.get("ok") else None
                 if not data.get("ok"):
                     status = _attempt_status_for_result(data)
@@ -1821,7 +1824,7 @@ async def _run_web_fetch_fallback(
                     attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
                     continue
             elif provider == "tinyfish":
-                data = await call_tinyfish_fetch(url) if deadline is None else await asyncio.wait_for(call_tinyfish_fetch(url), remaining)
+                data = await bounded(call_tinyfish_fetch(url))
                 content = data.get("content") if data.get("ok") else None
                 if not data.get("ok"):
                     status = _attempt_status_for_result(data)
@@ -1829,7 +1832,7 @@ async def _run_web_fetch_fallback(
                     attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
                     continue
             else:
-                content = await call_firecrawl_scrape(url) if deadline is None else await asyncio.wait_for(call_firecrawl_scrape(url), remaining)
+                content = await bounded(call_firecrawl_scrape(url))
             if content and content.strip():
                 _record_provider_result(provider, "ok")
                 attempts.append(_attempt("web_fetch", provider, "ok", start, result_count=1))
