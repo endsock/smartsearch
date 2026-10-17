@@ -49,7 +49,7 @@ struct CLIManagementView: View {
                     Button(L("选择已有 CLI…")) { chooseCLI() }.disabled(blocked)
                 }
             }
-            if !manager.message.isEmpty {
+            if !manager.message.isEmpty && model.environmentExplanation != manager.message {
                 Text(manager.message).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
             }
             if !manager.checkError.isEmpty {

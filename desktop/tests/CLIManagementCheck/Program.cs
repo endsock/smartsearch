@@ -10,12 +10,14 @@ if (args[0] == "--discover")
         installations = live.Installations.Select(item => new { item.Id, item.Source, item.Version, item.Compatible, item.CanManage, item.Note }) }));
     return;
 }
+var miseInstall = Path.Combine("mise", "installs", "npm-konbakuyomu-smart-search", "1.2.3");
 if (Environment.GetEnvironmentVariable("SMART_SEARCH_MISE_FIXTURE") is { } fixture && args[0] is "which" or "ls" or "config" or "use")
 {
-    var package = Path.Combine(fixture, "mise tool", "node_modules", "@konbakuyomu", "smart-search");
+    var install = Path.Combine(fixture, miseInstall);
+    var package = Path.Combine(install, "node_modules", "@konbakuyomu", "smart-search");
     var node = Path.Combine(fixture, "npm 2 & space", "node.exe");
     if (args[0] == "which") Console.WriteLine(args.Contains("--plugin") ? "npm:@konbakuyomu/smart-search" : args.Last() == "node" ? node : Path.Combine(package, "npm", "bin", "smart-search.js"));
-    if (args[0] == "ls") Console.WriteLine(JsonSerializer.Serialize(new[] { new { version = "1.2.3", requested_version = "1.2.3", active = true, installed = true, install_path = Path.Combine(fixture, "mise tool"), source = new { type = "mise.toml", path = Path.Combine(fixture, "global.toml") } } }));
+    if (args[0] == "ls") Console.WriteLine(JsonSerializer.Serialize(new[] { new { version = "1.2.3", requested_version = "1.2.3", active = true, installed = true, install_path = install, source = new { type = "mise.toml", path = Path.Combine(fixture, "global.toml") } } }));
     if (args[0] == "config") Console.WriteLine("version = \"1.2.3\"\nallow_low_downloads = \"true\"");
     if (args[0] == "use")
     {
@@ -83,7 +85,7 @@ Directory.CreateDirectory(fakeBin);
 foreach (var file in Directory.GetFiles(AppContext.BaseDirectory, "CLIManagementCheck.*"))
     File.Copy(file, Path.Combine(fakeBin, Path.GetFileName(file)), overwrite: true);
 File.Copy(Path.Combine(AppContext.BaseDirectory, "CLIManagementCheck.exe"), Path.Combine(fakeBin, "mise.exe"), overwrite: true);
-var misePackage = Path.Combine(root, "mise tool", "node_modules", "@konbakuyomu", "smart-search");
+var misePackage = Path.Combine(root, miseInstall, "node_modules", "@konbakuyomu", "smart-search");
 var savedPackage = Path.Combine(second, "node_modules", "@konbakuyomu", "smart-search.uninstalled");
 foreach (var file in Directory.GetFiles(savedPackage, "*", SearchOption.AllDirectories))
 {
@@ -98,6 +100,27 @@ try
 {
     Environment.SetEnvironmentVariable("SMART_SEARCH_MISE_FIXTURE", root);
     Environment.SetEnvironmentVariable("MISE_GLOBAL_CONFIG_FILE", Path.Combine(root, "global.toml"));
+    var upgradedState = Path.Combine(root, "mise upgraded state");
+    Directory.CreateDirectory(upgradedState);
+    File.WriteAllText(Path.Combine(upgradedState, "cli-npm-state.json"), JsonSerializer.Serialize(new
+    {
+        selectedId = Path.Combine(root, "mise", "installs", "npm-konbakuyomu-smart-search", "1.2.2", "node_modules", "@konbakuyomu", "smart-search")
+    }));
+    var upgraded = new CLIInstallationManager(upgradedState, fakeBin + Path.PathSeparator + second, Load);
+    await upgraded.DiscoverAsync();
+    using var upgradedRecord = JsonDocument.Parse(File.ReadAllText(Path.Combine(upgradedState, "cli-npm-state.json")));
+    Check(upgraded.Selected is { Source: "mise", Version: "1.2.3", Compatible: true } && upgraded.Message.Length == 0 &&
+        upgradedRecord.RootElement.GetProperty("selectedId").GetString() == misePackage,
+        "Follow the active mise version after an upgrade outside the App");
+    var unrelatedState = Path.Combine(root, "unrelated stale state");
+    Directory.CreateDirectory(unrelatedState);
+    File.WriteAllText(Path.Combine(unrelatedState, "cli-npm-state.json"), JsonSerializer.Serialize(new
+    {
+        selectedId = Path.Combine(root, "elsewhere", "node_modules", "@konbakuyomu", "smart-search")
+    }));
+    var unrelated = new CLIInstallationManager(unrelatedState, fakeBin + Path.PathSeparator + second, Load);
+    await unrelated.DiscoverAsync();
+    Check(unrelated.Selected is null && unrelated.Message.Length > 0, "An unrelated stale selection must not silently switch to mise");
     var mise = new CLIInstallationManager(Path.Combine(root, "mise state"), fakeBin + Path.PathSeparator + second, Load);
     await mise.DiscoverAsync();
     Check(mise.Selected is { Source: "mise", Compatible: true, CanManage: true }, "Resolve active mise tool outside npm prefix: " + mise.Message + " " + JsonSerializer.Serialize(mise.Installations));
@@ -118,5 +141,8 @@ finally
 }
 Check(CLIInstallationManager.MiseOptions("version = \"1.2.3\"\npostinstall = \"custom\"", "1.2.3") is null, "Complex mise options are read-only");
 Check(CLIInstallationManager.MiseOptions("version = \"^1\"", "^1") is null, "Do not broaden mise constraints");
+Check(CLIInstallationManager.MiseToolDirectory(misePackage) == Path.Combine(root, "mise", "installs", "npm-konbakuyomu-smart-search"), "Recognize versioned mise tool directories");
+Check(CLIInstallationManager.MiseToolDirectory(@"C:\x\node_modules\@konbakuyomu\smart-search") is null, "Global npm prefixes are not mise tools");
+Check(CLIInstallationManager.MiseToolDirectory(@"C:\x\smart-search.exe") is null, "Manual CLI paths are not mise tools");
 Console.WriteLine("PASS: npm/mise discovery and ownership, multiple installations, legacy isolation, explicit selection, startup/24h checks, failure backoff and persistence");
 static void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }

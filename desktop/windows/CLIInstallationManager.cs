@@ -113,6 +113,12 @@ internal sealed class CLIInstallationManager
             }
             if (ManualNpmPath.Length == 0) await DiscoverMiseAsync(searchPath);
             if (ManualCliPath.Length > 0) await DiscoverManualAsync();
+            // mise installs each version separately; follow the same tool after upgrades outside the App.
+            if (_update.SelectedId.Length > 0 && Selected is null && ManualCliPath.Length == 0 &&
+                Installations.FirstOrDefault(item => item.Source == "mise") is { } mise &&
+                MiseToolDirectory(_update.SelectedId) is { } selectedTool &&
+                selectedTool.Equals(MiseToolDirectory(mise.Id), StringComparison.OrdinalIgnoreCase))
+                SelectInstallation(mise.Id);
             if (_update.SelectedId.Length > 0 && Selected is null)
                 Message = L("所选安装已不可用，请重新检测或选择其他安装。");
             if (_update.SelectedId.Length == 0 && Selected is { } first) SelectInstallation(first.Id);
@@ -277,6 +283,19 @@ internal sealed class CLIInstallationManager
         }
         catch (Exception error) when (error is IOException or JsonException or InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception or KeyNotFoundException or ArgumentException)
         { Message = L("mise 环境检测未完成，请重新检测或手动选择 CLI。") + "\n" + error.Message; }
+    }
+
+    internal static string? MiseToolDirectory(string packageRoot)
+    {
+        var package = new DirectoryInfo(packageRoot);
+        var scope = package.Parent;
+        var modules = scope?.Parent;
+        var tool = modules?.Parent?.Parent;
+        return package.Name.Equals("smart-search", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(scope?.Name, "@konbakuyomu", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(modules?.Name, "node_modules", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(tool?.Name, "npm-konbakuyomu-smart-search", StringComparison.OrdinalIgnoreCase)
+            ? tool?.FullName : null;
     }
 
     internal static string[]? MiseOptions(string config, string requested)

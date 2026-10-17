@@ -61,6 +61,11 @@ import Foundation
         defer { if let oldGlobal { setenv("MISE_GLOBAL_CONFIG_FILE", oldGlobal, 1) } else { unsetenv("MISE_GLOBAL_CONFIG_FILE") } }
         preferences.removeObject(forKey: "SmartSearchDesktop.npmPath")
         preferences.removeObject(forKey: "SmartSearchDesktop.selectedCLI")
+        preferences.set(root.appendingPathComponent("mise/installs/npm-konbakuyomu-smart-search/1.2.2/node_modules/@konbakuyomu/smart-search").path, forKey: "SmartSearchDesktop.selectedCLI")
+        let upgraded = CLIInstallationManager(searchPath: root.appendingPathComponent("mise bin").path + ":" + search, preferences: preferences, versionLoader: load)
+        await upgraded.discover()
+        try expect(upgraded.selected?.source == "mise" && upgraded.selected?.version == "1.2.3" && upgraded.message.isEmpty, "Follow the active mise version after an upgrade outside the App")
+        preferences.removeObject(forKey: "SmartSearchDesktop.selectedCLI")
         let mise = CLIInstallationManager(searchPath: root.appendingPathComponent("mise bin").path + ":" + search, preferences: preferences, versionLoader: load)
         await mise.discover()
         try expect(mise.selected?.source == "mise" && mise.selected?.compatible == true && mise.selected?.canManage == true, "Active mise tool outside npm prefix must be selected: " + mise.message)

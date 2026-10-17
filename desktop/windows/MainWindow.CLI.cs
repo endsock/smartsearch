@@ -42,7 +42,7 @@ public sealed partial class MainWindow
         state.Children.Add(StepHeader(_cliFirstStep ? L("1. 准备本地环境") : L("本地环境"), CliStatus(), actions.ToArray()));
         state.Children.Add(Secondary(CliExplanation()));
         if (_cliManager.Checking || _cliManager.Busy) state.Children.Add(new ProgressBar { IsIndeterminate = true });
-        if (_cliManager.Message.Length > 0) state.Children.Add(Secondary(_cliManager.Message));
+        if (_cliManager.Message.Length > 0 && CliExplanation() != _cliManager.Message) state.Children.Add(Secondary(_cliManager.Message));
         if (_cliManager.CheckError.Length > 0) state.Children.Add(Secondary(L("检查更新失败，请稍后重试。")));
         _nativeCliState.Content = state;
     }
