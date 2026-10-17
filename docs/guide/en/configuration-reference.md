@@ -87,7 +87,11 @@ Generated from current configuration metadata. Active keys appear below. Retired
 | `SMART_SEARCH_JEV_SUFFICIENCY_THRESHOLD` | Research only. A 0–1 stopping threshold, not a guarantee of factual correctness. | `float` | `0.75` |
 | `SMART_SEARCH_JEV_FILTER_RESULTS` | Research only. Adds judgments; overall cost savings are not guaranteed. | `bool` | `false` |
 | `SMART_SEARCH_JEV_FILTER_THRESHOLD` | Research filtering only, from 0 to 0.49. Only low-relevance passages are removed. | `float` | `0.1` |
-| `SMART_SEARCH_JEV_SYNTHESIZE` | Research only: false returns evidence; auto decides; true uses the configured main model. | `false, auto, true` | `false` |
+| `SMART_SEARCH_JEV_SYNTHESIZE` | Research only: false returns evidence; auto decides; true uses the dedicated model. | `false, auto, true` | `false` |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_URL` | Optional separate OpenAI-compatible endpoint. Also provide its key and model. | `url` | Not set |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_KEY` | Used only for JEV final synthesis, not retrieval or Jev judgments. | `secret` | Not set |
+| `SMART_SEARCH_JEV_SYNTHESIS_MODEL` | Dedicated synthesis model; URL, key and model must be set together. | `text` | Not set |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_MODE` | Choose chat-completions or responses for the dedicated synthesis endpoint; it must match the service API. | `chat-completions, responses` | `chat-completions` |
 | `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` | Comma-separated provider ids, preferred when suitable in both search modes. | `csv` | Not set |
 | `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` | Comma-separated provider ids excluded from automatic routing in both modes. | `csv` | Not set |
 

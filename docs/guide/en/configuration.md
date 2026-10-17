@@ -41,6 +41,8 @@ The default wizard offers Jev or local routing. The CLI browser page remains ava
 - `research`: Jev selects complementary actions in parallel, reads discovered pages, assesses evidence gaps, and continues while useful and within budget. It chooses from program-built original/subquestion/gap query candidates; Jev does not generate arbitrary queries or tool calls. Only fetched/read content enters `citations`. Optional filtering and `SMART_SEARCH_JEV_SYNTHESIZE=false|auto|true` apply only here.
 - `deep` remains an offline planner. Its `steps[].command` entries are suggestions for manual/AI orchestration; `research` records its actual actions separately in `routing_decision.rounds` and `stage_results`.
 
+Final research synthesis uses only a separately configured JEV synthesis model, independently of the main-search model. Configure `SMART_SEARCH_JEV_SYNTHESIS_API_URL`, `SMART_SEARCH_JEV_SYNTHESIS_API_KEY`, `SMART_SEARCH_JEV_SYNTHESIS_MODEL`, and `SMART_SEARCH_JEV_SYNTHESIS_API_MODE` (`chat-completions` or `responses`). See [Jev routing and filtering](../../jev-routing.md) for the synthesis modes and diagnostics.
+
 The default is `SMART_SEARCH_INTENT_ROUTER=jev`. Without a TypeSafe key or a valid judgment, `--fallback auto` uses local capability rules and reports degradation; `--fallback off` fails clearly. Explicit `local` never calls Jev. Legacy `hybrid` maps to `jev`; `rules` and `off` map to `local`. Old embedding/classifier keys remain stored but unused. `route-calibrate` is a retired, non-network compatibility command.
 
 `route` previews local capabilities without calling a model or retrieval provider. Add `--remote` only for an explicit, potentially billable Jev diagnostic. Direct provider commands keep their explicit behavior.

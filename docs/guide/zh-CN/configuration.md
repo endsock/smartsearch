@@ -41,6 +41,8 @@
 - `research`：Jev 选择互补动作并发执行，读取发现的网页，判断证据缺口，必要时继续。原问题、子问题和有限缺口查询由程序提供，Jev 只选择候选，不生成任意查询或工具调用。只有实际 fetched/read 的内容进入 `citations`。可选过滤和 `SMART_SEARCH_JEV_SYNTHESIZE=false|auto|true` 只影响深入搜索。
 - `deep` 继续离线生成计划，`steps[].command` 是供人或 AI 手动编排的建议。`research` 实际执行记录单独保存在 `routing_decision.rounds` 和 `stage_results` 中。
 
+深入搜索的最终汇总只调用独立配置的 JEV 汇总模型，与主搜索模型无关。配置键为 `SMART_SEARCH_JEV_SYNTHESIS_API_URL`、`SMART_SEARCH_JEV_SYNTHESIS_API_KEY`、`SMART_SEARCH_JEV_SYNTHESIS_MODEL` 和 `SMART_SEARCH_JEV_SYNTHESIS_API_MODE`（`chat-completions` 或 `responses`）。汇总模式和诊断见 [Jev 路由与过滤](../../jev-routing.md)。
+
 默认 `SMART_SEARCH_INTENT_ROUTER=jev`。没有 TypeSafe key 或无法得到有效判断时，`--fallback auto` 使用本地能力规则并标记降级，`--fallback off` 明确失败。显式 `local` 从不调用 Jev。旧 `hybrid` 映射为 `jev`，`rules` 和 `off` 映射为 `local`。旧 embedding/classifier 字段和 Key 保留但不使用，`route-calibrate` 是不联网的退役兼容命令。
 
 `route` 默认只预览本地能力，不调用模型或检索服务；显式 `--remote` 才进行可能计费的 Jev 诊断。直接 provider 命令保持明确的调用语义。

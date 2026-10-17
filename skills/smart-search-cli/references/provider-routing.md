@@ -16,6 +16,8 @@ Only configured, enabled, allowed channels outside cooldown can run. `--provider
 
 The shared total timeout defaults to 300 seconds (`SMART_SEARCH_TIMEOUT_SECONDS`, overridden by `search --timeout`). Research quick/standard/deep ceilings are 2/3/10 rounds, 1/2/10 channels per round, 3/5/20 results per channel, and 45/120/configured seconds, further limited by the configured Jev budgets. Sufficient evidence, exhaustion, no progress, or deadline stops the loop. Completed results survive optional judgment/filter/synthesis failure.
 
+For research, `SMART_SEARCH_JEV_SYNTHESIZE` accepts `true`, `false`, and `auto`. Final synthesis uses only the dedicated `SMART_SEARCH_JEV_SYNTHESIS_API_URL`, `_API_KEY`, and `_MODEL` configuration; `_API_MODE` selects `chat-completions` (default) or `responses`. It never uses the main-search model or `--model`. Auto asks Jev after optional filtering whether the retained evidence benefits from synthesis. No allowed dedicated model or a failed judgment returns evidence directly. `synthesis` reports the mode, decision probability, execution status and skip reason. With an explicit `--providers` filter, include `jev-synthesis` to permit the synthesis call.
+
 ## Provider Boundaries
 
 - `deep` uses offline rules/local signals only and must not call remote embeddings or classifier components.

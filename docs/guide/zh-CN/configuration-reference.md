@@ -87,7 +87,11 @@
 | `SMART_SEARCH_JEV_SUFFICIENCY_THRESHOLD` | 仅影响深入搜索。0 到 1，证据充分概率达到此值时停止；不代表事实必然正确。 | `float` | `0.75` |
 | `SMART_SEARCH_JEV_FILTER_RESULTS` | 仅影响深入搜索，会增加判断请求；无法保证总费用减少。 | `bool` | `false` |
 | `SMART_SEARCH_JEV_FILTER_THRESHOLD` | 深入搜索开启过滤时生效，范围 0 到 0.49；低于阈值的无关片段才会被过滤。 | `float` | `0.1` |
-| `SMART_SEARCH_JEV_SYNTHESIZE` | 仅影响深入搜索：false 返回证据；auto 按需汇总；true 使用已配置主模型汇总。 | `false, auto, true` | `false` |
+| `SMART_SEARCH_JEV_SYNTHESIZE` | 仅影响深入搜索：false 返回证据；auto 按需汇总；true 使用独立配置的模型汇总。 | `false, auto, true` | `false` |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_URL` | 可选的独立 OpenAI 兼容接口。填写后还需提供 Key 和模型名。 | `url` | 未设置 |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_KEY` | 只用于 JEV 最终汇总，不用于检索或 JEV 判断。 | `secret` | 未设置 |
+| `SMART_SEARCH_JEV_SYNTHESIS_MODEL` | 独立汇总模型名；地址、Key、模型名需要一起填写。 | `text` | 未设置 |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_MODE` | 选择独立汇总接口的调用模式：chat-completions 或 responses；需与服务商接口一致。 | `chat-completions, responses` | `chat-completions` |
 | `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` | 逗号分隔的渠道标识。普通和深入搜索均尊重这些偏好及渠道能力。 | `csv` | 未设置 |
 | `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` | 逗号分隔的渠道标识。普通和深入搜索都不会自动使用这些渠道。 | `csv` | 未设置 |
 

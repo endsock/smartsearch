@@ -1108,14 +1108,12 @@ def _configured_for_capability(capability: str, capability_status: dict[str, Any
 
 
 def _safe_provider_overrides() -> tuple[list[str], list[str], list[str]]:
-    known = set(PROVIDER_PROFILES)
-    preferred = [provider for provider in config.research_preferred_providers if provider in known]
-    disabled = [provider for provider in config.research_disabled_providers if provider in known]
-    invalid = [
-        provider
-        for provider in config.research_preferred_providers + config.research_disabled_providers
-        if provider not in known
-    ]
+    search_providers = set(PROVIDER_PROFILES)
+    allowed_disabled_providers = search_providers | {"jev-synthesis"}
+    preferred = [provider for provider in config.research_preferred_providers if provider in search_providers]
+    disabled = [provider for provider in config.research_disabled_providers if provider in allowed_disabled_providers]
+    invalid = [provider for provider in config.research_preferred_providers if provider not in search_providers]
+    invalid.extend(provider for provider in config.research_disabled_providers if provider not in allowed_disabled_providers)
     return preferred, disabled, invalid
 
 
@@ -3744,6 +3742,7 @@ async def doctor() -> dict[str, Any]:
     main_connection_tests = info.get("main_search_connection_tests") or {}
     primary_test = info.get("primary_connection_test", {})
     primary_status = primary_test.get("status")
+    required_connection_ok = True
     if info["intent_router_status"].get("mode") == "jev" and info["intent_router_status"].get("configured"):
         try:
             settings = config.jev_settings()
@@ -3754,8 +3753,36 @@ async def doctor() -> dict[str, Any]:
                 "diagnostic",
             )
             info["jev_connection_test"] = {"status": "ok", "model": settings.model, "usage": client.usage()}
-            if not main_provider_configs and settings.synthesis_mode != "true":
-                info["primary_connection_test"] = {"status": "not_required", "message": source_message('Jev evidence mode does not require a main model')}
+            if settings.synthesis_mode == "false":
+                info["jev_synthesis_connection_test"] = {
+                    "status": "skipped", "message": source_message('Jev synthesis is disabled'),
+                }
+            elif "jev-synthesis" in config.research_disabled_providers:
+                info["jev_synthesis_connection_test"] = {
+                    "status": "config_error" if settings.synthesis_mode == "true" else "skipped",
+                    "message": source_message('Jev synthesis is disabled'), "reason": "provider_disabled",
+                }
+            else:
+                try:
+                    dedicated_config = settings.dedicated_synthesis_config()
+                except ValueError as exc:
+                    info["jev_synthesis_connection_test"] = {"status": "config_error", "message": str(exc)}
+                else:
+                    if dedicated_config is None:
+                        info["jev_synthesis_connection_test"] = {
+                            "status": "not_configured", "message": source_message('Jev synthesis model is not configured'),
+                        }
+                    else:
+                        info["jev_synthesis_connection_test"] = await _safe_test_main_provider_connection(dedicated_config)
+            synthesis_test = info["jev_synthesis_connection_test"]
+            synthesis_status = synthesis_test["status"]
+            if synthesis_status == "config_error":
+                required_connection_ok = False
+            elif settings.synthesis_mode == "true":
+                required_connection_ok = synthesis_status == "ok"
+            if settings.synthesis_mode == "true" or synthesis_status == "config_error":
+                primary_test = synthesis_test
+                primary_status = synthesis_status
         except (ValueError, ProviderCallError) as exc:
             error_type, error = classify_provider_exception(exc)
             info["jev_connection_test"] = {"status": "error", "error_type": error_type, "message": error}
@@ -3769,7 +3796,7 @@ async def doctor() -> dict[str, Any]:
     retrieval_ready = any(test.get("status") in {"ok", "configured"} for test in retrieval_tests)
     info["retrieval_connection_verified"] = any(test.get("status") == "ok" for test in retrieval_tests)
     info["degraded"] = info["jev_connection_test"].get("status") == "error"
-    info["ok"] = retrieval_ready and minimum.get("ok", False) and not info.get("config_parameter_errors")
+    info["ok"] = retrieval_ready and minimum.get("ok", False) and not info.get("config_parameter_errors") and required_connection_ok
     if not main_provider_configs:
         info["primary_connection_test"] = {"status": "not_required", "message": source_message('Search can use a retrieval channel without a main model.')}
     if info["ok"]:
@@ -3786,7 +3813,7 @@ async def doctor() -> dict[str, Any]:
         info["error_type"] = info["jev_connection_test"]["error_type"]
     else:
         info["error"] = primary_test.get("message", "Primary connection check failed")
-        if primary_status == "config_error":
+        if primary_status in {"config_error", "not_configured"}:
             info["error_type"] = "config_error"
         elif primary_status in {"timeout", "error", "warning"}:
             info["error_type"] = "network_error"

@@ -8,8 +8,7 @@ Generated from the current command parser. See the [CLI guide](cli.md) for examp
 
 ```text
 usage: smart-search [-h] [--lang {auto,zh,en}] [-v]
-                    {agent-guide,search,s,route,rt,route-calibrate,route-cal,rcal,fetch,f,map,m,exa-search,exa,x,exa-similar,xs,zhipu-search,z,zp,zhipu-mcp-search,zmcp-search,zhipu-mcp-reader,zmcp-reader,zhipu-mcp-search-doc,zmcp-doc,zhipu-mcp-repo-structure,zmcp-tree,zhipu-mcp-read-file,zmcp-file,anysearch-domains,as-domains,anysearch-search,as-search,as,anysearch-extract,as-extract,anysearch-batch,as-batch,sciverse-catalog,sv-catalog,sciverse-search,sv-search,sv,sciverse-semantic,sv-semantic,sciverse-read,sv-read,sciverse-relations,sv-relations,context7-library,c7,ctx7,context7-docs,c7d,c7docs,ctx7-docs,deep,dr,research,rs,smoke,sm,doctor,d,diagnose,diag,model,mdl,skills,skill,providers,prov,ui,web,setup,init,config,cfg,regression,reg}
-                    ...
+                    {agent-guide,search,s,route,rt,route-calibrate,route-cal,rcal,fetch,f,map,m,exa-search,exa,x,exa-similar,xs,zhipu-search,z,zp,zhipu-mcp-search,zmcp-search,zhipu-mcp-reader,zmcp-reader,zhipu-mcp-search-doc,zmcp-doc,zhipu-mcp-repo-structure,zmcp-tree,zhipu-mcp-read-file,zmcp-file,anysearch-domains,as-domains,anysearch-search,as-search,as,anysearch-extract,as-extract,anysearch-batch,as-batch,sciverse-catalog,sv-catalog,sciverse-search,sv-search,sv,sciverse-semantic,sv-semantic,sciverse-read,sv-read,sciverse-relations,sv-relations,context7-library,c7,ctx7,context7-docs,c7d,c7docs,ctx7-docs,deep,dr,research,rs,smoke,sm,doctor,d,diagnose,diag,model,mdl,skills,skill,providers,prov,ui,web,setup,init,config,cfg,regression,reg} ...
 
 Smart Search CLI for AI-agent web research.
 
@@ -852,9 +851,9 @@ Parser defaults: `--budget` = `deep`; `--evidence-dir` = ``; `--fallback` = `aut
 Aliases: `sm`
 
 ```text
-usage: smart-search smoke [-h] [--lang {auto,zh,en}]
-                          [--mode {mock,live} | --mock | --live]
-                          [--format {json,markdown,content}] [--output OUTPUT]
+usage: smart-search smoke [-h] [--lang {auto,zh,en}] [--mode {mock,live} |
+                          --mock | --live] [--format {json,markdown,content}]
+                          [--output OUTPUT]
 
 options:
   -h, --help            show this help message and exit
@@ -1206,6 +1205,10 @@ usage: smart-search setup [-h] [--lang {auto,zh,en}] [--non-interactive]
                           [--openai-compatible-fallback-models OPENAI_COMPATIBLE_FALLBACK_MODELS]
                           [--openai-compatible-api-mode OPENAI_COMPATIBLE_API_MODE]
                           [--openai-compatible-stream OPENAI_COMPATIBLE_STREAM]
+                          [--jev-synthesis-api-url JEV_SYNTHESIS_API_URL]
+                          [--jev-synthesis-api-key JEV_SYNTHESIS_API_KEY]
+                          [--jev-synthesis-model JEV_SYNTHESIS_MODEL]
+                          [--jev-synthesis-api-mode JEV_SYNTHESIS_API_MODE]
                           [--validation-level VALIDATION_LEVEL]
                           [--fallback-mode FALLBACK_MODE]
                           [--minimum-profile MINIMUM_PROFILE]
@@ -1277,6 +1280,14 @@ options:
                         responses).
   --openai-compatible-stream OPENAI_COMPATIBLE_STREAM
                         Save OPENAI_COMPATIBLE_STREAM.
+  --jev-synthesis-api-url JEV_SYNTHESIS_API_URL
+                        Save SMART_SEARCH_JEV_SYNTHESIS_API_URL.
+  --jev-synthesis-api-key JEV_SYNTHESIS_API_KEY
+                        Save SMART_SEARCH_JEV_SYNTHESIS_API_KEY.
+  --jev-synthesis-model JEV_SYNTHESIS_MODEL
+                        Save SMART_SEARCH_JEV_SYNTHESIS_MODEL.
+  --jev-synthesis-api-mode JEV_SYNTHESIS_API_MODE
+                        Save SMART_SEARCH_JEV_SYNTHESIS_API_MODE.
   --validation-level VALIDATION_LEVEL
                         Save SMART_SEARCH_VALIDATION_LEVEL.
   --fallback-mode FALLBACK_MODE
@@ -1285,9 +1296,9 @@ options:
                         Save SMART_SEARCH_MINIMUM_PROFILE.
   --intent-router INTENT_ROUTER
                         Save SMART_SEARCH_INTENT_ROUTER.
-  --search-timeout SEARCH_TIMEOUT, --search-timeout-seconds SEARCH_TIMEOUT
+  --search-timeout, --search-timeout-seconds SEARCH_TIMEOUT
                         Save SMART_SEARCH_TIMEOUT_SECONDS.
-  --provider-cooldown PROVIDER_COOLDOWN, --provider-cooldown-seconds PROVIDER_COOLDOWN
+  --provider-cooldown, --provider-cooldown-seconds PROVIDER_COOLDOWN
                         Save SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS; 0
                         disables the optional-provider failure cooldown.
   --provider-failure-threshold PROVIDER_FAILURE_THRESHOLD
@@ -1350,7 +1361,7 @@ options:
   --output OUTPUT       Write rendered output to a file.
 ```
 
-Parser defaults: `--non-interactive` = `False`; `--advanced` = `False`; `--skip-skills` = `False`; `--install-skills` = ``; `--skills-root` = ``; `--xai-api-url` = ``; `--xai-api-key` = ``; `--xai-model` = ``; `--xai-tools-explicit` = ``; `--openai-compatible-api-url` = ``; `--openai-compatible-api-key` = ``; `--openai-compatible-model` = ``; `--openai-compatible-fallback-models` = ``; `--openai-compatible-api-mode` = ``; `--openai-compatible-stream` = ``; `--validation-level` = ``; `--fallback-mode` = ``; `--minimum-profile` = ``; `--intent-router` = ``; `--search-timeout / --search-timeout-seconds` = ``; `--provider-cooldown / --provider-cooldown-seconds` = ``; `--provider-failure-threshold` = ``; `--exa-key` = ``; `--context7-key` = ``; `--zhipu-key` = ``; `--zhipu-api-url` = ``; `--zhipu-search-engine` = ``; `--zhipu-mcp-key` = ``; `--zhipu-mcp-search-api-url` = ``; `--zhipu-mcp-reader-api-url` = ``; `--zhipu-mcp-zread-api-url` = ``; `--zhipu-mcp-timeout` = ``; `--jina-key` = ``; `--jina-reader-api-url` = ``; `--jina-respond-with` = ``; `--jina-timeout` = ``; `--tavily-api-url` = ``; `--tavily-key` = ``; `--firecrawl-api-url` = ``; `--firecrawl-key` = ``; `--tinyfish-key` = ``; `--tinyfish-search-api-url` = ``; `--tinyfish-fetch-api-url` = ``; `--tinyfish-timeout` = ``; `--anysearch-api-url` = ``; `--anysearch-key` = ``; `--anysearch-timeout` = ``; `--sciverse-api-url` = ``; `--sciverse-token` = ``; `--sciverse-timeout` = ``; `--format` = `json`; `--output` = ``.
+Parser defaults: `--non-interactive` = `False`; `--advanced` = `False`; `--skip-skills` = `False`; `--install-skills` = ``; `--skills-root` = ``; `--xai-api-url` = ``; `--xai-api-key` = ``; `--xai-model` = ``; `--xai-tools-explicit` = ``; `--openai-compatible-api-url` = ``; `--openai-compatible-api-key` = ``; `--openai-compatible-model` = ``; `--openai-compatible-fallback-models` = ``; `--openai-compatible-api-mode` = ``; `--openai-compatible-stream` = ``; `--jev-synthesis-api-url` = ``; `--jev-synthesis-api-key` = ``; `--jev-synthesis-model` = ``; `--jev-synthesis-api-mode` = ``; `--validation-level` = ``; `--fallback-mode` = ``; `--minimum-profile` = ``; `--intent-router` = ``; `--search-timeout / --search-timeout-seconds` = ``; `--provider-cooldown / --provider-cooldown-seconds` = ``; `--provider-failure-threshold` = ``; `--exa-key` = ``; `--context7-key` = ``; `--zhipu-key` = ``; `--zhipu-api-url` = ``; `--zhipu-search-engine` = ``; `--zhipu-mcp-key` = ``; `--zhipu-mcp-search-api-url` = ``; `--zhipu-mcp-reader-api-url` = ``; `--zhipu-mcp-zread-api-url` = ``; `--zhipu-mcp-timeout` = ``; `--jina-key` = ``; `--jina-reader-api-url` = ``; `--jina-respond-with` = ``; `--jina-timeout` = ``; `--tavily-api-url` = ``; `--tavily-key` = ``; `--firecrawl-api-url` = ``; `--firecrawl-key` = ``; `--tinyfish-key` = ``; `--tinyfish-search-api-url` = ``; `--tinyfish-fetch-api-url` = ``; `--tinyfish-timeout` = ``; `--anysearch-api-url` = ``; `--anysearch-key` = ``; `--anysearch-timeout` = ``; `--sciverse-api-url` = ``; `--sciverse-token` = ``; `--sciverse-timeout` = ``; `--format` = `json`; `--output` = ``.
 
 ## `smart-search config`
 

@@ -1797,14 +1797,16 @@ def _setup_choice(prompt: str, choices: set[str], default: str) -> str:
 
 
 def _prompt_main_search(values: dict[str, str], current: dict[str, str], lang: str) -> None:
-    status = _setup_status_from_values(_merge_setup_values(current, values))
+    merged = _merge_setup_values(current, values)
+    status = _setup_status_from_values(merged)
     configured = status["main_search"]["configured"]
-    default_selected = configured or ["xai-responses"]
+    jev_mode = service.normalize_router_mode(merged.get("SMART_SEARCH_INTENT_ROUTER") or "jev") == "jev"
+    default_selected = configured or ([] if jev_mode else ["xai-responses"])
     _write_stderr(
         _t(
             lang,
-            "\n[1/3 按需] main_search 主搜索\n用途: 负责综合搜索回答和最终合成。\n推荐: 有 xAI key 选 xai；有中转服务选 openai；两者都配可以同能力兜底。\n",
-            "\n[1/3 Optional] main_search primary search\nPurpose: broad search answers and final synthesis.\nRecommended: choose xai for an xAI key, openai for a relay, or both for same-capability fallback.\n",
+            "\n[1/3 按需] main_search 主搜索\n用途: 负责综合搜索回答；深入搜索的结果汇总使用独立配置。\n推荐: 有 xAI key 选 xai；有中转服务选 openai；两者都配可以同能力兜底。\n",
+            "\n[1/3 Optional] main_search primary search\nPurpose: broad search answers; research synthesis uses separate settings.\nRecommended: choose xai for an xAI key, openai for a relay, or both for same-capability fallback.\n",
         )
     )
     selected = _prompt_provider_multi_select(
@@ -2187,8 +2189,28 @@ def _prompt_intent_router(values: dict[str, str], current: dict[str, str], lang:
         _t(lang, "深入搜索汇总方式", "Research synthesis"), [
             {"name": _t(lang, "false: 直接返回证据", "false: return evidence directly"), "value": "false"},
             {"name": _t(lang, "auto: 由 Jev 判断是否需要汇总", "auto: let Jev decide whether synthesis is needed"), "value": "auto"},
-            {"name": _t(lang, "true: 使用主模型汇总", "true: synthesize with the main model"), "value": "true"},
+            {"name": _t(lang, "true: 使用独立模型汇总", "true: synthesize with the dedicated model"), "value": "true"},
         ], synthesis_default)
+    if values["SMART_SEARCH_JEV_SYNTHESIZE"] != "false":
+        synthesis_keys = (
+            "SMART_SEARCH_JEV_SYNTHESIS_API_URL", "SMART_SEARCH_JEV_SYNTHESIS_API_KEY",
+            "SMART_SEARCH_JEV_SYNTHESIS_MODEL",
+        )
+        configured = any(merged.get(key) for key in synthesis_keys)
+        if values["SMART_SEARCH_JEV_SYNTHESIZE"] == "true" or _prompt_yes_no(
+            _t(lang, "配置独立汇总模型?", "Configure a dedicated synthesis model?"), default=configured,
+        ):
+            for key, label in (
+                ("SMART_SEARCH_JEV_SYNTHESIS_API_URL", _t(lang, "汇总 API 地址", "Synthesis API URL")),
+                ("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", _t(lang, "汇总 API Key", "Synthesis API key")),
+                ("SMART_SEARCH_JEV_SYNTHESIS_MODEL", _t(lang, "汇总模型", "Synthesis model")),
+            ):
+                values[key] = _prompt_value(key, label, merged.get(key, ""), lang=lang)
+            values["SMART_SEARCH_JEV_SYNTHESIS_API_MODE"] = _prompt_select(
+                _t(lang, "选择汇总接口模式", "Choose synthesis API mode"),
+                [{"name": mode, "value": mode} for mode in ("chat-completions", "responses")],
+                merged.get("SMART_SEARCH_JEV_SYNTHESIS_API_MODE", "chat-completions"),
+            )
 
 
 def _write_setup_keep_note(lang: str) -> None:
@@ -2210,12 +2232,14 @@ def _write_setup_examples(lang: str) -> None:
             "  docs_search: 文档/API 优先 Context7；官方域名、论文和低噪声发现再配 Exa。\n"
             "  web_fetch: Tavily 官方地址是 https://api.tavily.com；号池填 https://<host>/api/tavily。\n"
             "  路由: 可选 TypeSafe Jev；普通搜索单轮，research 才会按缺口继续。\n"
+            "  jev: 可跳过 main_search；汇总模型单独配置。\n"
             "  key 都填你自己控制台里的；Zhipu / Firecrawl 可以之后再补。\n",
             "\nIf unsure: configure one retrieval channel; add page reading for research.\n"
             "  main_search: xAI Responses, or OpenAI-compatible (example: https://api.openai.com/v1)\n"
             "  docs_search: Context7 for docs/API first; add Exa for official domains, papers, and low-noise discovery.\n"
             "  web_fetch: official Tavily endpoint is https://api.tavily.com; pooled endpoints use https://<host>/api/tavily.\n"
             "  Routing: optional TypeSafe Jev; search is single-pass and research follows gaps.\n"
+            "  jev: skip main_search; synthesis uses separate settings.\n"
             "  Use keys from your own provider consoles. Zhipu / Firecrawl can be added later.\n",
         )
     )
@@ -2288,6 +2312,10 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("OPENAI_COMPATIBLE_FALLBACK_MODELS", "OpenAI-compatible fallback models (comma-separated)", True),
         ("OPENAI_COMPATIBLE_API_MODE", "OpenAI-compatible API mode (chat-completions/responses)", True),
         ("OPENAI_COMPATIBLE_STREAM", "OpenAI-compatible stream mode (true/false)", True),
+        ("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "JEV synthesis API URL", True),
+        ("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", "JEV synthesis API key", True),
+        ("SMART_SEARCH_JEV_SYNTHESIS_MODEL", "JEV synthesis model", True),
+        ("SMART_SEARCH_JEV_SYNTHESIS_API_MODE", "JEV synthesis API mode (chat-completions/responses)", True),
         ("SMART_SEARCH_VALIDATION_LEVEL", "Validation level (fast/balanced/strict)", True),
         ("SMART_SEARCH_FALLBACK_MODE", "Fallback mode (auto/off)", True),
         ("SMART_SEARCH_MINIMUM_PROFILE", "Minimum profile (standard/off)", True),
@@ -2708,6 +2736,10 @@ def _run_setup(args: argparse.Namespace) -> int:
         "OPENAI_COMPATIBLE_FALLBACK_MODELS": args.openai_compatible_fallback_models,
         "OPENAI_COMPATIBLE_API_MODE": args.openai_compatible_api_mode,
         "OPENAI_COMPATIBLE_STREAM": args.openai_compatible_stream,
+        "SMART_SEARCH_JEV_SYNTHESIS_API_URL": args.jev_synthesis_api_url,
+        "SMART_SEARCH_JEV_SYNTHESIS_API_KEY": args.jev_synthesis_api_key,
+        "SMART_SEARCH_JEV_SYNTHESIS_MODEL": args.jev_synthesis_model,
+        "SMART_SEARCH_JEV_SYNTHESIS_API_MODE": args.jev_synthesis_api_mode,
         "SMART_SEARCH_VALIDATION_LEVEL": args.validation_level,
         "SMART_SEARCH_FALLBACK_MODE": args.fallback_mode,
         "SMART_SEARCH_MINIMUM_PROFILE": args.minimum_profile,
@@ -3386,6 +3418,10 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--openai-compatible-fallback-models", default="", help="Save OPENAI_COMPATIBLE_FALLBACK_MODELS.")
     setup_parser.add_argument("--openai-compatible-api-mode", default="", help="Save OPENAI_COMPATIBLE_API_MODE (chat-completions or responses).")
     setup_parser.add_argument("--openai-compatible-stream", default="", help="Save OPENAI_COMPATIBLE_STREAM.")
+    setup_parser.add_argument("--jev-synthesis-api-url", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_API_URL.")
+    setup_parser.add_argument("--jev-synthesis-api-key", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_API_KEY.")
+    setup_parser.add_argument("--jev-synthesis-model", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_MODEL.")
+    setup_parser.add_argument("--jev-synthesis-api-mode", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_API_MODE.")
     setup_parser.add_argument("--validation-level", default="", help="Save SMART_SEARCH_VALIDATION_LEVEL.")
     setup_parser.add_argument("--fallback-mode", default="", help="Save SMART_SEARCH_FALLBACK_MODE.")
     setup_parser.add_argument("--minimum-profile", default="", help="Save SMART_SEARCH_MINIMUM_PROFILE.")
