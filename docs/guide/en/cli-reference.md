@@ -134,8 +134,10 @@ options:
   --validation {fast,balanced,strict}
   --fallback {auto,off}
   --providers PROVIDERS
-  --stream              Use stream=true for OpenAI-compatible main search.
-  --no-stream           Force stream=false for OpenAI-compatible main search.
+  --stream              Use stream=true for xAI Responses or OpenAI-compatible
+                        main search.
+  --no-stream           Force stream=false for xAI Responses or OpenAI-
+                        compatible main search.
   --timeout SECONDS     Total search budget in seconds; overrides
                         SMART_SEARCH_TIMEOUT_SECONDS.
   --format {json,markdown,content}

@@ -12,6 +12,7 @@ Generated from current configuration metadata. Active keys appear below. Retired
 | `XAI_API_URL` | Leave it alone unless you go through a proxy or relay. | `url` | `https://api.x.ai/v1` |
 | `XAI_MODEL` | Leave empty for the default model. | `text` | `grok-4-fast` |
 | `XAI_TOOLS` | Comma separated. web_search and x_search are the supported values. | `web_search, x_search` | `web_search,x_search` |
+| `XAI_REASONING_EFFORT` | Optional; when set, sends reasoning.effort in xAI Responses requests; omitted by default. | `low, medium, high` | Not set |
 | `OPENAI_COMPATIBLE_API_URL` | Any OpenAI-protocol service works. Counts as configured only together with the key below. | `url` | Not set |
 | `OPENAI_COMPATIBLE_API_KEY` | The link below is OpenAI's own. Using a relay or another provider? Get the key from them instead. | `secret` | Not set |
 | `OPENAI_COMPATIBLE_MODEL` | Whatever your provider documents, e.g. gpt-4o or deepseek-chat. | `text` | Not set |

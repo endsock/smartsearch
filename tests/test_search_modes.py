@@ -1,4 +1,5 @@
 import asyncio
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -321,6 +322,90 @@ async def test_model_answer_without_sources_uses_same_capability_fallback(monkey
     if fallback == "auto":
         assert result["content"] == "Retrieved answer."
         assert result["provider"] == backup
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["local", "jev"])
+@pytest.mark.parametrize("stream", [None, False, True])
+@pytest.mark.parametrize("effort", ["", "HIGH"])
+async def test_search_xai_stream_and_reasoning_effort(monkeypatch, mode, stream, effort):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", mode)
+    monkeypatch.setenv("TYPESAFE_API_KEY", "jev-test")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_REASONING_EFFORT", effort)
+    annotations = [{"type": "url_citation", "url": "https://example.org/source", "title": "Source"}]
+    events = [
+        {"type": "response.output_text.delta", "delta": "Retrieved "},
+        {"type": "response.output_text.delta", "delta": "answer."},
+        {"type": "response.output_text.annotation.added", "annotation": annotations[0]},
+        {"type": "response.completed", "response": {"status": "completed", "output": []}},
+    ]
+    requests, judgments = [], []
+    original_client = httpx.AsyncClient
+
+    async def judge(self, state, questions, timeout):
+        judgments.append(state)
+        return response(questions, {"channel_0": 0.99})
+
+    def handler(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        assert str(request.url) == "https://api.x.ai/v1/responses"
+        if payload["stream"]:
+            return httpx.Response(200, headers={"Content-Type": "text/event-stream"},
+                                  text="".join(f"data: {json.dumps(event)}\n\n" for event in events))
+        return httpx.Response(200, json={"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": "Retrieved answer.", "annotations": annotations},
+        ]}]})
+
+    monkeypatch.setattr(JevClient, "_request", judge)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+
+    result = await service.search("Find this source", providers="xai-responses", fallback="off", stream=stream)
+
+    assert result["ok"] is True
+    assert result["content"] == "Retrieved answer."
+    assert result["primary_sources"][0]["url"] == "https://example.org/source"
+    assert result["primary_sources"][0]["title"] == "Source"
+    assert len(requests) == 1
+    assert requests[0]["stream"] is bool(stream)
+    if effort:
+        assert requests[0]["reasoning"] == {"effort": "high"}
+    else:
+        assert "reasoning" not in requests[0]
+    assert len(judgments) == (1 if mode == "jev" else 0)
+    assert len(result["provider_attempts"]) == 1
+    assert result["provider_attempts"][0]["stream"] is bool(stream)
+    assert result["provider_attempts"][0]["reasoning_effort"] == effort.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_search_xai_unsupported_reasoning_fails_once(monkeypatch, stream):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_REASONING_EFFORT", "high")
+    monkeypatch.setenv("SMART_SEARCH_RETRY_MAX_ATTEMPTS", "3")
+    requests = []
+    original_client = httpx.AsyncClient
+    error_body = b'{"error":{"message":"reasoning.effort is not supported"}}'
+
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(400, stream=httpx.ByteStream(error_body))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+
+    result = await service.search("Find this source", providers="xai-responses", fallback="off", stream=stream)
+
+    assert len(requests) == 1
+    assert requests[0]["stream"] is stream
+    assert requests[0]["reasoning"] == {"effort": "high"}
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert result["error"] == "HTTP 400: " + error_body.decode()
+    assert result["provider_attempts"][0]["stream"] is stream
+    assert result["provider_attempts"][0]["reasoning_effort"] == "high"
 
 
 @pytest.mark.asyncio

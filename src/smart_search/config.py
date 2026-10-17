@@ -35,6 +35,7 @@ class Config:
     _DEFAULT_INTENT_EMBEDDING_THRESHOLD = "0.74"
     _DEFAULT_INTENT_EMBEDDING_MARGIN = "0.05"
     _ALLOWED_XAI_TOOLS = {"web_search", "x_search"}
+    _ALLOWED_XAI_REASONING_EFFORTS = {"low", "medium", "high"}
     _ALLOWED_OPENAI_COMPATIBLE_API_MODES = {"chat-completions", "responses"}
     _ALLOWED_VALIDATION_LEVELS = {"fast", "balanced", "strict"}
     _ALLOWED_FALLBACK_MODES = {"auto", "off"}
@@ -67,6 +68,7 @@ class Config:
         "XAI_API_KEY",
         "XAI_MODEL",
         "XAI_TOOLS",
+        "XAI_REASONING_EFFORT",
         "OPENAI_COMPATIBLE_API_URL",
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_MODEL",
@@ -146,6 +148,7 @@ class Config:
         "XAI_ENABLED",
         "XAI_MODEL",
         "XAI_TOOLS",
+        "XAI_REASONING_EFFORT",
         "OPENAI_COMPATIBLE_API_URL",
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_ENABLED",
@@ -475,6 +478,8 @@ class Config:
                 errors.append({"key": key, "error": tr('Unsupported config key: {0}', key)})
                 continue
             value = "" if raw_value is None else str(raw_value)
+            if key == "XAI_REASONING_EFFORT":
+                value = value.strip().lower()
             try:
                 self._validate_config_value(key, value)
             except ValueError as e:
@@ -573,6 +578,11 @@ class Config:
     @property
     def xai_tools_raw(self) -> str:
         return self._get_config_value("XAI_TOOLS", self._DEFAULT_XAI_TOOLS) or self._DEFAULT_XAI_TOOLS
+
+    @property
+    def xai_reasoning_effort(self) -> str:
+        value = (self._get_config_value("XAI_REASONING_EFFORT", "") or "").strip().lower()
+        return self._validate_enum_value("XAI_REASONING_EFFORT", value, self._ALLOWED_XAI_REASONING_EFFORTS) if value else ""
 
     @property
     def openai_compatible_api_url(self) -> str | None:
@@ -725,6 +735,7 @@ class Config:
             self._validate_enum_value(key, value, {"true", "false", "1", "0", "yes", "no", "on", "off"})
             return
         enum_allowed = {
+            "XAI_REASONING_EFFORT": self._ALLOWED_XAI_REASONING_EFFORTS,
             "SMART_SEARCH_VALIDATION_LEVEL": self._ALLOWED_VALIDATION_LEVELS,
             "SMART_SEARCH_FALLBACK_MODE": self._ALLOWED_FALLBACK_MODES,
             "SMART_SEARCH_MINIMUM_PROFILE": self._ALLOWED_MINIMUM_PROFILES,
@@ -1206,6 +1217,7 @@ class Config:
             "XAI_API_KEY": self._mask_api_key(self.xai_api_key) if self.xai_api_key else tr('未配置'),
             "XAI_MODEL": self.xai_model,
             "XAI_TOOLS": self.xai_tools_raw,
+            "XAI_REASONING_EFFORT": self.xai_reasoning_effort,
             "OPENAI_COMPATIBLE_API_URL": self.openai_compatible_api_url or tr('未配置'),
             "OPENAI_COMPATIBLE_API_KEY": self._mask_api_key(self.openai_compatible_api_key) if self.openai_compatible_api_key else tr('未配置'),
             "OPENAI_COMPATIBLE_MODEL": self.openai_compatible_model,

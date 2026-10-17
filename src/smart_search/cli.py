@@ -2927,8 +2927,8 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--fallback", choices=["auto", "off"], default="")
     search_parser.add_argument("--providers", default="auto")
     stream_group = search_parser.add_mutually_exclusive_group()
-    stream_group.add_argument("--stream", dest="stream", action="store_true", default=None, help="Use stream=true for OpenAI-compatible main search.")
-    stream_group.add_argument("--no-stream", dest="stream", action="store_false", help="Force stream=false for OpenAI-compatible main search.")
+    stream_group.add_argument("--stream", dest="stream", action="store_true", default=None, help="Use stream=true for xAI Responses or OpenAI-compatible main search.")
+    stream_group.add_argument("--no-stream", dest="stream", action="store_false", help="Force stream=false for xAI Responses or OpenAI-compatible main search.")
     search_parser.add_argument(
         "--timeout",
         type=float,

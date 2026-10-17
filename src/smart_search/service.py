@@ -1608,6 +1608,7 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
             "api_key": config.xai_api_key,
             "model": model_override or config.xai_model,
             "tools": config.parse_xai_tools(config.xai_tools_raw),
+            "reasoning_effort": config.xai_reasoning_effort,
             "source": "XAI_*",
         }
 
@@ -1643,6 +1644,8 @@ def _main_search_providers(provider_configs: list[dict[str, Any]], fallback: str
                     provider_config["api_key"],
                     provider_config["model"],
                     provider_config["tools"],
+                    stream=provider_config.get("stream", False),
+                    reasoning_effort=provider_config.get("reasoning_effort", ""),
                 )
             )
         else:
@@ -1683,6 +1686,8 @@ async def _search_model_channel(
         extra = {"model": candidate["model"], "model_role": candidate.get("model_role", "primary"),
                  "stream": bool(candidate.get("stream")), "api_mode": api_mode,
                  "attempt_timeout_seconds": round(remaining, 3)}
+        if candidate["provider"] == "xai-responses":
+            extra["reasoning_effort"] = candidate.get("reasoning_effort", "")
         if candidate.get("fallback_from_model"):
             extra["fallback_from_model"] = candidate["fallback_from_model"]
         if relay:

@@ -11,7 +11,7 @@ import httpx
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt
 
 from .base import BaseSearchProvider
-from .openai_compatible import _StopAfterSlowFailure, _StopAtDeadline, _WaitWithRetryAfter, _is_retryable_exception, get_local_time_info
+from .openai_compatible import OpenAICompatibleSearchProvider, _StopAfterSlowFailure, _StopAtDeadline, _WaitWithRetryAfter, _is_retryable_exception, get_local_time_info
 from ..config import config
 from ..logger import log_info
 from ..utils import search_prompt
@@ -36,10 +36,13 @@ _INLINE_URL_BRACKET_PAIRS = (
 
 
 class XAIResponsesSearchProvider(BaseSearchProvider):
-    def __init__(self, api_url: str, api_key: str, model: str = "grok-4-fast", tools: list[str] | None = None):
+    def __init__(self, api_url: str, api_key: str, model: str = "grok-4-fast", tools: list[str] | None = None,
+                 stream: bool = False, reasoning_effort: str = ""):
         super().__init__(api_url.rstrip("/"), api_key)
         self.model = model
         self.tools = tools or []
+        self.stream = stream
+        self.reasoning_effort = reasoning_effort
         self._search_deadline_monotonic: float | None = None
 
     def set_search_deadline(self, deadline_monotonic: float | None) -> None:
@@ -94,9 +97,11 @@ class XAIResponsesSearchProvider(BaseSearchProvider):
             "model": self.model,
             "instructions": search_prompt,
             "input": [{"role": "user", "content": time_context + query + platform_prompt}],
-            "stream": False,
+            "stream": self.stream,
             "tools": [{"type": tool} for tool in self.tools],
         }
+        if self.reasoning_effort:
+            payload["reasoning"] = {"effort": self.reasoning_effort}
         return payload
 
     async def search(self, query: str, platform: str = "", ctx=None) -> str:
@@ -119,6 +124,21 @@ class XAIResponsesSearchProvider(BaseSearchProvider):
             ):
                 with attempt:
                     self._attempt_started_at = time.monotonic()
+                    if self.stream:
+                        async with client.stream(
+                            "POST",
+                            f"{self.api_url}/responses",
+                            headers=headers,
+                            json=payload,
+                            timeout=self._request_timeout(),
+                        ) as response:
+                            if response.status_code >= 400:
+                                await response.aread()
+                            response.raise_for_status()
+                            parser = OpenAICompatibleSearchProvider(
+                                self.api_url, self.api_key, self.model, api_mode="responses",
+                            )
+                            return await parser._parse_responses_streaming_response(response, ctx)
                     response = await client.post(
                         f"{self.api_url}/responses",
                         headers=headers,

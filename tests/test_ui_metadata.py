@@ -72,6 +72,7 @@ def test_field_help_and_routing_endpoint_examples_reach_the_frontends():
 @pytest.mark.parametrize(
     "key,allowed_attr",
     [
+        ("XAI_REASONING_EFFORT", "_ALLOWED_XAI_REASONING_EFFORTS"),
         ("OPENAI_COMPATIBLE_API_MODE", "_ALLOWED_OPENAI_COMPATIBLE_API_MODES"),
         ("SMART_SEARCH_VALIDATION_LEVEL", "_ALLOWED_VALIDATION_LEVELS"),
         ("SMART_SEARCH_FALLBACK_MODE", "_ALLOWED_FALLBACK_MODES"),

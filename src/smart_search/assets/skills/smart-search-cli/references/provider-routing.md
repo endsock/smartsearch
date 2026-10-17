@@ -22,9 +22,10 @@ For research, `SMART_SEARCH_JEV_SYNTHESIZE` accepts `true`, `false`, and `auto`.
 
 - `deep` uses offline rules/local signals only and must not call remote embeddings or classifier components.
 - Official xAI uses `/responses` through `XAI_*`. OpenAI-compatible relays default to `/chat/completions`; `OPENAI_COMPATIBLE_API_MODE=responses` explicitly selects `/responses` for a relay that supports the documented subset.
-- `OPENAI_COMPATIBLE_STREAM=true` or `search --stream` sets `stream=true` only for OpenAI-compatible `search` and provider-side `fetch`; it is a relay compatibility switch and does not affect xAI Responses, URL description, or source ranking.
+- `search --stream` sets `stream=true` for xAI Responses and OpenAI-compatible search, including Grok search selected by Jev. `--no-stream` disables streaming for that request. `OPENAI_COMPATIBLE_STREAM=true` remains the default switch for OpenAI-compatible search and provider-side fetch.
 - Legacy `SMART_SEARCH_API_URL`, `SMART_SEARCH_API_KEY`, `SMART_SEARCH_API_MODE`, `SMART_SEARCH_MODEL`, and `SMART_SEARCH_XAI_TOOLS` are unsupported config keys.
 - xAI Responses mode may use only `XAI_TOOLS=web_search,x_search` and a subset of those tools.
+- `XAI_REASONING_EFFORT` accepts `low`, `medium`, or `high` (case-insensitive, stored lowercase). Optional; when set, sends reasoning.effort in xAI Responses requests; omitted by default. This also applies to Grok search selected by Jev. Unsupported reasoning values reported by the upstream API remain errors; the field is not silently removed and retried.
 - Neither OpenAI-compatible API mode sends xAI `web_search` / `x_search` tools or legacy `search_parameters`; xAI Chat Completions Live Search is deprecated.
 - AnySearch is reported only as optional experimental `vertical_search`; it is not part of the `web_search` fallback and is not required by the `standard` minimum profile.
 - Sciverse is reported only as optional experimental explicit-only `vertical_search`; it is not `docs_search`, not part of default `search` / `research` fallback, and not required by the `standard` minimum profile.
@@ -121,13 +122,13 @@ OpenAI-compatible streaming:
 - `OPENAI_COMPATIBLE_API_MODE` defaults to `chat-completions` and accepts only `chat-completions` or `responses`. The selected protocol applies consistently to `search()`, provider-side `fetch()`, `describe_url()`, `rank_sources()`, `doctor`, and `diagnose openai-compatible`.
 - Responses mode handles the official `model` + `instructions`/`input` subset, heterogeneous `output` text parts, URL citations, typed stream deltas, and terminal failures. It does not promise `/responses` support from every relay marketed as OpenAI-compatible; accept each named relay with both diagnose stream probes.
 - `OPENAI_COMPATIBLE_STREAM` defaults to `false` and accepts `true`, `1`, or `yes` as true.
-- `search --stream` means "prefer stream first"; stream empty/timeout/retryable protocol failures fall back to the same provider/model with `stream=false`.
+- For OpenAI-compatible search, `search --stream` means "prefer stream first"; stream empty/timeout/retryable protocol failures fall back to the same provider/model with `stream=false`.
 - `search --no-stream` forces `stream=false` for the current invocation.
 - `SMART_SEARCH_TIMEOUT_SECONDS` defines one 300-second default monotonic `search` budget. Jev selection, channel dependencies and failure fallback share its remaining time; no budget is reserved for a mandatory main model. `search --timeout` overrides the saved value for one invocation. Research uses the same deadline with its configured budget ceilings.
 - `OPENAI_COMPATIBLE_FALLBACK_MODELS` is an optional comma-separated ordered list. It is fail-over after a hard primary-model failure, not a time slice. The current candidate keeps the remaining shared main-search budget; extra fallback models must not shrink that budget. `--fallback off` or `--model MODEL` disables this model fallback for the invocation.
 - `timeout_phase`, `phase_attempts`, elapsed/remaining deadline values, and `partial_success` report execution progress. Research judgment/filter/synthesis failures preserve completed evidence; ordinary search has no extra/supplemental phase. Strict validation still reports an evidence error when its source requirements are not met.
 - OpenAI-compatible attempts may include `model`, `transport`, `fallback_from_transport`, `fallback_from_model`, and `breaker_state`. `transport_fallback_used` records stream-to-non-stream recovery separately from provider/model `fallback_used`.
-- Streaming applies only to OpenAI-compatible `search()` and provider-side `fetch()` calls. `describe_url()` and `rank_sources()` stay non-streaming. xAI Responses behavior is unchanged.
+- Streaming applies to xAI Responses `search()` and OpenAI-compatible `search()` and provider-side `fetch()` calls. `describe_url()` and `rank_sources()` stay non-streaming. xAI Responses uses the shared Responses SSE parser and does not retry with `stream=false`.
 
 Exa domain filters:
 

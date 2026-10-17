@@ -1058,6 +1058,22 @@ def test_gbk_stdout_keeps_json_parseable_with_chinese_and_unencodable_unicode(mo
     assert json.loads(out)["content"] == "中文A\u2060B📅"
 
 
+@pytest.mark.parametrize("effort", ["", "HIGH"])
+def test_doctor_displays_xai_reasoning_effort(monkeypatch, capsys, effort):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_REASONING_EFFORT", effort)
+
+    async def connected(provider_config):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(cli.service, "_safe_test_main_provider_connection", connected)
+
+    code = cli.main(["doctor", "--format", "json"])
+
+    assert code == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["XAI_REASONING_EFFORT"] == effort.lower()
+
+
 def test_real_doctor_ignores_legacy_primary_env_and_returns_config_exit(monkeypatch, capsys):
     secret = "placeholder-test-secret"
     monkeypatch.setenv("SMART_SEARCH_API_URL", "https://api.example.com/v1")

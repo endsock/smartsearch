@@ -117,8 +117,8 @@
   --validation {fast,balanced,strict}
   --fallback {auto,off}
   --providers PROVIDERS
-  --stream              为 OpenAI 兼容主搜索使用 stream=true。
-  --no-stream           强制 OpenAI 兼容主搜索使用 stream=false。
+  --stream              为 xAI Responses 或 OpenAI 兼容主搜索使用 stream=true。
+  --no-stream           强制 xAI Responses 或 OpenAI 兼容主搜索使用 stream=false。
   --timeout SECONDS     搜索总时间预算，单位秒；覆盖 SMART_SEARCH_TIMEOUT_SECONDS。
   --format {json,markdown,content}
   --output OUTPUT       将渲染后的输出写入文件。

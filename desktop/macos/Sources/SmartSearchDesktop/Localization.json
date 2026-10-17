@@ -3243,9 +3243,9 @@
     "号池地址填服务商给你的域名或 URL，例如 https://pool.example.com 或 https://pool.example.com/mcp；setup 会保存为 https://pool.example.com/api/tavily。\n",
     "For pooled endpoints, paste the provider domain or URL, for example https://pool.example.com or https://pool.example.com/mcp; setup saves it as https://pool.example.com/api/tavily.\n"
   ],
-  "Force stream=false for OpenAI-compatible main search.": [
-    "强制 OpenAI 兼容主搜索使用 stream=false。",
-    "Force stream=false for OpenAI-compatible main search."
+  "Force stream=false for xAI Responses or OpenAI-compatible main search.": [
+    "强制 xAI Responses 或 OpenAI 兼容主搜索使用 stream=false。",
+    "Force stream=false for xAI Responses or OpenAI-compatible main search."
   ],
   "Full page URL, including http:// or https://.": [
     "完整网页地址，需带 http:// 或 https://。",
@@ -7663,9 +7663,9 @@
     "使用内置后端",
     "Use bundled backend"
   ],
-  "Use stream=true for OpenAI-compatible main search.": [
-    "为 OpenAI 兼容主搜索使用 stream=true。",
-    "Use stream=true for OpenAI-compatible main search."
+  "Use stream=true for xAI Responses or OpenAI-compatible main search.": [
+    "为 xAI Responses 或 OpenAI 兼容主搜索使用 stream=true。",
+    "Use stream=true for xAI Responses or OpenAI-compatible main search."
   ],
   "Use the Smart Search skill to run the following command and report the actual version. Do not only inspect files, and do not search the web yet:\n": [
     "请使用 Smart Search 技能，先运行以下命令并告诉我实际版本，不要仅检查文件，也先不要发起联网搜索：\n",
@@ -8687,6 +8687,22 @@
     "xAI 联网工具",
     "xAI Responses tools"
   ],
+  "xAI reasoning effort": [
+    "xAI 推理强度",
+    "xAI reasoning effort"
+  ],
+  "xAI 推理强度": [
+    "xAI 推理强度",
+    "xAI reasoning effort"
+  ],
+  "Optional; when set, sends reasoning.effort in xAI Responses requests; omitted by default.": [
+    "可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。",
+    "Optional; when set, sends reasoning.effort in xAI Responses requests; omitted by default."
+  ],
+  "可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。": [
+    "可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。",
+    "Optional; when set, sends reasoning.effort in xAI Responses requests; omitted by default."
+  ],
   "xAI Responses 模型": [
     "xAI Responses 模型",
     "xAI Responses model"
@@ -9183,9 +9199,9 @@
     "中文",
     "中文"
   ],
-  "为 OpenAI 兼容主搜索使用 stream=true。": [
-    "为 OpenAI 兼容主搜索使用 stream=true。",
-    "Use stream=true for OpenAI-compatible main search."
+  "为 xAI Responses 或 OpenAI 兼容主搜索使用 stream=true。": [
+    "为 xAI Responses 或 OpenAI 兼容主搜索使用 stream=true。",
+    "Use stream=true for xAI Responses or OpenAI-compatible main search."
   ],
   "主搜索": [
     "主搜索",
@@ -11103,9 +11119,9 @@
     "引擎：`{0}`",
     "Engines: `{0}`"
   ],
-  "强制 OpenAI 兼容主搜索使用 stream=false。": [
-    "强制 OpenAI 兼容主搜索使用 stream=false。",
-    "Force stream=false for OpenAI-compatible main search."
+  "强制 xAI Responses 或 OpenAI 兼容主搜索使用 stream=false。": [
+    "强制 xAI Responses 或 OpenAI 兼容主搜索使用 stream=false。",
+    "Force stream=false for xAI Responses or OpenAI-compatible main search."
   ],
   "归档包含特殊设备文件。": [
     "归档包含特殊设备文件。",

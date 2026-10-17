@@ -18,6 +18,7 @@ def _reset_config(monkeypatch, tmp_path):
         "XAI_API_KEY",
         "XAI_MODEL",
         "XAI_TOOLS",
+        "XAI_REASONING_EFFORT",
         "OPENAI_COMPATIBLE_API_URL",
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_MODEL",
@@ -694,6 +695,28 @@ def test_legacy_main_search_config_keys_are_ignored_from_saved_config(monkeypatc
     assert "SMART_SEARCH_API_URL" not in saved
     assert "SMART_SEARCH_API_KEY" not in saved
     assert saved["XAI_API_KEY"].startswith("xai-")
+
+
+@pytest.mark.parametrize("value", ["low", "Medium", " HIGH "])
+def test_xai_reasoning_effort_validation(monkeypatch, tmp_path, value):
+    config_file = _reset_config(monkeypatch, tmp_path)
+    assert service.config.xai_reasoning_effort == ""
+
+    saved = service.config_set("XAI_REASONING_EFFORT", value)
+
+    assert saved["ok"] is True
+    assert saved["value"] == value.strip().lower()
+    assert json.loads(config_file.read_text(encoding="utf-8"))["XAI_REASONING_EFFORT"] == value.strip().lower()
+    assert service.config.xai_reasoning_effort == value.strip().lower()
+
+    rejected = service.config_set("XAI_REASONING_EFFORT", "ultra")
+
+    assert rejected["ok"] is False
+    assert rejected["error_type"] == "parameter_error"
+    assert "Invalid XAI_REASONING_EFFORT" in rejected["error"]
+    assert service.config.xai_reasoning_effort == value.strip().lower()
+    assert service.config_set("XAI_REASONING_EFFORT", "")["ok"] is True
+    assert service.config.xai_reasoning_effort == ""
 
 
 def test_xai_tools_validation(monkeypatch, tmp_path):
@@ -1596,6 +1619,18 @@ async def test_search_respects_fallback_off_for_main_search(monkeypatch):
     assert result["ok"] is False
     assert result["fallback_used"] is False
     assert [a["provider"] for a in result["provider_attempts"]] == ["xai-responses"]
+
+
+@pytest.mark.asyncio
+async def test_search_reports_invalid_xai_reasoning_effort_as_parameter_error(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.setenv("XAI_REASONING_EFFORT", "ultra")
+
+    result = await service.search("what is example")
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert "Invalid XAI_REASONING_EFFORT" in result["error"]
 
 
 @pytest.mark.asyncio

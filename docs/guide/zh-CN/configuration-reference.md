@@ -12,6 +12,7 @@
 | `XAI_API_URL` | 用官方地址就别动。走代理或中转时才改。 | `url` | `https://api.x.ai/v1` |
 | `XAI_MODEL` | 留空用默认模型。 | `text` | `grok-4-fast` |
 | `XAI_TOOLS` | 逗号分隔。可选 web_search 和 x_search。 | `web_search, x_search` | `web_search,x_search` |
+| `XAI_REASONING_EFFORT` | 可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。 | `low, medium, high` | 未设置 |
 | `OPENAI_COMPATIBLE_API_URL` | 任何兼容 OpenAI 协议的服务都行。要和下面的 key 一起填才算配好。 | `url` | 未设置 |
 | `OPENAI_COMPATIBLE_API_KEY` | 下面的链接是 OpenAI 官方的。用中转或第三方服务的话，key 去对应服务商那里拿。 | `secret` | 未设置 |
 | `OPENAI_COMPATIBLE_MODEL` | 按服务商文档填，例如 gpt-4o、deepseek-chat。 | `text` | 未设置 |

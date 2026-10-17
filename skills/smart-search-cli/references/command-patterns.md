@@ -70,6 +70,8 @@ smart-search config list --format markdown
 smart-search config set XAI_API_KEY "key" --format json
 smart-search config set XAI_MODEL "grok-4-fast" --format json
 smart-search config set XAI_TOOLS "web_search,x_search" --format json
+smart-search config set XAI_REASONING_EFFORT "high" --format json
+smart-search search "Latest Grok news" --providers xai-responses --stream --format json
 smart-search config set OPENAI_COMPATIBLE_API_URL "https://api.openai.com/v1" --format json
 smart-search config set OPENAI_COMPATIBLE_API_KEY "key" --format json
 smart-search config set OPENAI_COMPATIBLE_MODEL "model-id" --format json

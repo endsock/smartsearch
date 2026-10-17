@@ -19,7 +19,7 @@ The default wizard offers Jev or local routing. The CLI browser page remains ava
 
 | Provider / route | Used for | Main config keys | Official docs | Key / dashboard |
 | --- | --- | --- | --- | --- |
-| xAI Responses API | Primary live search with `web_search,x_search` tools | `XAI_API_KEY`, `XAI_API_URL`, `XAI_MODEL`, `XAI_TOOLS` | [docs.x.ai](https://docs.x.ai/docs) | [xAI API keys](https://console.x.ai/team/default/api-keys) |
+| xAI Responses API | Primary live search with `web_search,x_search` tools | `XAI_API_KEY`, `XAI_API_URL`, `XAI_MODEL`, `XAI_TOOLS`, `XAI_REASONING_EFFORT` | [docs.x.ai](https://docs.x.ai/docs) | [xAI API keys](https://console.x.ai/team/default/api-keys) |
 | OpenAI-compatible Chat Completions / Responses | Primary search through OpenAI or a compatible relay; no xAI search tools are sent in either mode | `OPENAI_COMPATIBLE_API_URL`, `OPENAI_COMPATIBLE_API_KEY`, `OPENAI_COMPATIBLE_MODEL`, `OPENAI_COMPATIBLE_API_MODE`, `OPENAI_COMPATIBLE_FALLBACK_MODELS`, `OPENAI_COMPATIBLE_STREAM` | [OpenAI platform docs](https://platform.openai.com/docs) | [OpenAI API keys](https://platform.openai.com/api-keys) or your relay provider |
 | Exa | Low-noise official docs, API, paper, product, trusted-page discovery | `EXA_API_KEY` | [Exa docs](https://docs.exa.ai/) | [Exa API keys](https://dashboard.exa.ai/api-keys) |
 | Context7 | SDK, library, framework, and API documentation fallback | `CONTEXT7_API_KEY`, `CONTEXT7_BASE_URL` | [Context7 docs](https://context7.com/docs) | [Context7](https://context7.com/) |
@@ -54,7 +54,8 @@ The shared total timeout defaults to 300 seconds (`SMART_SEARCH_TIMEOUT_SECONDS`
 Important boundaries:
 
 - xAI official live search uses `/responses` through `XAI_*`. OpenAI-compatible relays use `/chat/completions` by default; set `OPENAI_COMPATIBLE_API_MODE=responses` only for a relay that explicitly supports the documented Responses subset.
-- `OPENAI_COMPATIBLE_STREAM=true` or `smart-search search --stream` sets `stream=true` only for OpenAI-compatible `search` and provider-side `fetch` calls. It is a relay compatibility switch for long requests and does not change xAI Responses behavior, URL description, or source ranking.
+- `smart-search search --stream` sets `stream=true` for xAI Responses and OpenAI-compatible search, including Grok search selected by Jev. `--no-stream` disables streaming for that request. `OPENAI_COMPATIBLE_STREAM=true` remains the default switch for OpenAI-compatible search and provider-side fetch.
+- `XAI_REASONING_EFFORT` accepts `low`, `medium`, or `high` (case-insensitive, stored lowercase). Optional; when set, sends reasoning.effort in xAI Responses requests; omitted by default. This also applies to Grok search selected by Jev. Provider attempts report the actual `stream` and `reasoning_effort` values; `doctor` displays `XAI_REASONING_EFFORT`. Upstream 4xx errors for unsupported reasoning are returned without dropping the field or retrying.
 - `SMART_SEARCH_TIMEOUT_SECONDS` is the persistent total `search` budget. Environment values override the local config file; `search --timeout SECONDS` overrides both. The default is `300` seconds.
 - The main-search provider uses the whole remaining budget as its read ceiling. There is no separate fixed provider read cap to cut a slow reasoning model short before the shared deadline.
 - `OPENAI_COMPATIBLE_FALLBACK_MODELS` is fail-over, not a time slice. The primary model keeps the remaining shared main-search budget. A fallback model is tried only after a hard failure such as `model_not_found`, auth, empty content, or a non-retryable protocol error. `doctor` and `diagnose openai-compatible` warn when a configured fallback id is missing from `/models`.
