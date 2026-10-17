@@ -17,6 +17,11 @@ from .provider_errors import ProviderCallError, classify_provider_exception
 
 FALLBACK_RESERVE_RATIO = 0.75
 STRAGGLER_GRACE_SECONDS = 15.0
+ANSWER_CAPABILITIES = frozenset({"main_search", "web_search"})
+
+
+def _fallback_family(a: str, b: str) -> bool:
+    return a == b or (a in ANSWER_CAPABILITIES and b in ANSWER_CAPABILITIES)
 
 
 def available_channels(svc: Any, query: str, evidence: list[dict], providers: str = "auto", *, queries: list[dict] | None = None, include_cooldown: bool = False) -> list[dict]:
@@ -469,7 +474,7 @@ async def search(
             phase_start = time.monotonic()
             retrieval_timeout = budget.remaining_seconds() * (0.8 if is_research and judge_available else 1.0)
             if not is_research and fallback != "off" and any(
-                item["id"] not in attempted and item["capability"] == selected[0]["capability"]
+                item["id"] not in attempted and _fallback_family(item["capability"], selected[0]["capability"])
                 for item in candidates
             ):
                 retrieval_timeout = budget.remaining_seconds() * FALLBACK_RESERVE_RATIO
@@ -495,7 +500,7 @@ async def search(
                 await asyncio.gather(*(execute_one(item, retrieval_timeout) for item in selected))
             if not is_research and not evidence and fallback != "off":
                 alternatives = [item for item in candidates if item["id"] not in attempted
-                                and item["capability"] == selected[0]["capability"]]
+                                and _fallback_family(item["capability"], selected[0]["capability"])]
                 for channel in fallback_channels(svc, query, alternatives, len(alternatives)):
                     if budget.remaining_seconds() <= 0:
                         break

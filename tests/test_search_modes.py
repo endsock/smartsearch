@@ -7,7 +7,7 @@ import pytest
 
 from smart_search import service
 from smart_search.jev import JevClient
-from smart_search.jev_search import ChannelExecutor
+from smart_search.jev_search import ChannelExecutor, FALLBACK_RESERVE_RATIO
 from smart_search.provider_errors import ProviderCallError
 
 
@@ -229,6 +229,63 @@ async def test_ordinary_search_reserves_time_for_same_capability_fallback(monkey
     assert [item["provider"] for item in result["provider_attempts"]] == ["context7", "exa"]
     assert result["provider_attempts"][0]["error_type"] == "timeout"
     assert result["provider_attempts"][1]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fallback", ["auto", "off"])
+async def test_source_free_model_uses_web_search_fallback(monkeypatch, fallback):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test")
+    called = []
+
+    async def model(self, query, platform="", ctx=None):
+        called.append("xai-responses")
+        return "我先检索权威来源。"
+
+    async def tavily(*args, **kwargs):
+        called.append("tavily")
+        return [{"url": "https://example.org/source", "content": "Retrieved source"}]
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", model)
+    monkeypatch.setattr(service, "call_tavily_search", tavily)
+    result = await service.search("Find this source", fallback=fallback)
+
+    assert called == (["xai-responses", "tavily"] if fallback == "auto" else ["xai-responses"])
+    assert result["ok"] == (fallback == "auto")
+    assert result["error_type"] == ("" if fallback == "auto" else "evidence_error")
+    assert result["sources_count"] == (1 if fallback == "auto" else 0)
+    assert result["provider_attempts"][0]["status"] == "empty"
+    assert result["provider_attempts"][0]["error_type"] == "evidence_error"
+    if fallback == "auto":
+        assert result["sources"][0]["url"] == "https://example.org/source"
+        assert [item["capability"] for item in result["provider_attempts"]] == ["main_search", "web_search"]
+
+
+@pytest.mark.asyncio
+async def test_ordinary_search_reserves_time_for_answer_family_fallback(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test")
+    monkeypatch.setattr(service.SearchBudget, "remaining_seconds", lambda self: 0.4)
+
+    async def model(self, query, platform="", ctx=None):
+        await asyncio.Event().wait()
+
+    async def tavily(*args, **kwargs):
+        return [{"url": "https://example.org/source", "content": "Fallback source"}]
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", model)
+    monkeypatch.setattr(service, "call_tavily_search", tavily)
+    result = await asyncio.wait_for(service.search("Find this source", fallback="auto", timeout_seconds=0.4), 1)
+
+    assert result["ok"]
+    assert "Fallback source" in result["content"]
+    assert [item["provider"] for item in result["provider_attempts"]] == ["xai-responses", "tavily"]
+    assert result["provider_attempts"][0]["error_type"] == "timeout"
+    assert result["provider_attempts"][1]["status"] == "ok"
+    retrieval = next(item for item in result["phase_attempts"] if item["phase"] == "retrieval")
+    assert retrieval["budget_ms"] == 400 * FALLBACK_RESERVE_RATIO
 
 
 @pytest.mark.asyncio

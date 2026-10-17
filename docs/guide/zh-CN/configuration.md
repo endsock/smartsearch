@@ -37,7 +37,7 @@
 
 `search` 和 `research` 是两种联网搜索模式，共用渠道目录、执行器、总时限和证据记录。
 
-- `search`：一次 Jev 选路，选择一个适合的渠道，返回结果与来源。Context7 查库后读文档等必要依赖调用，以及同能力故障兜底继续保留。不会执行充分性评估、自动补搜、过滤或汇总。`--extra-sources N` 只限制所选渠道的结果数量（最多 20），不增加渠道。`evidence_assessment.status=not_evaluated` 表示尚未评估，检索成功不等于事实核验成功。`--validation strict` 要求来源证据，不满足时可保留部分内容并返回证据错误。
+- `search`：一次 Jev 选路，选择一个适合的渠道，返回结果与来源。Context7 查库后读文档等必要依赖调用，以及同能力故障兜底继续保留，模型回答与网页搜索互为兜底。不会执行充分性评估、自动补搜、过滤或汇总。`--extra-sources N` 只限制所选渠道的结果数量（最多 20），不增加渠道。`evidence_assessment.status=not_evaluated` 表示尚未评估，检索成功不等于事实核验成功。`--validation strict` 要求来源证据，不满足时可保留部分内容并返回证据错误。
 - `research`：Jev 选择互补动作并发执行，读取发现的网页，判断证据缺口，必要时继续。原问题、子问题和有限缺口查询由程序提供，Jev 只选择候选，不生成任意查询或工具调用。只有实际 fetched/read 的内容进入 `citations`。可选过滤和 `SMART_SEARCH_JEV_SYNTHESIZE=false|auto|true` 只影响深入搜索。
 - `deep` 继续离线生成计划，`steps[].command` 是供人或 AI 手动编排的建议。`research` 实际执行记录单独保存在 `routing_decision.rounds` 和 `stage_results` 中。
 
@@ -47,7 +47,7 @@
 
 `route` 默认只预览本地能力，不调用模型或检索服务；显式 `--remote` 才进行可能计费的 Jev 诊断。直接 provider 命令保持明确的调用语义。
 
-只有已配置、启用、允许且不在冷却期的渠道可以执行。`--providers`、各 provider 开关、`SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` 和 explicit-only 限制在选路与派发前检查。普通渠道失败可在同能力内兜底，不能扩展成深研循环；用户偏好也不能绕过这些边界。
+只有已配置、启用、允许且不在冷却期的渠道可以执行。`--providers`、各 provider 开关、`SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` 和 explicit-only 限制在选路与派发前检查。普通渠道失败可在同能力内兜底，模型回答与网页搜索互为兜底，不能扩展成深研循环；用户偏好也不能绕过这些边界。
 
 总时限默认 300 秒（`SMART_SEARCH_TIMEOUT_SECONDS`，`search --timeout` 可覆盖）。深研 quick/standard/deep 的上限分别是 2/3/10 轮、每轮 1/2/10 渠道、每渠道 3/5/20 个结果，以及 45/120/配置秒数，并受用户 Jev 预算进一步限制。证据充分、候选耗尽、无新证据或期限到达时停止；可选判断、过滤、汇总失败仍保留已完成的结果。
 
