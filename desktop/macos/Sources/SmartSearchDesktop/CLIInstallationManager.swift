@@ -152,6 +152,13 @@ final class CLIInstallationManager: ObservableObject {
         }
         if manualNpmPath.isEmpty { await discoverMise(searchPath: searchPath) }
         if !manualCliPath.isEmpty { await discoverManual() }
+        // mise installs each version separately; follow the same tool after upgrades outside the App.
+        if !selectedID.isEmpty, selected == nil, manualCliPath.isEmpty,
+           let mise = installations.first(where: { $0.source == "mise" }),
+           let selectedTool = Self.miseToolDirectory(selectedID),
+           let activeTool = Self.miseToolDirectory(mise.id), selectedTool == activeTool {
+            selectInstallation(mise.id)
+        }
         if !selectedID.isEmpty && selected == nil { message = L("所选安装已不可用，请重新检测或选择其他安装。") }
         if selectedID.isEmpty, let selected { selectInstallation(selected.id) }
         if let selected {
@@ -287,6 +294,16 @@ final class CLIInstallationManager: ObservableObject {
                 if let index = installations.firstIndex(where: { $0.source == "mise" }) { let chosen = installations.remove(at: index); installations.insert(chosen, at: 0) }
             }
         } catch { message = L("mise 环境检测未完成，请重新检测或手动选择 CLI。") + "\n" + error.localizedDescription }
+    }
+
+    static func miseToolDirectory(_ packageRoot: String) -> String? {
+        let package = URL(fileURLWithPath: packageRoot)
+        let scope = package.deletingLastPathComponent()
+        let modules = scope.deletingLastPathComponent()
+        let tool = modules.deletingLastPathComponent().deletingLastPathComponent()
+        guard package.lastPathComponent == "smart-search", scope.lastPathComponent == "@konbakuyomu",
+              modules.lastPathComponent == "node_modules", tool.lastPathComponent == "npm-konbakuyomu-smart-search" else { return nil }
+        return tool.standardized.path
     }
 
     static func miseOptions(_ config: String, requested: String) -> [String]? {
