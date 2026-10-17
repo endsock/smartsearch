@@ -8583,13 +8583,13 @@
     "source_types 的值必须为 {0} 之一",
     "source_types values must be one of {0}"
   ],
-  "standard refuses to run when any of the three required capabilities is missing.": [
-    "standard 会在三类必需能力缺一时直接报错。关掉之后出问题更难查。",
-    "standard refuses to run when any of the three required capabilities is missing."
+  "standard requires at least one configured and enabled retrieval channel; Jev is optional.": [
+    "standard 要求至少一个已配置并启用的检索渠道；Jev 可选。",
+    "standard requires at least one configured and enabled retrieval channel; Jev is optional."
   ],
-  "standard 会在三类必需能力缺一时直接报错。关掉之后出问题更难查。": [
-    "standard 会在三类必需能力缺一时直接报错。关掉之后出问题更难查。",
-    "standard refuses to run when any of the three required capabilities is missing."
+  "standard 要求至少一个已配置并启用的检索渠道；Jev 可选。": [
+    "standard 要求至少一个已配置并启用的检索渠道；Jev 可选。",
+    "standard requires at least one configured and enabled retrieval channel; Jev is optional."
   ],
   "strict checks harder and runs slower.": [
     "strict 查得更严也更慢。",

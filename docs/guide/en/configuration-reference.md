@@ -102,7 +102,7 @@ Generated from current configuration metadata. Active keys appear below. Retired
 | --- | --- | --- | --- |
 | `SMART_SEARCH_VALIDATION_LEVEL` | strict checks harder and runs slower. | `balanced, fast, strict` | `balanced` |
 | `SMART_SEARCH_FALLBACK_MODE` | auto moves on to the next provider when one fails. | `auto, off` | `auto` |
-| `SMART_SEARCH_MINIMUM_PROFILE` | standard refuses to run when any of the three required capabilities is missing. | `off, standard` | `standard` |
+| `SMART_SEARCH_MINIMUM_PROFILE` | standard requires at least one configured and enabled retrieval channel; Jev is optional. | `off, standard` | `standard` |
 | `SMART_SEARCH_TIMEOUT_SECONDS` | Ceiling for one whole search. Raise it when a reasoning model is slow. | `float` | `300` |
 | `SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS` | How long a failing provider is skipped. 0 disables cooldown. | `float` | `900` |
 | `SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD` | Consecutive soft failures before cooldown. Auth errors cool down on the first one regardless. | `int` | `2` |

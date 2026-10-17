@@ -48,6 +48,13 @@ smart-search --version
 
 新版 npm 包按操作系统和 CPU 架构安装自带运行时的 CLI。Python 解释器和依赖已在发布时打包；安装或首次运行不会寻找、下载或配置用户 Python。CLI 启动时隔离 Python、venv、Conda 和 PyInstaller 环境变量。
 
+npm 包自带运行环境，不使用本机 Python、虚拟环境或 Conda。偏好 uv 的用户可从源码安装：
+```sh
+uv tool install git+https://github.com/konbakuyomu/smartsearch.git
+```
+需要固定 Python 版本时，在安装命令后加 `--python 3.13`；uv 会自行下载该版本，与本机嵌入式 Python 无关。
+升级使用 `uv tool upgrade smart-search`。这种方式不经过 npm，App 的 CLI 更新入口不会管理它。
+
 前置条件：
 
 - 已安装 Node.js 18+ / npm。

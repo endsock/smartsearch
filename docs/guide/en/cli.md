@@ -48,6 +48,13 @@ smart-search --version
 
 The new npm package selects a self-contained CLI for your OS and CPU. Python and its dependencies are bundled at release time. Installation and first launch do not find, download or configure user Python. The launcher isolates Python, virtualenv, Conda and PyInstaller environment variables.
 
+The npm package bundles its runtime and does not use local Python, virtual environments, or Conda. If you prefer uv, install from source:
+```sh
+uv tool install git+https://github.com/konbakuyomu/smartsearch.git
+```
+To pin the Python version, append `--python 3.13` to the install command; uv downloads that version independently of your local embedded Python.
+Upgrade with `uv tool upgrade smart-search`. This installation bypasses npm and is not managed by the App's CLI update entry.
+
 Prerequisites:
 
 - Node.js 18+ / npm.

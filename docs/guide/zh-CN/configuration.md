@@ -10,7 +10,7 @@
 
 `SMART_SEARCH_LANGUAGE` 接受 `auto`、`zh`、`en`，也兼容 `zh-CN` 等形式。CLI 的 `--lang` 优先于环境变量和保存偏好，见 [CLI 语言和脚本调用](cli.md#语言和脚本调用)。App 的选择另存在 App 设置里，两者都不改变查询或来源的语言。
 
-运行时还识别只从环境读取的变量：`SMART_SEARCH_CONFIG_DIR` 选择配置目录；`SMART_SEARCH_PYTHON` 为 npm 安装/修复指定已有 Python 可执行文件；`LC_ALL`、`LC_MESSAGES` 和 `LANG` 提供 CLI 自动语言。这些不是可保存的服务商键。`SMART_SEARCH_PYTHON` 应填完整路径，显式选择无效时会报错，不会静默改用另一个解释器。
+运行时还识别只从环境读取的变量：`SMART_SEARCH_CONFIG_DIR` 选择配置目录；`SMART_SEARCH_PYTHON` 只在 App 安装或修复较早发布、未内置运行环境的 npm 包时使用；`LC_ALL`、`LC_MESSAGES` 和 `LANG` 提供 CLI 自动语言。这些不是可保存的服务商键。当前 npm 包自带运行环境并会忽略 `SMART_SEARCH_PYTHON`。
 
 ## 服务商、Key 与配置
 

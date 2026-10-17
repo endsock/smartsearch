@@ -102,7 +102,7 @@
 | --- | --- | --- | --- |
 | `SMART_SEARCH_VALIDATION_LEVEL` | strict 查得更严也更慢。 | `balanced, fast, strict` | `balanced` |
 | `SMART_SEARCH_FALLBACK_MODE` | auto 会在一个数据源失败后自动换下一个。 | `auto, off` | `auto` |
-| `SMART_SEARCH_MINIMUM_PROFILE` | standard 会在三类必需能力缺一时直接报错。关掉之后出问题更难查。 | `off, standard` | `standard` |
+| `SMART_SEARCH_MINIMUM_PROFILE` | standard 要求至少一个已配置并启用的检索渠道；Jev 可选。 | `off, standard` | `standard` |
 | `SMART_SEARCH_TIMEOUT_SECONDS` | 一整条搜索从开始到结束的上限。推理模型慢的时候需要调大。 | `float` | `300` |
 | `SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS` | 一个数据源挂了之后多久不再尝试。填 0 关闭冷却。 | `float` | `900` |
 | `SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD` | 连续失败几次才冷却。鉴权错误第一次就冷却，不看这个值。 | `int` | `2` |

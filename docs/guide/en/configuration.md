@@ -10,7 +10,7 @@ Environment variables override saved values; a command's explicit per-call optio
 
 `SMART_SEARCH_LANGUAGE` accepts `auto`, `zh`, `en` and compatible locale forms such as `zh-CN`. The CLI flag `--lang` takes priority over the environment and saved preference. See [CLI language and scripting](cli.md#language-and-scripting). App language is saved separately in App settings. Neither choice changes query or source languages.
 
-The runtime also recognizes environment-only inputs: `SMART_SEARCH_CONFIG_DIR` selects the configuration directory; `SMART_SEARCH_PYTHON` selects an existing Python executable for npm installation/repair; `LC_ALL`, `LC_MESSAGES` and `LANG` supply the CLI's automatic locale. They are not saved provider keys. Use a complete executable path for `SMART_SEARCH_PYTHON`; an invalid explicit selection fails without silently choosing another interpreter.
+The runtime also recognizes environment-only inputs: `SMART_SEARCH_CONFIG_DIR` selects the configuration directory; `SMART_SEARCH_PYTHON` is used only when the App installs or repairs older npm packages without a bundled runtime; `LC_ALL`, `LC_MESSAGES` and `LANG` supply the CLI's automatic locale. They are not saved provider keys. Current npm packages bundle their runtime and ignore `SMART_SEARCH_PYTHON`.
 
 ## Providers, keys and configuration
 
