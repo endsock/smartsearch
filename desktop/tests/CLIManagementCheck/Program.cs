@@ -2,6 +2,8 @@ using System.Text.Json;
 using SmartSearch.Desktop;
 
 Console.OutputEncoding = new System.Text.UTF8Encoding(false);
+// A failed check exits at once; Windows Error Reporting would otherwise keep the executable locked.
+AppDomain.CurrentDomain.UnhandledException += (_, error) => { Console.Error.WriteLine(error.ExceptionObject); Environment.Exit(1); };
 if (args[0] == "--discover")
 {
     var live = new CLIInstallationManager(Path.GetFullPath(args[1]));
@@ -28,7 +30,7 @@ if (Environment.GetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE") is { } wslFix
 {
     if (args[0] == "--list")
     {
-        Console.Write(args.Contains("--running") ? "Debian\r\nOld\r\nArch\r\nFedora\r\n" : "Ubuntu-24.04\r\ndocker-desktop\r\nDebian\r\nOld\r\nArch\r\nFedora\r\n");
+        Console.Write(args.Contains("--running") ? "Debian\r\nOld\r\nArch\r\nFedora\r\nWrapped\r\n" : "Ubuntu-24.04\r\ndocker-desktop\r\nDebian\r\nOld\r\nArch\r\nFedora\r\nWrapped\r\n");
         return;
     }
     // Every command starts in the Linux home, then runs a script in bash with "smart-search" as $0.
@@ -53,6 +55,8 @@ if (Environment.GetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE") is { } wslFix
             ("Ubuntu-24.04", "-ic") => """{"product":"smart-search","version":"1.2.4","desktop_protocol_version":1,"launch_command":["/home/u/.nvm/versions/node/v22.0.0/bin/node","/home/u/.nvm/versions/node/v22.0.0/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]}""",
             ("Old", _) => "smart-search-node=/home/o/node/bin/node\nsmart-search-root=/home/o/node/lib/node_modules/@konbakuyomu/smart-search\n" + """{"product":"smart-search","legacy":true,"version":"1.2.2"}""",
             ("Arch", "-ic") => "smart-search-node=/home/a/node/bin/node\n" + """{"missing":true}""",
+            // A CLI from before launch_command, reached through a wrapper script rather than an npm link.
+            ("Wrapped", _) => "smart-search-node=/home/w/node/bin/node\n" + """{"product":"smart-search","version":"1.2.3","desktop_protocol_version":1}""",
             _ => """{"missing":true}"""
         });
         return;
@@ -62,8 +66,9 @@ if (Environment.GetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE") is { } wslFix
     if (script.Contains("npm-cli.js"))
     {
         // A system Node.js under /usr cannot be written without sudo.
-        var prefix = command.Length > 5 ? command[5] : "/home/a/.npm-global";
+        var prefix = command.Length > 5 ? command[5] : distribution == "Arch" ? "/home/a/.npm-global" : node[..^"/bin/node".Length];
         Console.WriteLine($"smart-search-node-version=22.0.0\nsmart-search-npm={npm}\nsmart-search-prefix={prefix}\nsmart-search-writable={(prefix == "/usr" ? 0 : 1)}\nsmart-search-npm-version=10.9.1");
+        if (distribution == "Wrapped" || File.Exists(installed)) Console.WriteLine("smart-search-package=1");
         return;
     }
     if (command[5] != npm) Environment.Exit(8);
@@ -211,14 +216,16 @@ try
     Environment.SetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE", root);
     var wslOnly = new CLIInstallationManager(Path.Combine(root, "wsl state"), "", Load, wslPath: fakeWsl);
     await wslOnly.DiscoverAsync();
-    Check(wslOnly.Installations.Select(item => item.Id).SequenceEqual(["wsl://Debian", "wsl://Old"]), "Probe only running distributions: " + JsonSerializer.Serialize(wslOnly.Installations.Select(item => item.Id)));
+    Check(wslOnly.Installations.Select(item => item.Id).SequenceEqual(["wsl://Debian", "wsl://Old", "wsl://Wrapped"]), "Probe only running distributions: " + JsonSerializer.Serialize(wslOnly.Installations.Select(item => item.Id)));
     Check(!File.ReadAllText(probes).Contains("Ubuntu") && !File.ReadAllText(probes).Contains("docker"), "Never start a stopped or Docker distribution on ordinary discovery");
-    Check(wslOnly.StoppedWslDistributions.SequenceEqual(["Ubuntu-24.04"]) && wslOnly.WslDistributions.Count == 5, "Report stopped distributions without probing them");
+    Check(wslOnly.StoppedWslDistributions.SequenceEqual(["Ubuntu-24.04"]) && wslOnly.WslDistributions.Count == 6, "Report stopped distributions without probing them");
     Check(wslOnly.Selected is { Id: "wsl://Debian", Compatible: true, CanManage: false, InWsl: true } debian &&
         debian.Executable == fakeWsl && debian.Arguments.SequenceEqual(["-d", "Debian", "--cd", "~", "--exec", "/usr/bin/node", "/usr/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]) &&
         debian.Environment["WSL_UTF8"] == "1" && debian.Title == "WSL Debian · 1.2.3" && debian.Note.Contains("sudo"), "Use the only CLI found, in WSL, launched without a shell; a root-owned npm prefix is left to the terminal");
     Check(wslOnly.Installations.Single(item => item.Id == "wsl://Old") is { Compatible: false, CanManage: true, Version: "1.2.2", Prefix: "/home/o/node", Note.Length: > 0 },
         "An old npm CLI in WSL is shown as needing an update, and the App can update it");
+    Check(wslOnly.Installations.Single(item => item.Id == "wsl://Wrapped") is { Compatible: false, CanManage: true, Version: "1.2.3", Prefix: "/home/w/node" },
+        "A CLI from before launch_command behind a wrapper is found in its npm's global directory");
     Check(wslOnly.InstallTargets is [{ Id: "wsl://Arch", Npm: { Prefix: "/home/a/.npm-global", Distribution: "Arch" } arch }, { Id: "wsl://Fedora", Npm: null, Note.Length: > 0 }] &&
         arch.Command[7] == "-ic" && arch.Command[10..].SequenceEqual(["/home/a/node/bin/node", "/home/a/node/lib/node_modules/npm/bin/npm-cli.js"]),
         "Distributions without a CLI become install targets, using the shell that has Node.js; without Node.js they explain why: " + JsonSerializer.Serialize(wslOnly.InstallTargets.Select(item => new { item.Id, item.Note })));
@@ -261,6 +268,10 @@ try
     Check(wslManaged.Selected?.Id == "wsl://Old" && wslManaged.Installations.Single(item => item.Id == "wsl://Arch") is { Version: "1.2.4", Compatible: true } &&
         wslManaged.InstallTargets.All(item => item.Id != "wsl://Arch") && wslInstall[6] == "-ic" && wslInstall[^4..].SequenceEqual(["--prefix", "/home/a/.npm-global", "--include=optional", "@konbakuyomu/smart-search@1.2.4"]),
         "Install into another distribution with npm's own global prefix and keep the current choice");
+    await wslManaged.InstallOrRepairAsync("1.2.4", "wsl://Wrapped");
+    wslInstall = JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(root, "wsl-operations.json")))!;
+    Check(wslManaged.Installations.Single(item => item.Id == "wsl://Wrapped") is { Version: "1.2.4", Compatible: true } &&
+        wslInstall[^4..].SequenceEqual(["--prefix", "/home/w/node", "--include=optional", "@konbakuyomu/smart-search@1.2.4"]), "Update a wrapped older CLI in place");
 
     // Windows without a CLI is a target too, while a CLI in WSL stays selected.
     var windowsTarget = new CLIInstallationManager(Path.Combine(root, "windows target state"), second, Load, wslPath: fakeWsl);

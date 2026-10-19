@@ -32,22 +32,24 @@ internal sealed class CLIInstallationManager
     private const string WslWrapperSuffix = "/npm/bin/smart-search.js";
     // WSL prints UTF-16 unless asked otherwise; the Linux CLI's own output is UTF-8 either way.
     private static readonly Dictionary<string, string> WslEnvironment = new() { ["WSL_UTF8"] = "1" };
-    // Ends with one JSON line for the CLI. A missing CLI and an old wrapper are reported, never run;
-    // for those it also prints the shell's Node.js and the old package, so the App can install there.
+    // Ends with one JSON line for the CLI. A CLI from before 0.1.29 cannot say where it lives, so the
+    // shell's Node.js and any npm-linked package come too; an old Python wrapper is reported, never run.
     // Line endings are normalized because a Windows checkout would hand bash CRLF.
     private static readonly string WslProbe = """
         node_line() { node -p process.execPath 2>/dev/null | sed 's/^/smart-search-node=/'; }
         p=$(command -v smart-search) || { node_line; echo '{"missing":true}'; exit 0; }
-        t=$(readlink -f "$p"); r=${t%/npm/bin/smart-search.js}
+        t=$(readlink -f "$p"); r=${t%/npm/bin/smart-search.js}; c=
         if [ "$r" = "$t" ] || ! [ -f "$r/package.json" ] || grep -q smartSearchBinary "$r/package.json"; then
-          smart-search --desktop-capabilities 2>/dev/null && exit 0
+          c=$(smart-search --desktop-capabilities 2>/dev/null) || c=
+          case $c in *launch_command*) echo "$c"; exit 0 ;; esac
         fi
+        node_line; [ "$r" != "$t" ] && echo "smart-search-root=$r"
+        [ -n "$c" ] && { echo "$c"; exit 0; }
         [ "$r" = "$t" ] && { echo '{"product":"smart-search","legacy":true}'; exit 0; }
-        node_line; echo "smart-search-root=$r"
         echo "{\"product\":\"smart-search\",\"legacy\":true,\"version\":\"$(sed -n 's/^ *"version": *"\([0-9.]*\)".*/\1/p' "$r/package.json" | head -n 1)\"}"
         """.ReplaceLineEndings("\n");
-    // $1 is Node.js, $2 an existing CLI's npm prefix. Finds the npm that belongs to that Node.js
-    // and whether the user can write the prefix; the App never uses sudo.
+    // $1 is Node.js, $2 an existing CLI's npm prefix. Finds the npm that belongs to that Node.js,
+    // whether the user can write the prefix (the App never uses sudo) and whether the package is there.
     private static readonly string WslNpmCheck = """
         n=$1; echo "smart-search-node-version=$("$n" -p process.versions.node 2>/dev/null)"
         c=$(readlink -f "$(dirname "$n")/npm")
@@ -59,6 +61,7 @@ internal sealed class CLIInstallationManager
           if [ -e "$d" ]; then [ -w "$d" ] || w=0; elif ! [ -w "$P" ]; then w=0; fi
         done
         echo "smart-search-npm=$c"; echo "smart-search-prefix=$P"; echo "smart-search-writable=$w"
+        [ -f "$P/lib/node_modules/@konbakuyomu/smart-search/package.json" ] && echo "smart-search-package=1"
         echo "smart-search-npm-version=$(sed -n 's/^ *"version": *"\([0-9.]*\)".*/\1/p' "${c%/bin/npm-cli.js}/package.json" | head -n 1)"
         """.ReplaceLineEndings("\n");
     // Runs Node.js + npm-cli.js as argv in the shell that found them, so profile settings such as
@@ -438,7 +441,13 @@ internal sealed class CLIInstallationManager
             var problem = "unknown";
             // mise and asdf keep npm tools in versioned directories that only they may change.
             if (prefix.StartsWith('/') && node.StartsWith('/'))
-                (npm, problem) = prefix.Contains("/installs/npm-", StringComparison.Ordinal) ? (null, "mise") : await WslNpmAsync(distribution, mode, node, prefix);
+                (npm, problem, _) = prefix.Contains("/installs/npm-", StringComparison.Ordinal) ? (null, "mise", false) : await WslNpmAsync(distribution, mode, node, prefix);
+            // An older CLI behind a wrapper script: the shell's npm may still hold the package globally.
+            else if (!compatible && root.Length == 0 && node.StartsWith('/'))
+            {
+                (npm, problem, var global) = await WslNpmAsync(distribution, mode, node, null);
+                if (!global) (npm, problem) = (null, "unknown");
+            }
             if (npm is not null) _wslNpm[id] = npm;
             var note = Sentences(compatible ? L("位于 WSL {0}，使用该发行版中的配置和 Skills。", distribution) : L("WSL {0} 中的 CLI 版本过旧，App 无法连接。", distribution),
                 npm is not null ? "" : problem switch
@@ -453,7 +462,7 @@ internal sealed class CLIInstallationManager
             return true;
         }
         if (!probed) return false;
-        var (target, reason) = shell is { } found ? await WslNpmAsync(distribution, found.Mode, found.Node, null) : (null, "node");
+        var (target, reason, _) = shell is { } found ? await WslNpmAsync(distribution, found.Mode, found.Node, null) : (null, "node", false);
         InstallTargets.Add(new(id, "WSL " + distribution, target, target is not null ? "" : reason switch
         {
             "permission" => L("WSL {0} 的 npm 全局目录需要管理员权限，App 不使用 sudo。请在 WSL 终端运行：sudo npm install -g @konbakuyomu/smart-search@latest", distribution),
@@ -464,18 +473,20 @@ internal sealed class CLIInstallationManager
     }
 
     // The npm of this Node.js and the prefix it installs into: an existing CLI's, or npm's global one.
-    private async Task<(NpmEnvironment? Npm, string Problem)> WslNpmAsync(string distribution, string mode, string node, string? prefix)
+    // Package says whether that prefix already holds the CLI package.
+    private async Task<(NpmEnvironment? Npm, string Problem, bool Package)> WslNpmAsync(string distribution, string mode, string node, string? prefix)
     {
         Dictionary<string, string> facts;
         try { facts = WslFacts(await WslAsync(distribution, mode, WslNpmCheck, prefix is null ? [node] : [node, prefix])); }
-        catch (Exception error) when (error is InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception) { return (null, "npm"); }
-        if (!Version.TryParse(facts.GetValueOrDefault("node-version", ""), out var nodeVersion) || nodeVersion.Major < 18) return (null, "node");
+        catch (Exception error) when (error is InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception) { return (null, "npm", false); }
+        if (!Version.TryParse(facts.GetValueOrDefault("node-version", ""), out var nodeVersion) || nodeVersion.Major < 18) return (null, "node", false);
         var npm = facts.GetValueOrDefault("npm", "");
         var root = facts.GetValueOrDefault("prefix", "");
-        if (!npm.StartsWith('/') || !root.StartsWith('/')) return (null, "npm");
-        if (facts.GetValueOrDefault("writable") != "1") return (null, "permission");
+        var package = facts.GetValueOrDefault("package") == "1";
+        if (!npm.StartsWith('/') || !root.StartsWith('/')) return (null, "npm", false);
+        if (facts.GetValueOrDefault("writable") != "1") return (null, "permission", package);
         return (new(npm, node, facts.GetValueOrDefault("npm-version", ""), root, root + "/lib/node_modules",
-            [_wslPath!, .. WslArguments(distribution, ["bash", mode, WslNpmRun, "smart-search", node, npm])], new(WslEnvironment), distribution), "");
+            [_wslPath!, .. WslArguments(distribution, ["bash", mode, WslNpmRun, "smart-search", node, npm])], new(WslEnvironment), distribution), "", package);
     }
 
     private static string Sentences(params string[] parts) => string.Join(Localization.Language == "zh" ? "" : " ", parts.Where(part => part.Length > 0));
