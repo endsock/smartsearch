@@ -58,6 +58,7 @@ class Config:
         "tavily": "TAVILY_ENABLED",
         "firecrawl": "FIRECRAWL_ENABLED",
         "tinyfish": "TINYFISH_ENABLED",
+        "deepseek": "DEEPSEEK_ENABLED",
         "jina": "JINA_ENABLED",
         "anysearch": "ANYSEARCH_ENABLED",
         "sciverse": "SCIVERSE_ENABLED",
@@ -122,6 +123,9 @@ class Config:
         "TINYFISH_SEARCH_API_URL",
         "TINYFISH_FETCH_API_URL",
         "TINYFISH_TIMEOUT_SECONDS",
+        "DEEPSEEK_API_KEY",
+        "DEEPSEEK_API_URL",
+        "DEEPSEEK_TIMEOUT_SECONDS",
         "ANYSEARCH_API_KEY",
         "ANYSEARCH_API_URL",
         "ANYSEARCH_TIMEOUT_SECONDS",
@@ -712,7 +716,7 @@ class Config:
         if key in JEV_DEFAULTS:
             validate_jev_value(key, value)
             return
-        if key in {"SMART_SEARCH_TIMEOUT_SECONDS", "TINYFISH_TIMEOUT_SECONDS"}:
+        if key in {"SMART_SEARCH_TIMEOUT_SECONDS", "TINYFISH_TIMEOUT_SECONDS", "DEEPSEEK_TIMEOUT_SECONDS"}:
             self._parse_positive_float_value(key, value)
             return
         if key == "SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS":
@@ -969,6 +973,18 @@ class Config:
     @property
     def tinyfish_timeout(self) -> float:
         return self._parse_positive_float_value("TINYFISH_TIMEOUT_SECONDS", self._get_config_value("TINYFISH_TIMEOUT_SECONDS", "150") or "150")
+
+    @property
+    def deepseek_api_key(self) -> str | None:
+        return self._get_config_value("DEEPSEEK_API_KEY")
+
+    @property
+    def deepseek_api_url(self) -> str:
+        return self._get_config_value("DEEPSEEK_API_URL", "https://api.deepseek.com") or "https://api.deepseek.com"
+
+    @property
+    def deepseek_timeout(self) -> float:
+        return self._parse_positive_float_value("DEEPSEEK_TIMEOUT_SECONDS", self._get_config_value("DEEPSEEK_TIMEOUT_SECONDS", "60") or "60")
 
     @property
     def anysearch_api_url(self) -> str:
@@ -1253,6 +1269,9 @@ class Config:
             "TINYFISH_FETCH_API_URL": self.tinyfish_fetch_api_url,
             "TINYFISH_API_KEY": self._mask_api_key(self.tinyfish_api_key) if self.tinyfish_api_key else tr('未配置'),
             "TINYFISH_TIMEOUT_SECONDS": self.tinyfish_timeout,
+            "DEEPSEEK_API_URL": self.deepseek_api_url,
+            "DEEPSEEK_API_KEY": self._mask_api_key(self.deepseek_api_key) if self.deepseek_api_key else tr('未配置'),
+            "DEEPSEEK_TIMEOUT_SECONDS": self.deepseek_timeout,
             "ANYSEARCH_API_URL": self.anysearch_api_url,
             "ANYSEARCH_API_KEY": self._mask_api_key(self.anysearch_api_key) if self.anysearch_api_key else tr('未配置'),
             "ANYSEARCH_TIMEOUT_SECONDS": self.anysearch_timeout,

@@ -3,7 +3,7 @@
 Both native clients implement this contract. The Python core owns configuration,
 validation, routing and status. Do not open an HTTP listener or invoke a shell.
 
-Launch the user-selected independent CLI with `--desktop-backend`. For npm installations, use the identified Node executable and package wrapper with that argument. Probe `--desktop-capabilities` for `product:smart-search` and `desktop_protocol_version:1` first. Product versions need not match. The native App contains no CLI or Python runtime. An explicitly selected development path may override discovery.
+Launch the user-selected independent CLI with `--desktop-backend`. For npm installations, use the identified Node executable and package wrapper with that argument. Probe `--desktop-capabilities` for `product:smart-search` and `desktop_protocol_version:1` first. Product versions need not match. Its `launch_command` is the argv that starts the same CLI without a shell (the npm Node and wrapper, a frozen executable, or Python with `-m smart_search.cli`); the Windows App uses it for a CLI inside WSL as `wsl.exe -d <distro> --exec <launch_command…> --desktop-backend`. The native App contains no CLI or Python runtime. An explicitly selected development path may override discovery.
 Redirect UTF-8 stdin/stdout/stderr; keep the console hidden on Windows. Each stdin
 and stdout line is one compact JSON object. stderr is diagnostic, never protocol.
 

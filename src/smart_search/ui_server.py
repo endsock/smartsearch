@@ -25,7 +25,9 @@ import hmac
 import json
 import os
 import secrets
+import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -438,8 +440,33 @@ def _should_open_browser(options: UIServerConfig) -> bool:
     if sys.platform.startswith("linux"):
         if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
             return True
-        return bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
+        return _is_wsl()
     return True
+
+
+def _is_wsl() -> bool:
+    return sys.platform.startswith("linux") and bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
+
+
+def _open_browser(url: str) -> bool:
+    """Open the page, handing it to the Windows default browser inside WSL.
+
+    WSL rarely has a Linux browser, so ``webbrowser`` finds nothing or falls back
+    to a terminal browser. The server listens on 127.0.0.1, which WSL forwards to
+    Windows. An explicit $BROWSER still wins.
+    """
+    if not _is_wsl() or os.environ.get("BROWSER"):
+        return webbrowser.open(url)
+    for opener in (shutil.which("wslview"), shutil.which("explorer.exe"), "/mnt/c/Windows/explorer.exe"):
+        if not opener or not os.path.isfile(opener):
+            continue
+        try:
+            # explorer.exe exits non-zero even when it opened the page, so do not wait on it.
+            subprocess.Popen([opener, url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            continue
+        return True
+    return False
 
 
 def _startup_notes(runtime: UIRuntime, opened: bool, lang: str) -> list[str]:
@@ -454,7 +481,21 @@ def _startup_notes(runtime: UIRuntime, opened: bool, lang: str) -> list[str]:
             else "The token in that link is regenerated on every run and only works on this machine."
         ),
     ]
-    if not opened:
+    if _is_wsl():
+        if not opened:
+            notes.append(
+                "没有自动打开浏览器，在 Windows 的浏览器里打开上面的地址即可。"
+                if zh
+                else "No browser was opened; open the URL above in a Windows browser."
+            )
+        # NAT mode forwards localhost; mirrored mode's Hyper-V firewall blocks
+        # Windows-to-WSL connections until inbound traffic is allowed.
+        notes.append(
+            "WSL 使用 networkingMode=mirrored 时，Hyper-V 防火墙默认拦截 Windows 访问 WSL 端口；页面打不开时用 --port 固定端口，并按排障手册放行该端口。"
+            if zh
+            else "With WSL networkingMode=mirrored, the Hyper-V firewall blocks Windows from reaching WSL ports by default. If the page does not load, fix the port with --port and allow it as the troubleshooting guide describes."
+        )
+    elif not opened:
         notes.append(
             "没有自动打开浏览器，复制上面的地址即可。" if zh else "No browser was opened; copy the URL above."
         )
@@ -480,7 +521,7 @@ def serve(options: UIServerConfig, *, announce: Callable[[str], None] = lambda l
     opened = False
     if _should_open_browser(options):
         try:
-            opened = webbrowser.open(runtime.url)
+            opened = _open_browser(runtime.url)
         except Exception:
             opened = False
 

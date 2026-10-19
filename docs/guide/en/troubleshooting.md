@@ -42,6 +42,30 @@ On Windows npm/mise installs, verify non-ASCII JSON piping:
 smart-search deep "深度搜索一下最近的比特币行情" --format json | ConvertFrom-Json
 ```
 
+## Using Smart Search in WSL or on Linux
+
+The App is available for Windows and macOS only. Install and configure the CLI directly in WSL or Linux (glibc 2.35+ is required, for example Ubuntu 22.04 or later); the Windows App can also connect to a CLI inside WSL, see [Windows and WSL](app.md#windows-and-wsl):
+
+```bash
+npm install -g @konbakuyomu/smart-search@latest
+smart-search setup                                # or open the web config page with smart-search ui
+smart-search skills update --targets claude,codex
+```
+
+WSL keeps its own configuration (`~/.config/smart-search`) and Skills (for example `~/.claude/skills`), separate from the App on Windows. Agents running in WSL read only the WSL copy, so set up keys and Skills inside WSL as well; to manage them from the Windows App, select the WSL installation in **Environment details…** first.
+
+In WSL, `smart-search ui` opens the Windows default browser through `wslview` or `explorer.exe`, or through `BROWSER` when it is set. WSL's default NAT networking forwards `127.0.0.1` to Windows. With `networkingMode=mirrored` in `.wslconfig`, the Hyper-V firewall blocks connections from Windows into WSL by default and the page never loads. In that case, fix the port in WSL:
+
+```bash
+smart-search ui --port 8765
+```
+
+Then allow that port from an administrator PowerShell, as described in [Microsoft's documentation](https://learn.microsoft.com/windows/wsl/networking#mirrored-mode-networking):
+
+```powershell
+New-NetFirewallHyperVRule -Name SmartSearchUI -DisplayName "Smart Search UI" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 8765
+```
+
 ## The CLI package updated but its runtime is not ready
 
 The new npm CLI needs neither lifecycle scripts nor system Python. If its native package is missing, run `npm install -g @konbakuyomu/smart-search@latest --include=optional` with the same npm, then detect again; do not use `--omit=optional`. A manual npm path needs its matching Node.js and a writable global prefix. Published npm 0.1.24 requires updating after the new binary release is available.

@@ -44,14 +44,18 @@ public sealed partial class MainWindow
         preferences.Children.Add(SettingRow(L("外观"), L("跟随系统外观，或单独选择浅色、深色模式。"), theme));
         preferences.Children.Add(Divider());
         var directoryActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        directoryActions.Children.Add(ActionButton(L("选择配置目录…"), SelectConfigDirectoryAsync, operationKey: "profile", busyText: L("切换中…")));
+        // The folder picker returns Windows paths, which a CLI inside WSL cannot use.
+        directoryActions.Children.Add(ActionButton(L("选择配置目录…"), SelectConfigDirectoryAsync, operationKey: "profile", busyText: L("切换中…"),
+            enabled: () => !ConnectedToWsl));
         if (Text(_state, "default_config_dir").Length > 0 && !Bool(_state, "is_default_config_dir"))
             directoryActions.Children.Add(ActionButton(L("恢复默认配置目录"), RestoreDefaultConfigDirectoryAsync,
             operationKey: "profile", busyText: L("切换中…"),
             enabled: () => Text(_state, "default_config_dir").Length > 0 && !Bool(_state, "is_default_config_dir")));
         preferences.Children.Add(SettingRow(L("当前配置目录"), Text(_state, "config_dir", Text(_state, "config_path", L("未连接"))),
             directoryActions));
-        preferences.Children.Add(Secondary(L("保存服务商配置和本地记录的文件夹；移动 App 不会改变此目录。")));
+        preferences.Children.Add(Secondary(ConnectedToWsl
+            ? L("这是 WSL 中的目录。需要更换时，在 WSL 中设置 SMART_SEARCH_CONFIG_DIR。")
+            : L("保存服务商配置和本地记录的文件夹；移动 App 不会改变此目录。")));
         panel.Children.Add(SettingsSection(L("通用"), L("管理语言、外观和配置目录。"), Card(preferences)));
 
         _autoUpdateSwitch = CompactSwitch(L("自动检查更新"), AppAutoCheck);

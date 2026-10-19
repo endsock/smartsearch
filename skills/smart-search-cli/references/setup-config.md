@@ -98,6 +98,8 @@
 - Use `smart-search setup --non-interactive --tinyfish-key "key"` to add TinyFish to `web_search` and `web_fetch`. It never satisfies `main_search` or `docs_search`; Jev can select it among the allowed channels.
 - `TINYFISH_SEARCH_API_URL` defaults to `https://api.search.tinyfish.ai`, and `TINYFISH_FETCH_API_URL` defaults to `https://api.fetch.tinyfish.ai`. Both authenticate with the `X-API-Key` header, not a bearer token.
 - `TINYFISH_TIMEOUT_SECONDS` defaults to `60` and covers both TinyFish search and fetch reads.
+- Use `smart-search setup --non-interactive --deepseek-key "key"` to add DeepSeek to `web_search` and `web_fetch` with the same key as the DeepSeek model API. It never satisfies `main_search` or `docs_search`; Jev can select it among the allowed channels.
+- `DEEPSEEK_API_URL` defaults to `https://api.deepseek.com`, and `DEEPSEEK_TIMEOUT_SECONDS` defaults to `60` and covers both DeepSeek search and fetch reads. Each successful DeepSeek request is billed.
 
 ## Provider Failure Cooldown
 

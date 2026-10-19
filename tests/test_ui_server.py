@@ -270,6 +270,41 @@ def test_browser_is_not_opened_on_a_headless_linux_box(monkeypatch):
     assert ui_server._should_open_browser(ui_server.UIServerConfig(open_browser=True)) is True
 
 
+@pytest.fixture
+def wsl(monkeypatch):
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setenv("WSL_DISTRO_NAME", "Ubuntu")
+    monkeypatch.delenv("BROWSER", raising=False)
+    launched = []
+    monkeypatch.setattr(ui_server.subprocess, "Popen", lambda args, **kwargs: launched.append(args))
+    monkeypatch.setattr(ui_server.webbrowser, "open", lambda url: launched.append(["webbrowser", url]) or True)
+    return launched
+
+
+def test_wsl_opens_the_windows_browser_instead_of_a_terminal_one(wsl, monkeypatch, tmp_path):
+    explorer = tmp_path / "explorer.exe"
+    explorer.write_text("")
+    monkeypatch.setattr(ui_server.shutil, "which", lambda name: str(explorer) if name == "explorer.exe" else None)
+    assert ui_server._open_browser("http://127.0.0.1:1/?token=t") is True
+    assert wsl == [[str(explorer), "http://127.0.0.1:1/?token=t"]]
+
+
+def test_wsl_respects_an_explicit_browser(wsl, monkeypatch):
+    monkeypatch.setenv("BROWSER", "wslview")
+    assert ui_server._open_browser("http://127.0.0.1:1/") is True
+    assert wsl == [["webbrowser", "http://127.0.0.1:1/"]]
+
+
+def test_wsl_without_an_opener_points_at_the_windows_browser(wsl, monkeypatch):
+    monkeypatch.setattr(ui_server.shutil, "which", lambda name: None)
+    monkeypatch.setattr(ui_server.os.path, "isfile", lambda path: False)
+    assert ui_server._open_browser("http://127.0.0.1:1/") is False
+    assert wsl == []
+    runtime = ui_server.UIRuntime(port=1, idle_timeout=0)
+    notes = "\n".join(ui_server._startup_notes(runtime, False, "en"))
+    assert "Windows browser" in notes and "mirrored" in notes and "ssh -L" not in notes
+
+
 # ---- write path over HTTP ----------------------------------------------
 def test_write_endpoints_require_the_token(running):
     _httpd, runtime = running

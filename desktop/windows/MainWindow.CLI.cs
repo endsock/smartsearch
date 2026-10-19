@@ -81,6 +81,14 @@ public sealed partial class MainWindow
                     }
                 }, !blocked)]));
         }
+        if (_cliManager.WslAvailable && _cliManager.ManualNpmPath.Length == 0 && _cliManager.ManualCliPath.Length == 0)
+        {
+            var wsl = new List<UIElement> { Secondary(L("WSL 中的 CLI 使用该发行版自己的配置和 Skills。未运行的发行版不会自动启动。")) };
+            if (_cliManager.StoppedWslDistributions.Count > 0)
+                wsl.Add(Secondary(L("未运行：{0}。“检测 WSL”会启动这些发行版并查找 CLI。", string.Join(L("、"), _cliManager.StoppedWslDistributions))));
+            wsl.Add(ActionRow(DeferredAction(L("检测 WSL"), DetectWslAsync, !blocked)));
+            content.Children.Add(Section("WSL", wsl));
+        }
         content.Children.Add(ActionRow(DeferredAction(L("选择已有 CLI…"), ChooseCliAsync, !blocked),
             new HyperlinkButton { Content = L("手动下载 CLI"), NavigateUri = new Uri("https://github.com/konbakuyomu/smartsearch/releases/latest") }));
         content.Children.Add(Secondary(L("独立下载包解压后选择 smart-search 可执行文件，并保留同目录的运行文件。手动安装由你自行更新。")));
@@ -148,9 +156,12 @@ public sealed partial class MainWindow
         if (_cliManager.Busy || _connecting) return L("正在检测本地环境…");
         if (_cliManager.Selected is not { } installation)
             return _cliManager.Npm is null ? L("尚未找到 Node.js/npm 或可用的 Smart Search CLI") : L("Node.js/npm 已就绪，等待准备 Smart Search CLI");
-        if (!installation.Compatible) return L("{0} · {1} · 需要更新或修复", installation.Source, installation.Version);
-        if (_cliManager.UpdateAvailable) return L("{0} · 可更新至 {1}", installation.Version, _cliManager.LatestVersion);
-        return _backend.IsConnected ? L("{0} · 已就绪", installation.Version) : L("{0} · 尚未连接", installation.Version);
+        // With WSL around, say which side's configuration and Skills the App is editing.
+        var place = installation.InWsl ? $"WSL {installation.Distribution} · " : _cliManager.WslDistributions.Count > 0 ? "Windows · " : "";
+        if (!installation.Compatible)
+            return place + (installation.InWsl ? L("{0} · 需要更新", installation.Version) : L("{0} · {1} · 需要更新或修复", installation.Source, installation.Version));
+        if (_cliManager.UpdateAvailable) return place + L("{0} · 可更新至 {1}", installation.Version, _cliManager.LatestVersion);
+        return place + (_backend.IsConnected ? L("{0} · 已就绪", installation.Version) : L("{0} · 尚未连接", installation.Version));
     }
 
     private string CliExplanation()
