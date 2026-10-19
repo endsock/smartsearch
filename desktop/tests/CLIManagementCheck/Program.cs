@@ -8,24 +8,57 @@ if (args[0] == "--discover")
     await live.DiscoverAsync(includeStoppedWsl: args.Contains("--include-stopped-wsl"));
     Console.WriteLine(JsonSerializer.Serialize(new { live.Message, npm = live.Npm?.NpmPath, selected = live.Selected?.Id,
         wsl = live.WslDistributions, stopped = live.StoppedWslDistributions,
-        installations = live.Installations.Select(item => new { item.Id, item.Title, item.Source, item.Version, item.Compatible, item.CanManage, item.Note, item.Arguments }) }));
+        installations = live.Installations.Select(item => new { item.Id, item.Title, item.Source, item.Version, item.Compatible, item.CanManage, item.Note, item.Arguments, item.Manager, item.Prefix }),
+        targets = live.InstallTargets.Select(item => new { item.Id, item.Place, item.Note, npm = item.Npm?.Command, prefix = item.Npm?.Prefix }) }));
     return;
 }
-// The same executable doubles as a fake wsl.exe: listing, running state and the probe's single JSON line.
+// The same executable doubles as a fake wsl.exe: listing, running state, the probe, the npm check and npm itself.
 if (Environment.GetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE") is { } wslFixture && args[0] is "--list" or "-d")
 {
-    if (args[0] == "--list") { Console.Write(args.Contains("--running") ? "Debian\r\nOld\r\n" : "Ubuntu-24.04\r\ndocker-desktop\r\nDebian\r\nOld\r\n"); return; }
-    var (distribution, mode) = (args[1], args[^2]);
-    File.AppendAllText(Path.Combine(wslFixture, "wsl-probes.txt"), distribution + " " + mode + "\n");
-    if (args[2] != "--exec" || args[3] != "bash" || !args[^1].Contains("--desktop-capabilities")) Environment.Exit(9);
-    Console.WriteLine("profile noise {");
-    Console.WriteLine((distribution, mode) switch
+    if (args[0] == "--list")
     {
-        ("Debian", "-lc") => """{"product":"smart-search","version":"1.2.3","desktop_protocol_version":1,"launch_command":["/usr/bin/node","/usr/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]}""",
-        ("Ubuntu-24.04", "-ic") => """{"product":"smart-search","version":"1.2.4","desktop_protocol_version":1,"launch_command":["/home/u/.nvm/versions/node/v22.0.0/bin/node","/home/u/.nvm/versions/node/v22.0.0/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]}""",
-        ("Old", _) => """{"product":"smart-search","legacy":true}""",
-        _ => """{"missing":true}"""
-    });
+        Console.Write(args.Contains("--running") ? "Debian\r\nOld\r\nArch\r\nFedora\r\n" : "Ubuntu-24.04\r\ndocker-desktop\r\nDebian\r\nOld\r\nArch\r\nFedora\r\n");
+        return;
+    }
+    var (distribution, mode, script) = (args[1], args[4], args[5]);
+    if (args[2] != "--exec" || args[3] != "bash" || args[6] != "smart-search") Environment.Exit(9);
+    // An install by the App leaves [node, prefix] behind; from then on the distribution has a current CLI.
+    var installed = Path.Combine(wslFixture, "wsl-" + distribution + ".json");
+    if (script.Contains("command -v smart-search"))
+    {
+        File.AppendAllText(Path.Combine(wslFixture, "wsl-probes.txt"), distribution + " " + mode + "\n");
+        Console.WriteLine("profile noise {");
+        if (File.Exists(installed) && JsonSerializer.Deserialize<string[]>(File.ReadAllText(installed)) is [var installedNode, var installedPrefix])
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new { product = "smart-search", version = "1.2.4", desktop_protocol_version = 1,
+                launch_command = new[] { installedNode, installedPrefix + "/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js" } }));
+            return;
+        }
+        Console.WriteLine((distribution, mode) switch
+        {
+            ("Debian", "-lc") => """{"product":"smart-search","version":"1.2.3","desktop_protocol_version":1,"launch_command":["/usr/bin/node","/usr/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]}""",
+            ("Ubuntu-24.04", "-ic") => """{"product":"smart-search","version":"1.2.4","desktop_protocol_version":1,"launch_command":["/home/u/.nvm/versions/node/v22.0.0/bin/node","/home/u/.nvm/versions/node/v22.0.0/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]}""",
+            ("Old", _) => "smart-search-node=/home/o/node/bin/node\nsmart-search-root=/home/o/node/lib/node_modules/@konbakuyomu/smart-search\n" + """{"product":"smart-search","legacy":true,"version":"1.2.2"}""",
+            ("Arch", "-ic") => "smart-search-node=/home/a/node/bin/node\n" + """{"missing":true}""",
+            _ => """{"missing":true}"""
+        });
+        return;
+    }
+    var node = args[7];
+    var npm = node[..node.LastIndexOf("/bin/node", StringComparison.Ordinal)] + "/lib/node_modules/npm/bin/npm-cli.js";
+    if (script.Contains("npm-cli.js"))
+    {
+        // A system Node.js under /usr cannot be written without sudo.
+        var prefix = args.Length > 8 ? args[8] : "/home/a/.npm-global";
+        Console.WriteLine($"smart-search-node-version=22.0.0\nsmart-search-npm={npm}\nsmart-search-prefix={prefix}\nsmart-search-writable={(prefix == "/usr" ? 0 : 1)}\nsmart-search-npm-version=10.9.1");
+        return;
+    }
+    if (args[8] != npm) Environment.Exit(8);
+    var operation = args[9..];
+    if (operation[0] == "view") { Console.WriteLine("profile noise\n{\n  \"version\": \"1.2.4\",\n  \"smartSearchBinary\": true\n}"); return; }
+    if (operation[0] != "install") Environment.Exit(7);
+    File.WriteAllText(Path.Combine(wslFixture, "wsl-operations.json"), JsonSerializer.Serialize(args));
+    File.WriteAllText(installed, JsonSerializer.Serialize(new[] { node, operation[Array.IndexOf(operation, "--prefix") + 1] }));
     return;
 }
 var miseInstall = Path.Combine("mise", "installs", "npm-konbakuyomu-smart-search", "1.2.3");
@@ -167,14 +200,18 @@ try
     await wslOnly.DiscoverAsync();
     Check(wslOnly.Installations.Select(item => item.Id).SequenceEqual(["wsl://Debian", "wsl://Old"]), "Probe only running distributions: " + JsonSerializer.Serialize(wslOnly.Installations.Select(item => item.Id)));
     Check(!File.ReadAllText(probes).Contains("Ubuntu") && !File.ReadAllText(probes).Contains("docker"), "Never start a stopped or Docker distribution on ordinary discovery");
-    Check(wslOnly.StoppedWslDistributions.SequenceEqual(["Ubuntu-24.04"]) && wslOnly.WslDistributions.Count == 3, "Report stopped distributions without probing them");
+    Check(wslOnly.StoppedWslDistributions.SequenceEqual(["Ubuntu-24.04"]) && wslOnly.WslDistributions.Count == 5, "Report stopped distributions without probing them");
     Check(wslOnly.Selected is { Id: "wsl://Debian", Compatible: true, CanManage: false, InWsl: true } debian &&
         debian.Executable == fakeWsl && debian.Arguments.SequenceEqual(["-d", "Debian", "--exec", "/usr/bin/node", "/usr/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]) &&
-        debian.Environment["WSL_UTF8"] == "1" && debian.Title == "WSL Debian · 1.2.3", "Use the only CLI found, in WSL, launched without a shell");
-    Check(wslOnly.Installations.Single(item => item.Id == "wsl://Old") is { Compatible: false, Note.Length: > 0 }, "An old CLI in WSL is shown as needing an update, not hidden");
+        debian.Environment["WSL_UTF8"] == "1" && debian.Title == "WSL Debian · 1.2.3" && debian.Note.Contains("sudo"), "Use the only CLI found, in WSL, launched without a shell; a root-owned npm prefix is left to the terminal");
+    Check(wslOnly.Installations.Single(item => item.Id == "wsl://Old") is { Compatible: false, CanManage: true, Version: "1.2.2", Prefix: "/home/o/node", Note.Length: > 0 },
+        "An old npm CLI in WSL is shown as needing an update, and the App can update it");
+    Check(wslOnly.InstallTargets is [{ Id: "wsl://Arch", Npm: { Prefix: "/home/a/.npm-global", Distribution: "Arch" } arch }, { Id: "wsl://Fedora", Npm: null, Note.Length: > 0 }] &&
+        arch.Command[4] == "-ic" && arch.Command[7..].SequenceEqual(["/home/a/node/bin/node", "/home/a/node/lib/node_modules/npm/bin/npm-cli.js"]),
+        "Distributions without a CLI become install targets, using the shell that has Node.js; without Node.js they explain why: " + JsonSerializer.Serialize(wslOnly.InstallTargets.Select(item => new { item.Id, item.Note })));
     File.Delete(probes);
     await wslOnly.DiscoverAsync(includeStoppedWsl: true);
-    Check(wslOnly.Installations.Single(item => item.Id == "wsl://Ubuntu-24.04") is { Version: "1.2.4", Compatible: true } &&
+    Check(wslOnly.Installations.Single(item => item.Id == "wsl://Ubuntu-24.04") is { Version: "1.2.4", Compatible: true, CanManage: true } ubuntu && ubuntu.Manager[4] == "-ic" &&
         File.ReadAllText(probes).Contains("Ubuntu-24.04 -lc") && File.ReadAllText(probes).Contains("Ubuntu-24.04 -ic"), "Explicit detection starts stopped distributions and falls back to an interactive shell for nvm");
     wslOnly.SelectInstallation("wsl://Ubuntu-24.04");
     File.Delete(probes);
@@ -191,6 +228,37 @@ try
     var noWsl = new CLIInstallationManager(Path.Combine(root, "no wsl state"), "", Load, wslPath: Path.Combine(root, "missing", "wsl.exe"));
     await noWsl.DiscoverAsync(includeStoppedWsl: true);
     Check(!noWsl.WslAvailable && noWsl.Installations.Count == 0, "No wsl.exe means no WSL entries");
+
+    // Updates and installs in WSL go through that distribution's own Node.js and npm.
+    var wslManaged = new CLIInstallationManager(Path.Combine(root, "wsl managed state"), "", wslPath: fakeWsl);
+    await wslManaged.DiscoverAsync();
+    wslManaged.SelectInstallation("wsl://Old");
+    await wslManaged.DiscoverAsync();
+    await wslManaged.CheckVersionAsync();
+    Check(wslManaged.Npm is { Distribution: "Old" } && wslManaged.LatestVersion == "1.2.4" && wslManaged.UpdateAvailable && wslManaged.CanInstall,
+        "The selected WSL CLI is checked with its own npm, past profile output: " + wslManaged.CheckError);
+    await wslManaged.InstallOrRepairAsync("1.2.4");
+    var wslInstall = JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(root, "wsl-operations.json")))!;
+    Check(wslManaged.Selected is { Id: "wsl://Old", Version: "1.2.4", Compatible: true } &&
+        wslInstall[..5].SequenceEqual(["-d", "Old", "--exec", "bash", "-lc"]) && wslInstall[6..].SequenceEqual(["smart-search", "/home/o/node/bin/node",
+            "/home/o/node/lib/node_modules/npm/bin/npm-cli.js", "install", "--global", "--prefix", "/home/o/node", "--include=optional", "@konbakuyomu/smart-search@1.2.4"]),
+        "Update an old WSL CLI in its own prefix, without a shell parsing the arguments: " + JsonSerializer.Serialize(wslInstall));
+    await wslManaged.InstallOrRepairAsync("1.2.4", "wsl://Arch");
+    wslInstall = JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(root, "wsl-operations.json")))!;
+    Check(wslManaged.Selected?.Id == "wsl://Old" && wslManaged.Installations.Single(item => item.Id == "wsl://Arch") is { Version: "1.2.4", Compatible: true } &&
+        wslManaged.InstallTargets.All(item => item.Id != "wsl://Arch") && wslInstall[4] == "-ic" && wslInstall[^4..].SequenceEqual(["--prefix", "/home/a/.npm-global", "--include=optional", "@konbakuyomu/smart-search@1.2.4"]),
+        "Install into another distribution with npm's own global prefix and keep the current choice");
+
+    // Windows without a CLI is a target too, while a CLI in WSL stays selected.
+    var windowsTarget = new CLIInstallationManager(Path.Combine(root, "windows target state"), second, Load, wslPath: fakeWsl);
+    await windowsTarget.DiscoverAsync();
+    var windowsRoot = Path.Combine(second, "node_modules", "@konbakuyomu", "smart-search");
+    Check(windowsTarget.Selected is { InWsl: true } && windowsTarget.InstallTargets.FirstOrDefault() is { Place: "Windows", Npm.Prefix: var windowsPrefix } windowsInstall &&
+        windowsInstall.Id == windowsRoot && windowsPrefix == second, "Offer Windows when only WSL has a CLI");
+    await windowsTarget.CheckVersionAsync();
+    await windowsTarget.InstallOrRepairAsync("1.2.4", windowsRoot);
+    Check(windowsTarget.Selected is { InWsl: true } && windowsTarget.Installations.Any(item => item.Id == windowsRoot && item is { Version: "1.2.4", Compatible: true, InWsl: false }) &&
+        windowsTarget.Message.Contains("Windows"), "Install on Windows without switching away from WSL");
 }
 finally { Environment.SetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE", null); }
 Check(CLIInstallationManager.MiseOptions("version = \"1.2.3\"\npostinstall = \"custom\"", "1.2.3") is null, "Complex mise options are read-only");

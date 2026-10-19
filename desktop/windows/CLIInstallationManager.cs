@@ -9,29 +9,65 @@ internal sealed record CLIInstallation(string Id, string Executable, string[] Ar
     bool Compatible, string[] Manager, string Prefix, Dictionary<string, string> Environment,
     string Note = "", string[]? ManagerOptions = null, string Distribution = "")
 {
-    internal bool CanManage => Source is "npm" or "mise" && Manager.Length > 0;
+    internal bool CanManage => Source is "npm" or "mise" or "wsl" && Manager.Length > 0;
     internal bool InWsl => Distribution.Length > 0;
+    internal string Place => InWsl ? "WSL " + Distribution : "Windows";
     public string Title => InWsl ? $"WSL {Distribution} · {Version}" : $"{Source} · {Version} · {Id}";
 }
 
 internal sealed record NpmEnvironment(string NpmPath, string NodePath, string Version, string Prefix, string Modules,
-    string[] Command, Dictionary<string, string> Environment)
+    string[] Command, Dictionary<string, string> Environment, string Distribution = "")
 {
     internal string Identity => NodePath + "|" + string.Join("|", Command) + "|" + Prefix;
 }
+
+// An environment without a CLI. Npm is null when the App cannot install there, and Note says why.
+internal sealed record CLIInstallTarget(string Id, string Place, NpmEnvironment? Npm, string Note = "");
 
 internal sealed class CLIInstallationManager
 {
     private const string Package = "@konbakuyomu/smart-search";
     internal const string WslIdPrefix = "wsl://";
+    private const string WslPackageSuffix = "/lib/node_modules/" + Package;
+    private const string WslWrapperSuffix = "/npm/bin/smart-search.js";
     // WSL prints UTF-16 unless asked otherwise; the Linux CLI's own output is UTF-8 either way.
     private static readonly Dictionary<string, string> WslEnvironment = new() { ["WSL_UTF8"] = "1" };
-    // Exits 0 with one JSON line. A missing CLI and an old wrapper are reported, never bootstrapped.
-    // One line on purpose: a multi-line literal would carry CRLF from a Windows checkout into bash.
-    private const string WslProbe = "p=$(command -v smart-search) || { echo '{\"missing\":true}'; exit 0; }; " +
-        "r=$(dirname \"$(dirname \"$(dirname \"$(readlink -f \"$p\")\")\")\"); " +
-        "if [ -f \"$r/package.json\" ] && ! grep -q smartSearchBinary \"$r/package.json\"; then echo '{\"product\":\"smart-search\",\"legacy\":true}'; exit 0; fi; " +
-        "smart-search --desktop-capabilities 2>/dev/null || echo '{\"product\":\"smart-search\",\"legacy\":true}'";
+    // Ends with one JSON line for the CLI. A missing CLI and an old wrapper are reported, never run;
+    // for those it also prints the shell's Node.js and the old package, so the App can install there.
+    // Line endings are normalized because a Windows checkout would hand bash CRLF.
+    private static readonly string WslProbe = """
+        node_line() { node -p process.execPath 2>/dev/null | sed 's/^/smart-search-node=/'; }
+        p=$(command -v smart-search) || { node_line; echo '{"missing":true}'; exit 0; }
+        t=$(readlink -f "$p"); r=${t%/npm/bin/smart-search.js}
+        if [ "$r" = "$t" ] || ! [ -f "$r/package.json" ] || grep -q smartSearchBinary "$r/package.json"; then
+          smart-search --desktop-capabilities 2>/dev/null && exit 0
+        fi
+        [ "$r" = "$t" ] && { echo '{"product":"smart-search","legacy":true}'; exit 0; }
+        node_line; echo "smart-search-root=$r"
+        echo "{\"product\":\"smart-search\",\"legacy\":true,\"version\":\"$(sed -n 's/^ *"version": *"\([0-9.]*\)".*/\1/p' "$r/package.json" | head -n 1)\"}"
+        """.ReplaceLineEndings("\n");
+    // $1 is Node.js, $2 an existing CLI's npm prefix. Finds the npm that belongs to that Node.js
+    // and whether the user can write the prefix; the App never uses sudo.
+    private static readonly string WslNpmCheck = """
+        n=$1; echo "smart-search-node-version=$("$n" -p process.versions.node 2>/dev/null)"
+        c=$(readlink -f "$(dirname "$n")/npm")
+        case $c in */npm-cli.js) ;; *) c=$(dirname "$(dirname "$n")")/lib/node_modules/npm/bin/npm-cli.js ;; esac
+        [ -f "$c" ] || exit 0
+        P=${2:-$("$n" "$c" prefix --global 2>/dev/null)}
+        w=1
+        for d in "$P/lib/node_modules" "$P/bin"; do
+          if [ -e "$d" ]; then [ -w "$d" ] || w=0; elif ! [ -w "$P" ]; then w=0; fi
+        done
+        echo "smart-search-npm=$c"; echo "smart-search-prefix=$P"; echo "smart-search-writable=$w"
+        echo "smart-search-npm-version=$(sed -n 's/^ *"version": *"\([0-9.]*\)".*/\1/p' "${c%/bin/npm-cli.js}/package.json" | head -n 1)"
+        """.ReplaceLineEndings("\n");
+    // Runs Node.js + npm-cli.js as argv in the shell that found them, so profile settings such as
+    // proxies apply. Version managers expose a new global command only after a reshim.
+    private static readonly string WslNpmRun = """
+        "$@" || exit
+        [ "$3" = install ] || exit 0
+        mise reshim >/dev/null 2>&1; asdf reshim nodejs >/dev/null 2>&1; exit 0
+        """.ReplaceLineEndings("\n");
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private readonly string? _searchPath;
     private readonly string? _wslPath;
@@ -61,6 +97,8 @@ internal sealed class CLIInstallationManager
     }
 
     internal List<CLIInstallation> Installations { get; private set; } = [];
+    internal List<CLIInstallTarget> InstallTargets { get; private set; } = [];
+    private readonly Dictionary<string, NpmEnvironment> _wslNpm = [];
     internal CLIInstallation? Selected => _update.SelectedId.Length > 0
         ? Installations.FirstOrDefault(item => item.Id.Equals(_update.SelectedId, StringComparison.OrdinalIgnoreCase)) : Installations.FirstOrDefault();
     internal NpmEnvironment? Npm { get; private set; }
@@ -69,13 +107,14 @@ internal sealed class CLIInstallationManager
     internal IReadOnlyList<string> StoppedWslDistributions { get; private set; } = [];
     internal string ManualNpmPath => _update.ManualNpmPath;
     internal string ManualCliPath => _update.ManualCliPath;
-    internal bool CanInstall => Selected is { } selected ? selected.CanManage : Npm is not null && _update.SelectedId.Length == 0;
+    internal bool CanInstall => Selected is { } selected ? selected.CanManage : InstallTargets.Any(target => target.Npm is not null);
     internal string LatestVersion => _update.LatestVersion;
     internal bool LatestSupportsBinary => _update.SupportsBinary;
     internal DateTimeOffset? CheckedAt => _update.CheckedAt;
     internal bool AutomaticallyChecks => _update.AutomaticallyChecks;
-    internal bool UpdateAvailable => Selected is { } selected && ValidVersion(selected.Version)
-        && ValidVersion(LatestVersion) && Version.Parse(LatestVersion) > Version.Parse(selected.Version);
+    internal bool UpdateAvailable => Selected is { } selected && UpdateAvailableFor(selected);
+    internal bool UpdateAvailableFor(CLIInstallation installation) => ValidVersion(installation.Version)
+        && ValidVersion(LatestVersion) && Version.Parse(LatestVersion) > Version.Parse(installation.Version);
     internal bool Checking { get; private set; }
     internal string CheckError { get; private set; } = "";
     internal bool Busy { get; private set; }
@@ -101,11 +140,14 @@ internal sealed class CLIInstallationManager
         SaveUpdateState();
     }
 
-    internal async Task DiscoverAsync(bool includeStoppedWsl = false)
+    // wslDistribution is probed even when stopped, for an operation on that distribution.
+    internal async Task DiscoverAsync(bool includeStoppedWsl = false, string? wslDistribution = null)
     {
         if (Busy || Checking) return;
         Busy = true;
         Installations = [];
+        InstallTargets = [];
+        _wslNpm.Clear();
         Npm = null;
         Message = "";
         WslDistributions = [];
@@ -132,7 +174,9 @@ internal sealed class CLIInstallationManager
             if (ManualNpmPath.Length == 0) await DiscoverMiseAsync(searchPath);
             if (ManualCliPath.Length > 0) await DiscoverManualAsync();
             // WSL entries come after Windows ones, so a first run keeps the local CLI.
-            if (ManualNpmPath.Length == 0 && ManualCliPath.Length == 0) await DiscoverWslAsync(includeStoppedWsl);
+            if (ManualNpmPath.Length == 0 && ManualCliPath.Length == 0) await DiscoverWslAsync(includeStoppedWsl, wslDistribution);
+            if (ManualCliPath.Length == 0 && npmEnvironments.FirstOrDefault() is { } local && Installations.All(item => item.InWsl))
+                InstallTargets.Insert(0, new(Path.Combine(local.Modules, "@konbakuyomu", "smart-search"), "Windows", local));
             // mise installs each version separately; follow the same tool after upgrades outside the App.
             if (_update.SelectedId.Length > 0 && Selected is null && ManualCliPath.Length == 0 &&
                 !_update.SelectedId.StartsWith(WslIdPrefix, StringComparison.Ordinal) &&
@@ -143,10 +187,13 @@ internal sealed class CLIInstallationManager
             if (_update.SelectedId.Length > 0 && Selected is null)
                 Message = L("所选安装已不可用，请重新检测或选择其他安装。");
             if (_update.SelectedId.Length == 0 && Selected is { } first) SelectInstallation(first.Id);
-            if (Selected is { } chosen)
+            // Versions are checked with the npm that would install them.
+            if (Selected is { InWsl: true } wsl) Npm = _wslNpm.GetValueOrDefault(wsl.Id) ?? Npm;
+            else if (Selected is { } chosen)
                 Npm = npmEnvironments.FirstOrDefault(item => chosen.Source == "npm"
                     ? item.Prefix == chosen.Prefix && item.Command.SequenceEqual(chosen.Manager)
                     : item.NodePath == chosen.Executable) ?? Npm;
+            else Npm ??= InstallTargets.FirstOrDefault(target => target.Npm is not null)?.Npm;
             if (Npm is not { } selectedNpm)
             {
                 if (Message.Length == 0 && Selected is null) Message = L("未找到可用的 npm。请先安装 Node.js，或手动指定 npm 路径。");
@@ -306,7 +353,7 @@ internal sealed class CLIInstallationManager
         { Message = L("mise 环境检测未完成，请重新检测或手动选择 CLI。") + "\n" + error.Message; }
     }
 
-    private async Task DiscoverWslAsync(bool includeStopped)
+    private async Task DiscoverWslAsync(bool includeStopped, string? requested)
     {
         if (!WslAvailable) return;
         string[] distributions, running;
@@ -324,12 +371,13 @@ internal sealed class CLIInstallationManager
         foreach (var distribution in distributions)
         {
             if (!includeStopped && !running.Contains(distribution, StringComparer.OrdinalIgnoreCase) &&
-                !distribution.Equals(selected, StringComparison.OrdinalIgnoreCase))
+                !distribution.Equals(selected, StringComparison.OrdinalIgnoreCase) && !distribution.Equals(requested, StringComparison.OrdinalIgnoreCase))
             { stopped.Add(distribution); continue; }
             found |= await AddWslInstallationAsync(distribution);
         }
         StoppedWslDistributions = stopped;
-        if (includeStopped && !found && Message.Length == 0)
+        // A probed distribution without a CLI becomes an install target, which explains itself.
+        if (includeStopped && !found && Message.Length == 0 && !InstallTargets.Any(target => target.Id.StartsWith(WslIdPrefix, StringComparison.Ordinal)))
             Message = distributions.Length == 0 ? L("没有找到 WSL 发行版。")
                 : L("没有在 WSL 中找到 smart-search。请先在 WSL 中安装 CLI，并确认 bash 能直接运行 smart-search。");
     }
@@ -338,34 +386,95 @@ internal sealed class CLIInstallationManager
     private static string[] WslNames(string output) => output.Replace("\0", "").Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
         .Where(name => !name.StartsWith("docker-desktop", StringComparison.OrdinalIgnoreCase)).ToArray();
 
+    private Task<string> WslAsync(string distribution, string mode, string script, params string[] arguments) =>
+        CommandAsync([_wslPath!, "-d", distribution, "--exec", "bash", mode, script, "smart-search", .. arguments], WslEnvironment, 45);
+
+    // The probe scripts report facts as "smart-search-<name>=<value>" lines between any profile output.
+    private static Dictionary<string, string> WslFacts(string output) => output.Split('\n')
+        .Select(line => line.TrimEnd('\r')).Where(line => line.StartsWith("smart-search-", StringComparison.Ordinal) && line.Contains('='))
+        .Select(line => (Name: line["smart-search-".Length..line.IndexOf('=')], Value: line[(line.IndexOf('=') + 1)..]))
+        .GroupBy(fact => fact.Name).ToDictionary(group => group.Key, group => group.Last().Value);
+
     private async Task<bool> AddWslInstallationAsync(string distribution)
     {
+        var id = WslIdPrefix + distribution;
+        (string Mode, string Node)? shell = null;
+        var probed = false;
         // A login shell reads ~/.profile (mise shims, ~/.local/bin); nvm loads only in an interactive ~/.bashrc.
         foreach (var mode in new[] { "-lc", "-ic" })
         {
             JsonElement info;
+            Dictionary<string, string> facts;
             try
             {
-                var output = await CommandAsync([_wslPath!, "-d", distribution, "--exec", "bash", mode, WslProbe], WslEnvironment, 45);
+                var output = await WslAsync(distribution, mode, WslProbe);
                 using var result = JsonDocument.Parse(output.Split('\n').Select(line => line.Trim()).LastOrDefault(line => line.StartsWith('{')) ?? "");
                 info = result.RootElement.Clone();
+                facts = WslFacts(output);
             }
             catch (Exception error) when (error is InvalidOperationException or TimeoutException or JsonException or System.ComponentModel.Win32Exception) { continue; }
-            if (String(info, "product") != "smart-search") continue;
+            probed = true;
+            var shellNode = facts.GetValueOrDefault("node", "");
+            if (String(info, "product") != "smart-search")
+            {
+                if (shellNode.StartsWith('/')) shell ??= (mode, shellNode);
+                continue;
+            }
             var launch = info.TryGetProperty("launch_command", out var command) && command.ValueKind == JsonValueKind.Array
                 ? command.EnumerateArray().Select(item => item.ValueKind == JsonValueKind.String ? item.GetString() ?? "" : "").ToArray() : [];
             // The App starts this argv directly with --exec, so it must be absolute inside the distribution.
             var compatible = info.TryGetProperty("desktop_protocol_version", out var protocol) && protocol.TryGetInt32(out var number) && number == 1 &&
                 launch.Length > 0 && launch[0].StartsWith('/') && launch.All(item => item.Length > 0);
-            var note = compatible ? L("位于 WSL {0}，使用该发行版中的配置和 Skills。请在 WSL 终端用原安装方式更新 CLI。", distribution)
-                : L("WSL {0} 中的 CLI 版本过旧，App 无法连接。请在 WSL 终端更新：npm install -g @konbakuyomu/smart-search@latest", distribution);
+            // The npm package that owns this CLI: the launch command's wrapper, or the old wrapper's package.
+            var (node, root) = compatible
+                ? (launch[0], launch.Length == 2 && launch[1].EndsWith(WslWrapperSuffix, StringComparison.Ordinal) ? launch[1][..^WslWrapperSuffix.Length] : "")
+                : (shellNode, facts.GetValueOrDefault("root", ""));
+            var prefix = root.EndsWith(WslPackageSuffix, StringComparison.Ordinal) ? root[..^WslPackageSuffix.Length] : "";
+            NpmEnvironment? npm = null;
+            var problem = "unknown";
+            // mise and asdf keep npm tools in versioned directories that only they may change.
+            if (prefix.StartsWith('/') && node.StartsWith('/'))
+                (npm, problem) = prefix.Contains("/installs/npm-", StringComparison.Ordinal) ? (null, "mise") : await WslNpmAsync(distribution, mode, node, prefix);
+            if (npm is not null) _wslNpm[id] = npm;
+            var note = Sentences(compatible ? L("位于 WSL {0}，使用该发行版中的配置和 Skills。", distribution) : L("WSL {0} 中的 CLI 版本过旧，App 无法连接。", distribution),
+                npm is not null ? "" : problem switch
+                {
+                    "mise" => L("此 CLI 由 mise 管理，请在 WSL 终端更新：mise use -g npm:@konbakuyomu/smart-search@latest"),
+                    "permission" => L("npm 全局目录需要管理员权限，请在 WSL 终端更新：sudo npm install -g @konbakuyomu/smart-search@latest"),
+                    _ => L("App 无法确定它的安装方式，请在 WSL 终端用原安装方式更新。")
+                });
             var version = String(info, "version");
-            Installations.Add(new(WslIdPrefix + distribution, _wslPath!, ["-d", distribution, "--exec", .. launch], version.Length > 0 ? version : L("旧版"),
-                "wsl", compatible, [], "", new(WslEnvironment), note, Distribution: distribution));
+            Installations.Add(new(id, _wslPath!, ["-d", distribution, "--exec", .. launch], version.Length > 0 ? version : L("旧版"),
+                "wsl", compatible, npm?.Command ?? [], npm?.Prefix ?? "", new(WslEnvironment), note, Distribution: distribution));
             return true;
         }
+        if (!probed) return false;
+        var (target, reason) = shell is { } found ? await WslNpmAsync(distribution, found.Mode, found.Node, null) : (null, "node");
+        InstallTargets.Add(new(id, "WSL " + distribution, target, target is not null ? "" : reason switch
+        {
+            "permission" => L("WSL {0} 的 npm 全局目录需要管理员权限，App 不使用 sudo。请在 WSL 终端运行：sudo npm install -g @konbakuyomu/smart-search@latest", distribution),
+            "npm" => L("WSL {0} 中的 Node.js 没有配套的 npm。请重新安装 Node.js，再点击“检测 WSL”。", distribution),
+            _ => L("WSL {0} 中没有找到 Node.js 18 或更新版本。请先在 WSL 中安装 Node.js，再点击“检测 WSL”。", distribution)
+        }));
         return false;
     }
+
+    // The npm of this Node.js and the prefix it installs into: an existing CLI's, or npm's global one.
+    private async Task<(NpmEnvironment? Npm, string Problem)> WslNpmAsync(string distribution, string mode, string node, string? prefix)
+    {
+        Dictionary<string, string> facts;
+        try { facts = WslFacts(await WslAsync(distribution, mode, WslNpmCheck, prefix is null ? [node] : [node, prefix])); }
+        catch (Exception error) when (error is InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception) { return (null, "npm"); }
+        if (!Version.TryParse(facts.GetValueOrDefault("node-version", ""), out var nodeVersion) || nodeVersion.Major < 18) return (null, "node");
+        var npm = facts.GetValueOrDefault("npm", "");
+        var root = facts.GetValueOrDefault("prefix", "");
+        if (!npm.StartsWith('/') || !root.StartsWith('/')) return (null, "npm");
+        if (facts.GetValueOrDefault("writable") != "1") return (null, "permission");
+        return (new(npm, node, facts.GetValueOrDefault("npm-version", ""), root, root + "/lib/node_modules",
+            [_wslPath!, "-d", distribution, "--exec", "bash", mode, WslNpmRun, "smart-search", node, npm], new(WslEnvironment), distribution), "");
+    }
+
+    private static string Sentences(params string[] parts) => string.Join(Localization.Language == "zh" ? "" : " ", parts.Where(part => part.Length > 0));
 
     internal static string? MiseToolDirectory(string packageRoot)
     {
@@ -448,7 +557,7 @@ internal sealed class CLIInstallationManager
             if (_versionLoader is not null) { version = await _versionLoader(); supportsBinary = true; }
             else
             {
-                using var metadata = JsonDocument.Parse(await CommandAsync([.. npm.Command, "view", Package + "@latest", "--json"], npm.Environment, 60));
+                using var metadata = JsonDocument.Parse(JsonText(await CommandAsync([.. npm.Command, "view", Package + "@latest", "--json"], npm.Environment, 60)));
                 version = String(metadata.RootElement, "version");
                 supportsBinary = metadata.RootElement.TryGetProperty("smartSearchBinary", out var binary) && binary.ValueKind == JsonValueKind.True;
             }
@@ -469,38 +578,46 @@ internal sealed class CLIInstallationManager
         File.Move(temporary, _stateFile, overwrite: true);
     }
 
-    internal async Task InstallOrRepairAsync(string expectedVersion)
+    // id names an installation or an install target; without one, the selected installation,
+    // or the first target that can take a CLI when nothing is installed.
+    internal async Task InstallOrRepairAsync(string expectedVersion, string? id = null)
     {
         if (Busy || Checking) return;
-        var previous = Selected;
-        await DiscoverAsync();
-        if (previous is not null && (Selected is not { } current || previous.Id != current.Id || previous.Source != current.Source ||
+        var selectedBefore = Selected?.Id;
+        id ??= selectedBefore ?? InstallTargets.FirstOrDefault(target => target.Npm is not null)?.Id;
+        var distribution = id?.StartsWith(WslIdPrefix, StringComparison.Ordinal) == true ? id[WslIdPrefix.Length..] : null;
+        var previous = Installations.FirstOrDefault(item => item.Id == id);
+        await DiscoverAsync(wslDistribution: distribution);
+        var current = Installations.FirstOrDefault(item => item.Id == id);
+        if (previous is not null && (current is null || previous.Source != current.Source ||
             previous.Version != current.Version || !previous.Manager.SequenceEqual(current.Manager) ||
             !(previous.ManagerOptions ?? []).SequenceEqual(current.ManagerOptions ?? [])))
             throw new InvalidOperationException(L("CLI 来源或版本刚刚发生变化，请重新检查后再更新。"));
-        if (!CanInstall) throw new InvalidOperationException(L("请在原管理器中更新，或选择其他安装。"));
+        var target = current is null ? InstallTargets.FirstOrDefault(item => item.Id == id)?.Npm : null;
+        if (current is not { CanManage: true } && target is null) throw new InvalidOperationException(L("请在原管理器中更新，或选择其他安装。"));
         if (!ValidVersion(expectedVersion) || expectedVersion != LatestVersion || CheckError.Length > 0) throw new InvalidOperationException(L("请先成功检查 CLI 更新。"));
         if (!LatestSupportsBinary) throw new InvalidOperationException(L("npm 上尚未发布自带运行时的 CLI，请等待新版发布后再安装。"));
         Busy = true;
         Message = L("正在通过原管理器安装或更新 CLI…");
         try
         {
-            var selected = Selected;
-            if (selected?.Source == "mise")
+            var mise = current?.Source == "mise";
+            if (mise)
             {
-                await CommandAsync([.. selected.Manager, "use", "--global", "--pin", .. selected.ManagerOptions ?? [], "npm:" + Package + "@" + expectedVersion], selected.Environment, 1800);
-                _update = _update with { SelectedId = "" };
+                await CommandAsync([.. current!.Manager, "use", "--global", "--pin", .. current.ManagerOptions ?? [], "npm:" + Package + "@" + expectedVersion], current.Environment, 1800);
+                // The new version lives in a new directory; follow it only if it was in use.
+                if (current.Id == selectedBefore) _update = _update with { SelectedId = "" };
             }
             else
-            {
-                var command = selected?.Manager ?? Npm!.Command;
-                var prefix = selected?.Prefix ?? Npm!.Prefix;
-                await CommandAsync([.. command, "install", "--global", "--prefix", prefix, "--include=optional", Package + "@" + expectedVersion], selected?.Environment ?? Npm!.Environment, 1800);
-            }
+                await CommandAsync([.. current?.Manager ?? target!.Command, "install", "--global", "--prefix", current?.Prefix ?? target!.Prefix,
+                    "--include=optional", Package + "@" + expectedVersion], current?.Environment ?? target!.Environment, 1800);
             Busy = false;
-            await DiscoverAsync();
-            if (Selected?.Version != expectedVersion || Selected?.Compatible != true) throw new InvalidOperationException(L("CLI 已安装，但运行验证未通过，请更新或修复。"));
-            Message = L("CLI 安装完成，正在重新连接。");
+            await DiscoverAsync(wslDistribution: distribution);
+            var installed = mise ? Installations.FirstOrDefault(item => item.Source == "mise") : Installations.FirstOrDefault(item => item.Id == id);
+            if (installed is not { Compatible: true } || installed.Version != expectedVersion) throw new InvalidOperationException(L("CLI 已安装，但运行验证未通过，请更新或修复。"));
+            // Installing where nothing was in use starts using it; another environment keeps the current choice.
+            if (selectedBefore is null) SelectInstallation(installed.Id);
+            Message = selectedBefore is null || installed.Id == Selected?.Id ? L("CLI 安装完成，正在重新连接。") : L("{0} 中的 CLI 已安装或更新为 {1}。", installed.Place, expectedVersion);
         }
         finally { Busy = false; }
     }
@@ -521,6 +638,8 @@ internal sealed class CLIInstallationManager
     }
 
     private static bool ValidVersion(string version) => Regex.IsMatch(version, @"^[0-9]+\.[0-9]+\.[0-9]+$");
+    // A WSL shell profile may print before npm does; npm's JSON starts on a line of its own.
+    private static string JsonText(string output) => output.StartsWith('{') || !output.Contains("\n{") ? output : output[(output.IndexOf("\n{", StringComparison.Ordinal) + 1)..];
     private static string String(JsonElement value, string name) => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String ? property.GetString() ?? "" : "";
 
     internal static async Task<string> CommandAsync(IEnumerable<string> arguments, Dictionary<string, string>? environment = null, int timeoutSeconds = 15)

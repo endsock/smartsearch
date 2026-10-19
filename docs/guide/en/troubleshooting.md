@@ -44,7 +44,7 @@ smart-search deep "深度搜索一下最近的比特币行情" --format json | C
 
 ## Using Smart Search in WSL or on Linux
 
-The App is available for Windows and macOS only. Install and configure the CLI directly in WSL or Linux (glibc 2.35+ is required, for example Ubuntu 22.04 or later); the Windows App can also connect to a CLI inside WSL, see [Windows and WSL](app.md#windows-and-wsl):
+The App is available for Windows and macOS only. Install and configure the CLI directly in WSL or Linux (glibc 2.35+ is required, for example Ubuntu 22.04 or later); the Windows App can also connect to a CLI inside WSL, and install or update it in a distribution that has Node.js, see [Windows and WSL](app.md#windows-and-wsl):
 
 ```bash
 npm install -g @konbakuyomu/smart-search@latest
