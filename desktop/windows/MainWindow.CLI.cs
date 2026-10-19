@@ -280,8 +280,10 @@ public sealed partial class MainWindow
         Exception? failure = null;
         try
         {
-            if (remove) await _cliManager.UninstallAsync();
-            else await _cliManager.InstallOrRepairAsync(_cliManager.LatestVersion, installation?.Id ?? target?.Id);
+            var operation = remove ? _cliManager.UninstallAsync() : _cliManager.InstallOrRepairAsync(_cliManager.LatestVersion, installation?.Id ?? target?.Id);
+            // The manager is busy from here on; show progress while npm runs.
+            RenderCliState();
+            await operation;
             ShowNotice(L("独立 CLI"), _cliManager.Message, InfoBarSeverity.Success);
         }
         catch (Exception error) { failure = error; }
