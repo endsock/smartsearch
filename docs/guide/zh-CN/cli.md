@@ -164,6 +164,8 @@ smart-search ui --no-browser --port 8765
 ssh -L 8765:127.0.0.1:8765 用户@主机      # 然后在本地打开打印出来的地址
 ```
 
+在 WSL 中会打开 Windows 默认浏览器；`networkingMode=mirrored` 下页面打不开时，见[在 WSL 或 Linux 上使用](troubleshooting.md#在-wsl-或-linux-上使用)。
+
 用环境变量设置的 key 会显示为锁定且不可编辑，因为环境变量在每次读取时都覆盖 `config.json`。页面会告诉你该执行哪条 `unset`。
 
 命令行的方式仍然可用：`smart-search setup`、`smart-search config set KEY VALUE`、`smart-search providers test PROVIDER`。

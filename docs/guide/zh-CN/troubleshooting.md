@@ -33,6 +33,30 @@ Windows npm/mise 安装后建议验证中文 JSON 管道：
 smart-search deep "深度搜索一下最近的比特币行情" --format json | ConvertFrom-Json
 ```
 
+## 在 WSL 或 Linux 上使用
+
+App 目前只有 Windows 和 macOS 版，Windows 版也还不能管理 WSL 里的 CLI。在 WSL 或 Linux 中直接安装和配置 CLI（需要 glibc 2.35+，例如 Ubuntu 22.04 及以上）：
+
+```bash
+npm install -g @konbakuyomu/smart-search@latest
+smart-search setup                                # 或用 smart-search ui 打开网页配置页
+smart-search skills update --targets claude,codex
+```
+
+WSL 的配置（`~/.config/smart-search`）和 Skills（例如 `~/.claude/skills`）与 Windows 上的 App 分开保存。运行在 WSL 里的 Agent 只读取 WSL 这一份，所以 Key 和 Skills 要在 WSL 里各配一次。
+
+在 WSL 中运行 `smart-search ui` 会用 `wslview` 或 `explorer.exe` 打开 Windows 默认浏览器；设置了 `BROWSER` 时按 `BROWSER` 打开。WSL 默认的 NAT 网络模式会把 `127.0.0.1` 转发给 Windows。`.wslconfig` 设置 `networkingMode=mirrored` 时，Hyper-V 防火墙默认拦截从 Windows 进入 WSL 的连接，页面会一直加载不出来。这时在 WSL 中固定端口：
+
+```bash
+smart-search ui --port 8765
+```
+
+再按[微软文档](https://learn.microsoft.com/windows/wsl/networking#mirrored-mode-networking)在管理员 PowerShell 中放行这个端口：
+
+```powershell
+New-NetFirewallHyperVRule -Name SmartSearchUI -DisplayName "Smart Search UI" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 8765
+```
+
 ## CLI 包已升级，但提示运行环境未就绪
 
 新版 npm CLI 不依赖安装脚本或系统 Python。缺少平台运行包时，使用同一 npm 执行 `npm install -g @konbakuyomu/smart-search@latest --include=optional`，再重新检测；不要使用 `--omit=optional`。手动指定 npm 时，确认同目录有配套 Node.js，且全局 prefix 可写。旧版 npm 0.1.24 需要等待新的二进制版本发布后更新。

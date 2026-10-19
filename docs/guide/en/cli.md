@@ -171,6 +171,8 @@ smart-search ui --no-browser --port 8765
 ssh -L 8765:127.0.0.1:8765 user@host      # then open the printed URL locally
 ```
 
+In WSL the Windows default browser opens instead. If the page does not load under `networkingMode=mirrored`, see [Using Smart Search in WSL or on Linux](troubleshooting.md#using-smart-search-in-wsl-or-on-linux).
+
 A key set through an environment variable shows as locked and cannot be edited from the page, because environment variables override `config.json` on every read. The page tells you which `unset` to run.
 
 The CLI equivalents remain: `smart-search setup`, `smart-search config set KEY VALUE`, and `smart-search providers test PROVIDER`.
