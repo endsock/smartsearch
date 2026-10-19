@@ -10,6 +10,8 @@ public sealed partial class MainWindow
 {
     private ContentControl? _nativeCliState;
     private bool _cliFirstStep;
+    // Set while the App installs, updates or removes a CLI; the manager's lists are rebuilt meanwhile.
+    private string? _cliOperation;
     private bool CliBlocked => _cliManager.Busy || _cliManager.Checking || AppInstallBlocked;
 
     private ContentControl BuildNativeCliPanel(bool firstStep = false)
@@ -24,6 +26,14 @@ public sealed partial class MainWindow
     {
         if (_nativeCliState is null) return;
         var state = new StackPanel { Spacing = 12 };
+        var title = _cliFirstStep ? L("1. 准备本地环境") : L("本地环境");
+        if (_cliOperation is { } operation)
+        {
+            state.Children.Add(StepHeader(title, operation, ActionButton(L("环境详情…"), ShowCliSettingsAsync)));
+            state.Children.Add(new ProgressBar { IsIndeterminate = true });
+            _nativeCliState.Content = state;
+            return;
+        }
         var actions = new List<UIElement>();
         // With nothing installed, offer every environment that can take a CLI: Windows and each probed WSL distribution.
         var targets = _cliManager.Selected is null ? _cliManager.InstallTargets.Where(target => target.Npm is not null).ToList() : [];
@@ -45,7 +55,7 @@ public sealed partial class MainWindow
             actions.Add(new HyperlinkButton { Content = L("手动下载 CLI"), NavigateUri = new Uri("https://github.com/konbakuyomu/smartsearch/releases/latest") });
             actions.Add(ActionButton(L("选择已有 CLI…"), ChooseCliAsync, enabled: () => !CliBlocked));
         }
-        state.Children.Add(StepHeader(_cliFirstStep ? L("1. 准备本地环境") : L("本地环境"), CliStatus(), actions.ToArray()));
+        state.Children.Add(StepHeader(title, CliStatus(), actions.ToArray()));
         state.Children.Add(Secondary(CliExplanation()));
         if (_cliManager.Checking || _cliManager.Busy) state.Children.Add(new ProgressBar { IsIndeterminate = true });
         if (_cliManager.Message.Length > 0 && CliExplanation() != _cliManager.Message) state.Children.Add(Secondary(_cliManager.Message));
@@ -270,6 +280,7 @@ public sealed partial class MainWindow
         // Installing into another environment leaves the current connection alone.
         var reconnect = _cliManager.Selected is null || installation?.Id == _cliManager.Selected.Id;
         _managingCLI = true;
+        _cliOperation = remove ? L("正在卸载 CLI…") : L("正在通过原管理器安装或更新 CLI…");
         if (reconnect)
         {
             _activityTimer.Stop();
@@ -280,14 +291,12 @@ public sealed partial class MainWindow
         Exception? failure = null;
         try
         {
-            var operation = remove ? _cliManager.UninstallAsync() : _cliManager.InstallOrRepairAsync(_cliManager.LatestVersion, installation?.Id ?? target?.Id);
-            // The manager is busy from here on; show progress while npm runs.
-            RenderCliState();
-            await operation;
+            if (remove) await _cliManager.UninstallAsync();
+            else await _cliManager.InstallOrRepairAsync(_cliManager.LatestVersion, installation?.Id ?? target?.Id);
             ShowNotice(L("独立 CLI"), _cliManager.Message, InfoBarSeverity.Success);
         }
         catch (Exception error) { failure = error; }
-        finally { _managingCLI = false; }
+        finally { _managingCLI = false; _cliOperation = null; }
         if (reconnect) await ConnectAsync();
         else RenderCurrentPage();
         if (failure is not null) ShowNotice(L("CLI 操作未完成"), SafeMessage(failure), InfoBarSeverity.Error);
