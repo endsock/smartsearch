@@ -382,6 +382,24 @@ CONFIG_FIELDS: tuple[ConfigField, ...] = (
        label_zh="TinyFish 超时（秒）", label_en="TinyFish timeout (seconds)",
        default="150", provider="tinyfish", capabilities=("web_search", "web_fetch")),
 
+    # ---- providers: DeepSeek ----------------------------------------------
+    _f(key="DEEPSEEK_API_KEY", section="providers", tier="enhancement", kind="secret",
+       label_zh="DeepSeek API Key", label_en="DeepSeek API key",
+       help_zh="与 DeepSeek 模型 API 共用 Key，一个 Key 支持网页搜索和抓取；按成功请求次数计费。测试会各发起一次真实请求。",
+       help_en="The same key as the DeepSeek model API; one key enables web search and page fetching. Billed per successful request. Testing makes one real request for each capability.",
+       provider="deepseek", capabilities=("web_search", "web_fetch"),
+       key_url="https://platform.deepseek.com/api_keys", docs_url="https://api-docs.deepseek.com/guides/search"),
+    _f(key="DEEPSEEK_API_URL", section="providers", tier="advanced", kind="url",
+       help_zh="DeepSeek API 基础地址，程序会自动拼接 /v1/tools/search 和 /v1/tools/fetch；使用官方服务时保留默认值。",
+       help_en="DeepSeek API base URL. /v1/tools/search and /v1/tools/fetch are appended automatically; keep the default for the official service.",
+       label_zh="DeepSeek 地址", label_en="DeepSeek API URL",
+       default="https://api.deepseek.com", provider="deepseek", capabilities=("web_search", "web_fetch")),
+    _f(key="DEEPSEEK_TIMEOUT_SECONDS", section="providers", tier="advanced", kind="float",
+       help_zh="等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。",
+       help_en="Maximum seconds to wait for one response from this service. A timeout returns an error or uses the configured fallback; normally leave the default.",
+       label_zh="DeepSeek 超时（秒）", label_en="DeepSeek timeout (seconds)",
+       default="60", provider="deepseek", capabilities=("web_search", "web_fetch")),
+
     # ---- providers: AnySearch ---------------------------------------------
     _f(key="ANYSEARCH_API_KEY", section="providers", tier="enhancement", kind="secret",
        label_zh="AnySearch API Key", label_en="AnySearch API key",

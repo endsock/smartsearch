@@ -162,6 +162,8 @@ class ChannelExecutor:
                 content = _check_data(await svc.zhipu_mcp_reader(url)).get("content")
             elif provider == "tinyfish":
                 content = _check_data(await svc.call_tinyfish_fetch(url)).get("content")
+            elif provider == "deepseek":
+                content = await svc.call_deepseek_fetch(url)
             else:
                 raise ProviderCallError("parameter_error", source_message('Unsupported fetch channel'))
             results = [{"url": url, "content": content}]
@@ -177,6 +179,8 @@ class ChannelExecutor:
             results = await svc.call_firecrawl_search(query, self.count) or []
         elif provider == "tinyfish":
             results = await svc.call_tinyfish_search(query, self.count) or []
+        elif provider == "deepseek":
+            results = await svc.call_deepseek_search(query, self.count) or []
         elif provider == "anysearch":
             results = _check_data(await svc.anysearch_search(query, max_results=self.count)).get("results", [])
         elif provider == "context7":

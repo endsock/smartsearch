@@ -627,6 +627,7 @@ def _format_doctor_markdown(data: dict[str, Any]) -> str:
         ("jina", data.get("jina_connection_test") or {}),
         ("firecrawl", data.get("firecrawl_connection_test") or {}),
         ("tinyfish", data.get("tinyfish_connection_test") or {}),
+        ("deepseek", data.get("deepseek_connection_test") or {}),
         ("zhipu", data.get("zhipu_connection_test") or {}),
         ("zhipu-mcp", data.get("zhipu_mcp_connection_test") or {}),
         ("context7", data.get("context7_connection_test") or {}),
@@ -1478,6 +1479,7 @@ def _display_provider(provider: str, lang: str) -> str:
         "tavily": "Tavily",
         "firecrawl": "Firecrawl",
         "tinyfish": "TinyFish",
+        "deepseek": "DeepSeek",
         "anysearch": "AnySearch",
         "sciverse": "Sciverse",
     }
@@ -2078,7 +2080,7 @@ def _prompt_web_fetch(values: dict[str, str], current: dict[str, str], lang: str
             "选择 web_fetch provider",
             "Choose web_fetch providers",
         ),
-        ["tavily", "jina", "firecrawl", "tinyfish"],
+        ["tavily", "jina", "firecrawl", "tinyfish", "deepseek"],
         default_selected,
         lang,
     )
@@ -2108,6 +2110,13 @@ def _prompt_web_fetch(values: dict[str, str], current: dict[str, str], lang: str
             "TINYFISH_API_KEY",
             "TinyFish API key",
             current.get("TINYFISH_API_KEY", ""),
+            lang=lang,
+        )
+    if "deepseek" in selected:
+        values["DEEPSEEK_API_KEY"] = _prompt_value(
+            "DEEPSEEK_API_KEY",
+            "DeepSeek API key",
+            current.get("DEEPSEEK_API_KEY", ""),
             lang=lang,
         )
 
@@ -2347,6 +2356,9 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("TINYFISH_SEARCH_API_URL", "TinyFish Search API URL", True),
         ("TINYFISH_FETCH_API_URL", "TinyFish Fetch API URL", True),
         ("TINYFISH_TIMEOUT_SECONDS", "TinyFish timeout seconds", True),
+        ("DEEPSEEK_API_KEY", "DeepSeek API key", True),
+        ("DEEPSEEK_API_URL", "DeepSeek API URL", True),
+        ("DEEPSEEK_TIMEOUT_SECONDS", "DeepSeek timeout seconds", True),
         ("ANYSEARCH_API_URL", "AnySearch MCP API URL", True),
         ("ANYSEARCH_API_KEY", "AnySearch API key", True),
         ("ANYSEARCH_TIMEOUT_SECONDS", "AnySearch timeout seconds", True),
@@ -2370,7 +2382,7 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
             value = _normalize_custom_base_url(value)
         elif key == "SCIVERSE_API_URL":
             value = _normalize_custom_base_url(value)
-        elif key in {"TINYFISH_SEARCH_API_URL", "TINYFISH_FETCH_API_URL"}:
+        elif key in {"TINYFISH_SEARCH_API_URL", "TINYFISH_FETCH_API_URL", "DEEPSEEK_API_URL"}:
             value = _normalize_custom_base_url(value)
         values[key] = value
 
@@ -2775,6 +2787,9 @@ def _run_setup(args: argparse.Namespace) -> int:
         "TINYFISH_SEARCH_API_URL": _normalize_custom_base_url(args.tinyfish_search_api_url),
         "TINYFISH_FETCH_API_URL": _normalize_custom_base_url(args.tinyfish_fetch_api_url),
         "TINYFISH_TIMEOUT_SECONDS": args.tinyfish_timeout,
+        "DEEPSEEK_API_KEY": args.deepseek_key,
+        "DEEPSEEK_API_URL": _normalize_custom_base_url(args.deepseek_api_url),
+        "DEEPSEEK_TIMEOUT_SECONDS": args.deepseek_timeout,
         "ANYSEARCH_API_URL": _normalize_custom_base_url(args.anysearch_api_url),
         "ANYSEARCH_API_KEY": args.anysearch_key,
         "ANYSEARCH_TIMEOUT_SECONDS": args.anysearch_timeout,
@@ -2885,6 +2900,7 @@ def _run_regression() -> int:
         "tests/test_jina_provider.py",
         "tests/test_tinyfish_provider.py",
         "tests/test_tinyfish_service.py",
+        "tests/test_deepseek_provider.py",
         "tests/test_zhipu_mcp_provider.py",
         "tests/test_smoke.py",
         "tests/test_intent_router.py",
@@ -3484,6 +3500,9 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--tinyfish-search-api-url", default="", help="Save TINYFISH_SEARCH_API_URL.")
     setup_parser.add_argument("--tinyfish-fetch-api-url", default="", help="Save TINYFISH_FETCH_API_URL.")
     setup_parser.add_argument("--tinyfish-timeout", default="", help="Save TINYFISH_TIMEOUT_SECONDS.")
+    setup_parser.add_argument("--deepseek-key", default="", help="Save DEEPSEEK_API_KEY.")
+    setup_parser.add_argument("--deepseek-api-url", default="", help="Save DEEPSEEK_API_URL.")
+    setup_parser.add_argument("--deepseek-timeout", default="", help="Save DEEPSEEK_TIMEOUT_SECONDS.")
     setup_parser.add_argument("--anysearch-api-url", default="", help="Save ANYSEARCH_API_URL.")
     setup_parser.add_argument("--anysearch-key", default="", help="Save ANYSEARCH_API_KEY.")
     setup_parser.add_argument("--anysearch-timeout", default="", help="Save ANYSEARCH_TIMEOUT_SECONDS.")

@@ -113,6 +113,20 @@ PROVIDER_DESCRIPTIONS: dict[str, dict[str, dict[str, str]]] = {
             "guidance_zh": "擅长读取已找到的页面；不适合发现新来源或执行浏览器自动化。",
         },
     },
+    "deepseek": {
+        "search": {
+            "en": "Searches the web with DeepSeek's own search engine and returns linked results with long query-focused summaries.",
+            "zh": "通过 DeepSeek 自研搜索引擎检索网页，返回链接和与问题相关的长摘要。",
+            "guidance_en": "Best for broad web and Chinese-language source discovery; summaries are not full page text, so read key pages before citing them. Queries longer than 128 characters are shortened.",
+            "guidance_zh": "擅长广泛发现网页和中文来源；摘要不是网页全文，引用关键结论前应读取原页。超过 128 个字符的查询会被截短。",
+        },
+        "fetch": {
+            "en": "Fetches a known URL as markdown through DeepSeek Fetch.",
+            "zh": "通过 DeepSeek Fetch 将已知链接读取为 Markdown。",
+            "guidance_en": "Best for reading public pages already found; unsuitable for source discovery, login-only pages or private network addresses.",
+            "guidance_zh": "擅长读取已找到的公开页面；不适合发现新来源、读取需登录的页面或内网地址。",
+        },
+    },
     "anysearch": {
         "search": {
             "en": "Searches AnySearch's available domains with a plain query.",

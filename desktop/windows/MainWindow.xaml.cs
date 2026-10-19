@@ -1551,7 +1551,7 @@ public sealed partial class MainWindow : Window
     private static string ProviderLabel(string provider) => provider switch
     {
         "openai-compatible" => L("OpenAI 兼容接口"), "xai-responses" => "xAI", "exa" => "Exa",
-        "context7" => "Context7", "tavily" => "Tavily", "jina" => "Jina", "firecrawl" => "Firecrawl",
+        "context7" => "Context7", "tavily" => "Tavily", "jina" => "Jina", "firecrawl" => "Firecrawl", "deepseek" => "DeepSeek",
         "zhipu" => L("智谱"), "zhipu-mcp" => L("智谱 Coding Plan"), "zhipu-mcp-reader" => L("智谱网页阅读"),
         "anysearch" => L("AnySearch · 实验性"), "sciverse" => L("SciVerse · 实验性"), _ => provider
     };

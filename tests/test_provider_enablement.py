@@ -17,6 +17,7 @@ PROVIDERS = [
     ("tavily", "TAVILY_ENABLED", "TAVILY_API_KEY", "web_fetch"),
     ("firecrawl", "FIRECRAWL_ENABLED", "FIRECRAWL_API_KEY", "web_fetch"),
     ("tinyfish", "TINYFISH_ENABLED", "TINYFISH_API_KEY", "web_fetch"),
+    ("deepseek", "DEEPSEEK_ENABLED", "DEEPSEEK_API_KEY", "web_fetch"),
     ("jina", "JINA_ENABLED", "JINA_API_KEY", "web_fetch"),
     ("anysearch", "ANYSEARCH_ENABLED", "ANYSEARCH_API_KEY", "vertical_search"),
     ("sciverse", "SCIVERSE_ENABLED", "SCIVERSE_API_TOKEN", "vertical_search"),
