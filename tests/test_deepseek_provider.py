@@ -161,3 +161,16 @@ async def test_connection_test_probes_search_and_fetch(monkeypatch):
 
     FakeDeepSeekClient.responses["search"] = _response("search", {"error": {"message": "bad key"}}, 401)
     assert (await service.test_provider_connection("deepseek"))["status"] == "auth_error"
+
+
+def test_docs_questions_use_web_search_when_no_docs_channel_is_configured(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "ds-secret")
+    query = "React useEffect API 清理函数"
+    assert service.build_rules_route(query, mode="rules").docs_intent
+
+    selected = jev_search.fallback_channels(service, query, jev_search.available_channels(service, query, []), 1)
+    assert [item["id"] for item in selected] == ["deepseek:search"]
+
+    monkeypatch.setenv("CONTEXT7_API_KEY", "c7-secret")
+    selected = jev_search.fallback_channels(service, query, jev_search.available_channels(service, query, []), 1)
+    assert [item["provider"] for item in selected] == ["context7"]

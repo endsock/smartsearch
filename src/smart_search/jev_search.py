@@ -89,9 +89,13 @@ def fallback_channels(svc: Any, query: str, candidates: list[dict], limit: int, 
         if reading:
             order = svc._research_fetch_order(query, reading[0]["url"])
             return sorted(reading, key=lambda item: order.index(item["provider"]) if item["provider"] in order else len(order))[:limit]
+    allowed = []
     if rule.docs_intent:
         allowed = [item for item in candidates if item["operation"] == "search" and item["capability"] == "docs_search"]
-    else:
+    # With no docs channel configured, a docs question still gets general web
+    # discovery instead of no channel at all. Failure fallback passes only
+    # same-family candidates, so this cannot cross a capability boundary.
+    if not allowed:
         allowed = [item for item in candidates if item["operation"] == "search" and
                    (item["capability"] in {"main_search", "web_search"} or item["provider"] == "exa" or
                     item["capability"] in rule.required_capabilities)]

@@ -123,8 +123,8 @@ PROVIDER_DESCRIPTIONS: dict[str, dict[str, dict[str, str]]] = {
         "fetch": {
             "en": "Fetches a known URL as markdown through DeepSeek Fetch.",
             "zh": "通过 DeepSeek Fetch 将已知链接读取为 Markdown。",
-            "guidance_en": "Best for reading public pages already found; unsuitable for source discovery, login-only pages or private network addresses.",
-            "guidance_zh": "擅长读取已找到的公开页面；不适合发现新来源、读取需登录的页面或内网地址。",
+            "guidance_en": "Best for reading public web pages already found; unsuitable for source discovery, PDF files, login-only pages or private network addresses.",
+            "guidance_zh": "擅长读取已找到的公开网页；不适合发现新来源，也读不了 PDF、需登录的页面或内网地址。",
         },
     },
     "anysearch": {
