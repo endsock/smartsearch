@@ -146,7 +146,14 @@ public sealed partial class MainWindow : Window
             ShowNotice(L("本机偏好"), L("无法读取已保存的显示偏好，已使用默认设置。原配置文件未修改。"), InfoBarSeverity.Warning);
     }
 
-    private async Task ConnectAsync()
+    private Task ConnectAsync() => ConnectWithAsync(includeStoppedWsl: false);
+
+    // Starting a stopped WSL distribution takes seconds, so only an explicit request probes those.
+    private Task DetectWslAsync() => ConnectWithAsync(includeStoppedWsl: true);
+
+    private bool ConnectedToWsl => _backend.Installation?.InWsl == true;
+
+    private async Task ConnectWithAsync(bool includeStoppedWsl)
     {
         if (_connecting || _managingCLI || EnvironmentBusy || _operations.IsBusy("updates-cli") || Text(Property(_updates, "cli_update"), "status") == "running") return;
         _connecting = true;
@@ -156,7 +163,7 @@ public sealed partial class MainWindow : Window
         {
             if (!_backend.UsesExplicitBackend)
             {
-                await _cliManager.DiscoverAsync();
+                await _cliManager.DiscoverAsync(includeStoppedWsl);
                 _backend.Installation = _cliManager.Selected;
                 if (_backend.Installation?.Compatible != true)
                 {
@@ -1670,7 +1677,8 @@ public sealed partial class MainWindow : Window
 
     private IReadOnlyList<string> ActivityDirectories()
     {
-        var directories = _extraActivityDirectories.ToList();
+        // Saved extra folders are Windows paths; a CLI inside WSL rejects them.
+        var directories = ConnectedToWsl ? new List<string>() : _extraActivityDirectories.ToList();
         var current = Text(_state, "config_dir", Text(_state, "config_path"));
         if (!string.IsNullOrWhiteSpace(current) && !directories.Contains(current, StringComparer.OrdinalIgnoreCase))
             directories.Insert(0, current);

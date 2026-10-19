@@ -5,9 +5,27 @@ Console.OutputEncoding = new System.Text.UTF8Encoding(false);
 if (args[0] == "--discover")
 {
     var live = new CLIInstallationManager(Path.GetFullPath(args[1]));
-    await live.DiscoverAsync();
+    await live.DiscoverAsync(includeStoppedWsl: args.Contains("--include-stopped-wsl"));
     Console.WriteLine(JsonSerializer.Serialize(new { live.Message, npm = live.Npm?.NpmPath, selected = live.Selected?.Id,
-        installations = live.Installations.Select(item => new { item.Id, item.Source, item.Version, item.Compatible, item.CanManage, item.Note }) }));
+        wsl = live.WslDistributions, stopped = live.StoppedWslDistributions,
+        installations = live.Installations.Select(item => new { item.Id, item.Title, item.Source, item.Version, item.Compatible, item.CanManage, item.Note, item.Arguments }) }));
+    return;
+}
+// The same executable doubles as a fake wsl.exe: listing, running state and the probe's single JSON line.
+if (Environment.GetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE") is { } wslFixture && args[0] is "--list" or "-d")
+{
+    if (args[0] == "--list") { Console.Write(args.Contains("--running") ? "Debian\r\nOld\r\n" : "Ubuntu-24.04\r\ndocker-desktop\r\nDebian\r\nOld\r\n"); return; }
+    var (distribution, mode) = (args[1], args[^2]);
+    File.AppendAllText(Path.Combine(wslFixture, "wsl-probes.txt"), distribution + " " + mode + "\n");
+    if (args[2] != "--exec" || args[3] != "bash" || !args[^1].Contains("--desktop-capabilities")) Environment.Exit(9);
+    Console.WriteLine("profile noise {");
+    Console.WriteLine((distribution, mode) switch
+    {
+        ("Debian", "-lc") => """{"product":"smart-search","version":"1.2.3","desktop_protocol_version":1,"launch_command":["/usr/bin/node","/usr/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]}""",
+        ("Ubuntu-24.04", "-ic") => """{"product":"smart-search","version":"1.2.4","desktop_protocol_version":1,"launch_command":["/home/u/.nvm/versions/node/v22.0.0/bin/node","/home/u/.nvm/versions/node/v22.0.0/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]}""",
+        ("Old", _) => """{"product":"smart-search","legacy":true}""",
+        _ => """{"missing":true}"""
+    });
     return;
 }
 var miseInstall = Path.Combine("mise", "installs", "npm-konbakuyomu-smart-search", "1.2.3");
@@ -139,10 +157,46 @@ finally
     Environment.SetEnvironmentVariable("SMART_SEARCH_MISE_FIXTURE", null);
     Environment.SetEnvironmentVariable("MISE_GLOBAL_CONFIG_FILE", oldGlobal);
 }
+var fakeWsl = Path.Combine(fakeBin, "wsl.exe");
+File.Copy(Path.Combine(AppContext.BaseDirectory, "CLIManagementCheck.exe"), fakeWsl, overwrite: true);
+var probes = Path.Combine(root, "wsl-probes.txt");
+try
+{
+    Environment.SetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE", root);
+    var wslOnly = new CLIInstallationManager(Path.Combine(root, "wsl state"), "", Load, wslPath: fakeWsl);
+    await wslOnly.DiscoverAsync();
+    Check(wslOnly.Installations.Select(item => item.Id).SequenceEqual(["wsl://Debian", "wsl://Old"]), "Probe only running distributions: " + JsonSerializer.Serialize(wslOnly.Installations.Select(item => item.Id)));
+    Check(!File.ReadAllText(probes).Contains("Ubuntu") && !File.ReadAllText(probes).Contains("docker"), "Never start a stopped or Docker distribution on ordinary discovery");
+    Check(wslOnly.StoppedWslDistributions.SequenceEqual(["Ubuntu-24.04"]) && wslOnly.WslDistributions.Count == 3, "Report stopped distributions without probing them");
+    Check(wslOnly.Selected is { Id: "wsl://Debian", Compatible: true, CanManage: false, InWsl: true } debian &&
+        debian.Executable == fakeWsl && debian.Arguments.SequenceEqual(["-d", "Debian", "--exec", "/usr/bin/node", "/usr/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]) &&
+        debian.Environment["WSL_UTF8"] == "1" && debian.Title == "WSL Debian · 1.2.3", "Use the only CLI found, in WSL, launched without a shell");
+    Check(wslOnly.Installations.Single(item => item.Id == "wsl://Old") is { Compatible: false, Note.Length: > 0 }, "An old CLI in WSL is shown as needing an update, not hidden");
+    File.Delete(probes);
+    await wslOnly.DiscoverAsync(includeStoppedWsl: true);
+    Check(wslOnly.Installations.Single(item => item.Id == "wsl://Ubuntu-24.04") is { Version: "1.2.4", Compatible: true } &&
+        File.ReadAllText(probes).Contains("Ubuntu-24.04 -lc") && File.ReadAllText(probes).Contains("Ubuntu-24.04 -ic"), "Explicit detection starts stopped distributions and falls back to an interactive shell for nvm");
+    wslOnly.SelectInstallation("wsl://Ubuntu-24.04");
+    File.Delete(probes);
+    var restoredWsl = new CLIInstallationManager(Path.Combine(root, "wsl state"), "", Load, wslPath: fakeWsl);
+    await restoredWsl.DiscoverAsync();
+    Check(restoredWsl.Selected is { Id: "wsl://Ubuntu-24.04", Compatible: true } && File.ReadAllText(probes).Contains("Ubuntu-24.04"), "A chosen stopped distribution is reconnected");
+    var both = new CLIInstallationManager(Path.Combine(root, "both state"), first, Load, wslPath: fakeWsl);
+    await both.DiscoverAsync();
+    Check(both.Selected is { InWsl: false } && both.Installations.Any(item => item.InWsl), "A first run with both keeps the Windows CLI and lists WSL");
+    File.Delete(probes);
+    both.SetNpmPath(Path.Combine(first, "npm.cmd"));
+    await both.DiscoverAsync();
+    Check(!File.Exists(probes) && both.Installations.All(item => !item.InWsl), "A manual npm path does not reach into WSL");
+    var noWsl = new CLIInstallationManager(Path.Combine(root, "no wsl state"), "", Load, wslPath: Path.Combine(root, "missing", "wsl.exe"));
+    await noWsl.DiscoverAsync(includeStoppedWsl: true);
+    Check(!noWsl.WslAvailable && noWsl.Installations.Count == 0, "No wsl.exe means no WSL entries");
+}
+finally { Environment.SetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE", null); }
 Check(CLIInstallationManager.MiseOptions("version = \"1.2.3\"\npostinstall = \"custom\"", "1.2.3") is null, "Complex mise options are read-only");
 Check(CLIInstallationManager.MiseOptions("version = \"^1\"", "^1") is null, "Do not broaden mise constraints");
 Check(CLIInstallationManager.MiseToolDirectory(misePackage) == Path.Combine(root, "mise", "installs", "npm-konbakuyomu-smart-search"), "Recognize versioned mise tool directories");
 Check(CLIInstallationManager.MiseToolDirectory(@"C:\x\node_modules\@konbakuyomu\smart-search") is null, "Global npm prefixes are not mise tools");
 Check(CLIInstallationManager.MiseToolDirectory(@"C:\x\smart-search.exe") is null, "Manual CLI paths are not mise tools");
-Console.WriteLine("PASS: npm/mise discovery and ownership, multiple installations, legacy isolation, explicit selection, startup/24h checks, failure backoff and persistence");
+Console.WriteLine("PASS: npm/mise/WSL discovery and ownership, multiple installations, legacy isolation, explicit selection, startup/24h checks, failure backoff and persistence");
 static void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }

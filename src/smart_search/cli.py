@@ -3581,6 +3581,18 @@ def _main(argv: list[str] | None = None) -> int:
         return EXIT_RUNTIME_ERROR
 
 
+def _desktop_launch_command() -> list[str]:
+    """Argv that starts this same CLI without a shell, e.g. inside WSL from the Windows App."""
+    package_root = os.environ.get("SMART_SEARCH_PACKAGE_ROOT", "")
+    node = os.environ.get("SMART_SEARCH_NODE_PATH", "")
+    wrapper = Path(package_root) / "npm" / "bin" / "smart-search.js"
+    if package_root and node and wrapper.is_file():
+        return [node, str(wrapper)]
+    if getattr(sys, "frozen", False):
+        return [sys.executable]
+    return [sys.executable, "-m", "smart_search.cli"]
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments == ["--desktop-backend"]:
@@ -3588,7 +3600,8 @@ def main(argv: list[str] | None = None) -> int:
         return desktop_main()
     if arguments == ["--desktop-capabilities"]:
         print(json.dumps({"product": "smart-search", "version": _get_version(), "activity_protocol_version": 1,
-                          "desktop_protocol_version": 1, "skills_protocol_version": 1}))
+                          "desktop_protocol_version": 1, "skills_protocol_version": 1,
+                          "launch_command": _desktop_launch_command()}))
         return EXIT_OK
     try:
         arguments, language, warning = _command_language(arguments)

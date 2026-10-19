@@ -35,7 +35,7 @@ smart-search deep "深度搜索一下最近的比特币行情" --format json | C
 
 ## 在 WSL 或 Linux 上使用
 
-App 目前只有 Windows 和 macOS 版，Windows 版也还不能管理 WSL 里的 CLI。在 WSL 或 Linux 中直接安装和配置 CLI（需要 glibc 2.35+，例如 Ubuntu 22.04 及以上）：
+App 只有 Windows 和 macOS 版。在 WSL 或 Linux 中直接安装和配置 CLI（需要 glibc 2.35+，例如 Ubuntu 22.04 及以上）；Windows 版 App 也可以连接 WSL 里的 CLI，见 [Windows 本机和 WSL](app.md#windows-本机和-wsl)：
 
 ```bash
 npm install -g @konbakuyomu/smart-search@latest
@@ -43,7 +43,7 @@ smart-search setup                                # 或用 smart-search ui 打�
 smart-search skills update --targets claude,codex
 ```
 
-WSL 的配置（`~/.config/smart-search`）和 Skills（例如 `~/.claude/skills`）与 Windows 上的 App 分开保存。运行在 WSL 里的 Agent 只读取 WSL 这一份，所以 Key 和 Skills 要在 WSL 里各配一次。
+WSL 的配置（`~/.config/smart-search`）和 Skills（例如 `~/.claude/skills`）与 Windows 上的 App 分开保存。运行在 WSL 里的 Agent 只读取 WSL 这一份，所以 Key 和 Skills 要在 WSL 里各配一次；用 Windows App 管理时，先在“环境详情…”选择 WSL 的安装。
 
 在 WSL 中运行 `smart-search ui` 会用 `wslview` 或 `explorer.exe` 打开 Windows 默认浏览器；设置了 `BROWSER` 时按 `BROWSER` 打开。WSL 默认的 NAT 网络模式会把 `127.0.0.1` 转发给 Windows。`.wslconfig` 设置 `networkingMode=mirrored` 时，Hyper-V 防火墙默认拦截从 Windows 进入 WSL 的连接，页面会一直加载不出来。这时在 WSL 中固定端口：
 

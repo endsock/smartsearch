@@ -57,6 +57,16 @@ Extract the complete standalone ZIP, then choose **Select existing CLI…** in O
 
 Skills synced from a manual CLI include its full invocation path and configuration directory, with instructions to replace the bare `smart-search` command. No PATH is changed. In the Agent, use that full invocation with `--version`, then `agent-guide`. Skill file status and actual Agent invocation are separate checks.
 
+### Windows and WSL
+
+The Windows App can also connect to a CLI inside WSL. Both can be installed at the same time; the App connects to one of them, and manages that side's configuration, Skills and activity. Agents running on Windows use the Windows copy, and Agents running in WSL use the WSL copy.
+
+- Running distributions are detected automatically. Stopped distributions are only listed and never started; **Detect WSL** in **Environment details…** starts them to look for the CLI (a cold start takes a few seconds).
+- A detected installation appears as "WSL distribution · version" in the same list as Windows installations; select it and choose **Use selected installation**. The App reconnects to the last selected side on later launches, and only reports a problem if that side becomes unavailable instead of switching to the other one.
+- With both available and no previous choice, the App connects to Windows. While connected to WSL, Overview shows "WSL distribution".
+- The App only connects to a CLI in WSL; install, update or remove it from a WSL terminal with the tool you used. The CLI in WSL must be released together with this App version or later; older versions are shown as needing an update.
+- The App finds `smart-search` with a login shell (`bash -lc`), then an interactive shell (`bash -ic`, for nvm), and afterwards starts it directly without a shell or a network connection. While connected to WSL the folder picker cannot change the configuration directory; set `SMART_SEARCH_CONFIG_DIR` in WSL instead.
+
 ## Everyday pages
 
 | Page | Use it to |

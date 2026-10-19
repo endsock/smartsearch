@@ -44,7 +44,7 @@ smart-search deep "深度搜索一下最近的比特币行情" --format json | C
 
 ## Using Smart Search in WSL or on Linux
 
-The App is available for Windows and macOS only, and the Windows App cannot manage a CLI inside WSL yet. Install and configure the CLI directly in WSL or Linux (glibc 2.35+ is required, for example Ubuntu 22.04 or later):
+The App is available for Windows and macOS only. Install and configure the CLI directly in WSL or Linux (glibc 2.35+ is required, for example Ubuntu 22.04 or later); the Windows App can also connect to a CLI inside WSL, see [Windows and WSL](app.md#windows-and-wsl):
 
 ```bash
 npm install -g @konbakuyomu/smart-search@latest
@@ -52,7 +52,7 @@ smart-search setup                                # or open the web config page 
 smart-search skills update --targets claude,codex
 ```
 
-WSL keeps its own configuration (`~/.config/smart-search`) and Skills (for example `~/.claude/skills`), separate from the App on Windows. Agents running in WSL read only the WSL copy, so set up keys and Skills inside WSL as well.
+WSL keeps its own configuration (`~/.config/smart-search`) and Skills (for example `~/.claude/skills`), separate from the App on Windows. Agents running in WSL read only the WSL copy, so set up keys and Skills inside WSL as well; to manage them from the Windows App, select the WSL installation in **Environment details…** first.
 
 In WSL, `smart-search ui` opens the Windows default browser through `wslview` or `explorer.exe`, or through `BROWSER` when it is set. WSL's default NAT networking forwards `127.0.0.1` to Windows. With `networkingMode=mirrored` in `.wslconfig`, the Hyper-V firewall blocks connections from Windows into WSL by default and the page never loads. In that case, fix the port in WSL:
 

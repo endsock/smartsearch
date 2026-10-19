@@ -7,10 +7,11 @@ namespace SmartSearch.Desktop;
 
 internal sealed record CLIInstallation(string Id, string Executable, string[] Arguments, string Version, string Source,
     bool Compatible, string[] Manager, string Prefix, Dictionary<string, string> Environment,
-    string Note = "", string[]? ManagerOptions = null)
+    string Note = "", string[]? ManagerOptions = null, string Distribution = "")
 {
     internal bool CanManage => Source is "npm" or "mise" && Manager.Length > 0;
-    public string Title => $"{Source} · {Version} · {Id}";
+    internal bool InWsl => Distribution.Length > 0;
+    public string Title => InWsl ? $"WSL {Distribution} · {Version}" : $"{Source} · {Version} · {Id}";
 }
 
 internal sealed record NpmEnvironment(string NpmPath, string NodePath, string Version, string Prefix, string Modules,
@@ -22,8 +23,18 @@ internal sealed record NpmEnvironment(string NpmPath, string NodePath, string Ve
 internal sealed class CLIInstallationManager
 {
     private const string Package = "@konbakuyomu/smart-search";
+    internal const string WslIdPrefix = "wsl://";
+    // WSL prints UTF-16 unless asked otherwise; the Linux CLI's own output is UTF-8 either way.
+    private static readonly Dictionary<string, string> WslEnvironment = new() { ["WSL_UTF8"] = "1" };
+    // Exits 0 with one JSON line. A missing CLI and an old wrapper are reported, never bootstrapped.
+    // One line on purpose: a multi-line literal would carry CRLF from a Windows checkout into bash.
+    private const string WslProbe = "p=$(command -v smart-search) || { echo '{\"missing\":true}'; exit 0; }; " +
+        "r=$(dirname \"$(dirname \"$(dirname \"$(readlink -f \"$p\")\")\")\"); " +
+        "if [ -f \"$r/package.json\" ] && ! grep -q smartSearchBinary \"$r/package.json\"; then echo '{\"product\":\"smart-search\",\"legacy\":true}'; exit 0; fi; " +
+        "smart-search --desktop-capabilities 2>/dev/null || echo '{\"product\":\"smart-search\",\"legacy\":true}'";
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private readonly string? _searchPath;
+    private readonly string? _wslPath;
     private readonly string _stateFile;
     private readonly Func<Task<string>>? _versionLoader;
     private readonly Func<DateTimeOffset> _clock;
@@ -34,9 +45,11 @@ internal sealed class CLIInstallationManager
     private UpdateRecord _update = new();
 
     internal CLIInstallationManager(string? toolsDirectory = null, string? searchPath = null,
-        Func<Task<string>>? versionLoader = null, Func<DateTimeOffset>? clock = null)
+        Func<Task<string>>? versionLoader = null, Func<DateTimeOffset>? clock = null, string? wslPath = null)
     {
         _searchPath = searchPath;
+        // An explicit search path is an isolated check; it reaches WSL only when given a wsl.exe.
+        _wslPath = wslPath ?? (searchPath is null ? Path.Combine(Environment.SystemDirectory, "wsl.exe") : null);
         _stateFile = Path.Combine(toolsDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SmartSearchTools"), "cli-npm-state.json");
         _versionLoader = versionLoader;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
@@ -51,6 +64,9 @@ internal sealed class CLIInstallationManager
     internal CLIInstallation? Selected => _update.SelectedId.Length > 0
         ? Installations.FirstOrDefault(item => item.Id.Equals(_update.SelectedId, StringComparison.OrdinalIgnoreCase)) : Installations.FirstOrDefault();
     internal NpmEnvironment? Npm { get; private set; }
+    internal bool WslAvailable => _wslPath is not null && File.Exists(_wslPath);
+    internal IReadOnlyList<string> WslDistributions { get; private set; } = [];
+    internal IReadOnlyList<string> StoppedWslDistributions { get; private set; } = [];
     internal string ManualNpmPath => _update.ManualNpmPath;
     internal string ManualCliPath => _update.ManualCliPath;
     internal bool CanInstall => Selected is { } selected ? selected.CanManage : Npm is not null && _update.SelectedId.Length == 0;
@@ -85,13 +101,15 @@ internal sealed class CLIInstallationManager
         SaveUpdateState();
     }
 
-    internal async Task DiscoverAsync()
+    internal async Task DiscoverAsync(bool includeStoppedWsl = false)
     {
         if (Busy || Checking) return;
         Busy = true;
         Installations = [];
         Npm = null;
         Message = "";
+        WslDistributions = [];
+        StoppedWslDistributions = [];
         try
         {
             var searchPath = _searchPath ?? string.Join(Path.PathSeparator,
@@ -113,8 +131,11 @@ internal sealed class CLIInstallationManager
             }
             if (ManualNpmPath.Length == 0) await DiscoverMiseAsync(searchPath);
             if (ManualCliPath.Length > 0) await DiscoverManualAsync();
+            // WSL entries come after Windows ones, so a first run keeps the local CLI.
+            if (ManualNpmPath.Length == 0 && ManualCliPath.Length == 0) await DiscoverWslAsync(includeStoppedWsl);
             // mise installs each version separately; follow the same tool after upgrades outside the App.
             if (_update.SelectedId.Length > 0 && Selected is null && ManualCliPath.Length == 0 &&
+                !_update.SelectedId.StartsWith(WslIdPrefix, StringComparison.Ordinal) &&
                 Installations.FirstOrDefault(item => item.Source == "mise") is { } mise &&
                 MiseToolDirectory(_update.SelectedId) is { } selectedTool &&
                 selectedTool.Equals(MiseToolDirectory(mise.Id), StringComparison.OrdinalIgnoreCase))
@@ -283,6 +304,67 @@ internal sealed class CLIInstallationManager
         }
         catch (Exception error) when (error is IOException or JsonException or InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception or KeyNotFoundException or ArgumentException)
         { Message = L("mise 环境检测未完成，请重新检测或手动选择 CLI。") + "\n" + error.Message; }
+    }
+
+    private async Task DiscoverWslAsync(bool includeStopped)
+    {
+        if (!WslAvailable) return;
+        string[] distributions, running;
+        try
+        {
+            // Listing never starts a distribution; probing one does (about 4 s from cold).
+            distributions = WslNames(await CommandAsync([_wslPath!, "--list", "--quiet"], WslEnvironment));
+            running = WslNames(await CommandAsync([_wslPath!, "--list", "--running", "--quiet"], WslEnvironment));
+        }
+        catch (Exception error) when (error is InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception) { return; }
+        WslDistributions = distributions;
+        var selected = _update.SelectedId.StartsWith(WslIdPrefix, StringComparison.Ordinal) ? _update.SelectedId[WslIdPrefix.Length..] : "";
+        var stopped = new List<string>();
+        var found = false;
+        foreach (var distribution in distributions)
+        {
+            if (!includeStopped && !running.Contains(distribution, StringComparer.OrdinalIgnoreCase) &&
+                !distribution.Equals(selected, StringComparison.OrdinalIgnoreCase))
+            { stopped.Add(distribution); continue; }
+            found |= await AddWslInstallationAsync(distribution);
+        }
+        StoppedWslDistributions = stopped;
+        if (includeStopped && !found && Message.Length == 0)
+            Message = distributions.Length == 0 ? L("没有找到 WSL 发行版。")
+                : L("没有在 WSL 中找到 smart-search。请先在 WSL 中安装 CLI，并确认 bash 能直接运行 smart-search。");
+    }
+
+    // Older WSL ignores WSL_UTF8 and prints UTF-16; dropping NULs recovers the ASCII names.
+    private static string[] WslNames(string output) => output.Replace("\0", "").Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+        .Where(name => !name.StartsWith("docker-desktop", StringComparison.OrdinalIgnoreCase)).ToArray();
+
+    private async Task<bool> AddWslInstallationAsync(string distribution)
+    {
+        // A login shell reads ~/.profile (mise shims, ~/.local/bin); nvm loads only in an interactive ~/.bashrc.
+        foreach (var mode in new[] { "-lc", "-ic" })
+        {
+            JsonElement info;
+            try
+            {
+                var output = await CommandAsync([_wslPath!, "-d", distribution, "--exec", "bash", mode, WslProbe], WslEnvironment, 45);
+                using var result = JsonDocument.Parse(output.Split('\n').Select(line => line.Trim()).LastOrDefault(line => line.StartsWith('{')) ?? "");
+                info = result.RootElement.Clone();
+            }
+            catch (Exception error) when (error is InvalidOperationException or TimeoutException or JsonException or System.ComponentModel.Win32Exception) { continue; }
+            if (String(info, "product") != "smart-search") continue;
+            var launch = info.TryGetProperty("launch_command", out var command) && command.ValueKind == JsonValueKind.Array
+                ? command.EnumerateArray().Select(item => item.ValueKind == JsonValueKind.String ? item.GetString() ?? "" : "").ToArray() : [];
+            // The App starts this argv directly with --exec, so it must be absolute inside the distribution.
+            var compatible = info.TryGetProperty("desktop_protocol_version", out var protocol) && protocol.TryGetInt32(out var number) && number == 1 &&
+                launch.Length > 0 && launch[0].StartsWith('/') && launch.All(item => item.Length > 0);
+            var note = compatible ? L("位于 WSL {0}，使用该发行版中的配置和 Skills。请在 WSL 终端用原安装方式更新 CLI。", distribution)
+                : L("WSL {0} 中的 CLI 版本过旧，App 无法连接。请在 WSL 终端更新：npm install -g @konbakuyomu/smart-search@latest", distribution);
+            var version = String(info, "version");
+            Installations.Add(new(WslIdPrefix + distribution, _wslPath!, ["-d", distribution, "--exec", .. launch], version.Length > 0 ? version : L("旧版"),
+                "wsl", compatible, [], "", new(WslEnvironment), note, Distribution: distribution));
+            return true;
+        }
+        return false;
     }
 
     internal static string? MiseToolDirectory(string packageRoot)

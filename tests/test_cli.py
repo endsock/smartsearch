@@ -1,4 +1,5 @@
 import json
+import sys
 import asyncio
 from pathlib import Path
 
@@ -3493,3 +3494,19 @@ def test_retired_calibration_is_clear_and_does_not_connect(format, capsys):
     code = cli.main(["route-calibrate", "--format", format])
     assert code == cli.EXIT_PARAMETER_ERROR
     assert "retired" in capsys.readouterr().out.lower()
+
+
+def test_desktop_capabilities_report_a_shell_free_launch_command(monkeypatch, tmp_path, capsys):
+    # The Windows App starts a CLI inside WSL from this argv, without a login shell.
+    monkeypatch.delenv("SMART_SEARCH_PACKAGE_ROOT", raising=False)
+    monkeypatch.delenv("SMART_SEARCH_NODE_PATH", raising=False)
+    assert cli.main(["--desktop-capabilities"]) == 0
+    assert json.loads(capsys.readouterr().out)["launch_command"] == [sys.executable, "-m", "smart_search.cli"]
+
+    wrapper = tmp_path / "npm" / "bin" / "smart-search.js"
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text("", encoding="utf-8")
+    monkeypatch.setenv("SMART_SEARCH_PACKAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("SMART_SEARCH_NODE_PATH", "/usr/bin/node")
+    assert cli.main(["--desktop-capabilities"]) == 0
+    assert json.loads(capsys.readouterr().out)["launch_command"] == ["/usr/bin/node", str(wrapper)]

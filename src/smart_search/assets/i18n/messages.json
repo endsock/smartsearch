@@ -17922,5 +17922,49 @@
   "Save DEEPSEEK_TIMEOUT_SECONDS.": [
     "保存 DEEPSEEK_TIMEOUT_SECONDS。",
     "Save DEEPSEEK_TIMEOUT_SECONDS."
+  ],
+  "没有找到 WSL 发行版。": [
+    "没有找到 WSL 发行版。",
+    "No WSL distribution was found."
+  ],
+  "没有在 WSL 中找到 smart-search。请先在 WSL 中安装 CLI，并确认 bash 能直接运行 smart-search。": [
+    "没有在 WSL 中找到 smart-search。请先在 WSL 中安装 CLI，并确认 bash 能直接运行 smart-search。",
+    "smart-search was not found in WSL. Install the CLI in WSL first and make sure bash can run smart-search directly."
+  ],
+  "位于 WSL {0}，使用该发行版中的配置和 Skills。请在 WSL 终端用原安装方式更新 CLI。": [
+    "位于 WSL {0}，使用该发行版中的配置和 Skills。请在 WSL 终端用原安装方式更新 CLI。",
+    "Installed in WSL {0}; it uses that distribution's configuration and Skills. Update the CLI from a WSL terminal with the tool you installed it with."
+  ],
+  "WSL {0} 中的 CLI 版本过旧，App 无法连接。请在 WSL 终端更新：npm install -g @konbakuyomu/smart-search@latest": [
+    "WSL {0} 中的 CLI 版本过旧，App 无法连接。请在 WSL 终端更新：npm install -g @konbakuyomu/smart-search@latest",
+    "The CLI in WSL {0} is too old for the App to connect. Update it from a WSL terminal: npm install -g @konbakuyomu/smart-search@latest"
+  ],
+  "旧版": [
+    "旧版",
+    "old version"
+  ],
+  "当前连接的是 WSL 中的 CLI，只观察它自己的配置目录。": [
+    "当前连接的是 WSL 中的 CLI，只观察它自己的配置目录。",
+    "Connected to a CLI in WSL; only its own configuration directory is observed."
+  ],
+  "这是 WSL 中的目录。需要更换时，在 WSL 中设置 SMART_SEARCH_CONFIG_DIR。": [
+    "这是 WSL 中的目录。需要更换时，在 WSL 中设置 SMART_SEARCH_CONFIG_DIR。",
+    "This directory is inside WSL. To use another one, set SMART_SEARCH_CONFIG_DIR in WSL."
+  ],
+  "WSL 中的 CLI 使用该发行版自己的配置和 Skills。未运行的发行版不会自动启动。": [
+    "WSL 中的 CLI 使用该发行版自己的配置和 Skills。未运行的发行版不会自动启动。",
+    "A CLI in WSL uses that distribution's own configuration and Skills. Stopped distributions are not started automatically."
+  ],
+  "未运行：{0}。“检测 WSL”会启动这些发行版并查找 CLI。": [
+    "未运行：{0}。“检测 WSL”会启动这些发行版并查找 CLI。",
+    "Not running: {0}. Detect WSL starts them to look for the CLI."
+  ],
+  "检测 WSL": [
+    "检测 WSL",
+    "Detect WSL"
+  ],
+  "{0} · 需要更新": [
+    "{0} · 需要更新",
+    "{0} · update needed"
   ]
 }

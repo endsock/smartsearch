@@ -310,6 +310,7 @@ public sealed partial class MainWindow
         var directories = new StackPanel { Spacing = 8 };
         RenderExtraDirectories(directories);
         content.Children.Add(directories);
+        if (ConnectedToWsl) content.Children.Add(Secondary(L("当前连接的是 WSL 中的 CLI，只观察它自己的配置目录。")));
         content.Children.Add(ActionButton(L("添加活动目录"), async () =>
         {
             var folder = await PickFolderAsync();
@@ -318,7 +319,7 @@ public sealed partial class MainWindow
             SaveExtraDirectories();
             RenderExtraDirectories(directories);
             await RefreshActivityAsync(silent: true);
-        }));
+        }, enabled: () => !ConnectedToWsl));
         return ShowDetailsAsync(L("观察设置…"), content);
     }
 }
