@@ -12,6 +12,17 @@ if (args[0] == "--discover")
         targets = live.InstallTargets.Select(item => new { item.Id, item.Place, item.Note, npm = item.Npm?.Command, prefix = item.Npm?.Prefix }) }));
     return;
 }
+// Installs or updates one installation or target on this machine, e.g. "wsl://Ubuntu-24.04", as the App would.
+if (args[0] == "--manage")
+{
+    var live = new CLIInstallationManager(Path.GetFullPath(args[1]));
+    await live.DiscoverAsync(includeStoppedWsl: true);
+    await live.CheckVersionAsync();
+    await live.InstallOrRepairAsync(live.LatestVersion, args[2]);
+    Console.WriteLine(JsonSerializer.Serialize(new { live.Message, live.LatestVersion, selected = live.Selected?.Id,
+        installations = live.Installations.Select(item => new { item.Id, item.Version, item.Compatible, item.CanManage }) }));
+    return;
+}
 // The same executable doubles as a fake wsl.exe: listing, running state, the probe, the npm check and npm itself.
 if (Environment.GetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE") is { } wslFixture && args[0] is "--list" or "-d")
 {
@@ -20,8 +31,10 @@ if (Environment.GetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE") is { } wslFix
         Console.Write(args.Contains("--running") ? "Debian\r\nOld\r\nArch\r\nFedora\r\n" : "Ubuntu-24.04\r\ndocker-desktop\r\nDebian\r\nOld\r\nArch\r\nFedora\r\n");
         return;
     }
-    var (distribution, mode, script) = (args[1], args[4], args[5]);
-    if (args[2] != "--exec" || args[3] != "bash" || args[6] != "smart-search") Environment.Exit(9);
+    // Every command starts in the Linux home, then runs a script in bash with "smart-search" as $0.
+    var (distribution, command) = (args[1], args[(Array.IndexOf(args, "--exec") + 1)..]);
+    if (!args[2..4].SequenceEqual(["--cd", "~"]) || command[0] != "bash" || command[3] != "smart-search") Environment.Exit(9);
+    var (mode, script) = (command[1], command[2]);
     // An install by the App leaves [node, prefix] behind; from then on the distribution has a current CLI.
     var installed = Path.Combine(wslFixture, "wsl-" + distribution + ".json");
     if (script.Contains("command -v smart-search"))
@@ -44,17 +57,17 @@ if (Environment.GetEnvironmentVariable("SMART_SEARCH_WSL_FIXTURE") is { } wslFix
         });
         return;
     }
-    var node = args[7];
+    var node = command[4];
     var npm = node[..node.LastIndexOf("/bin/node", StringComparison.Ordinal)] + "/lib/node_modules/npm/bin/npm-cli.js";
     if (script.Contains("npm-cli.js"))
     {
         // A system Node.js under /usr cannot be written without sudo.
-        var prefix = args.Length > 8 ? args[8] : "/home/a/.npm-global";
+        var prefix = command.Length > 5 ? command[5] : "/home/a/.npm-global";
         Console.WriteLine($"smart-search-node-version=22.0.0\nsmart-search-npm={npm}\nsmart-search-prefix={prefix}\nsmart-search-writable={(prefix == "/usr" ? 0 : 1)}\nsmart-search-npm-version=10.9.1");
         return;
     }
-    if (args[8] != npm) Environment.Exit(8);
-    var operation = args[9..];
+    if (command[5] != npm) Environment.Exit(8);
+    var operation = command[6..];
     if (operation[0] == "view") { Console.WriteLine("profile noise\n{\n  \"version\": \"1.2.4\",\n  \"smartSearchBinary\": true\n}"); return; }
     if (operation[0] != "install") Environment.Exit(7);
     File.WriteAllText(Path.Combine(wslFixture, "wsl-operations.json"), JsonSerializer.Serialize(args));
@@ -202,16 +215,16 @@ try
     Check(!File.ReadAllText(probes).Contains("Ubuntu") && !File.ReadAllText(probes).Contains("docker"), "Never start a stopped or Docker distribution on ordinary discovery");
     Check(wslOnly.StoppedWslDistributions.SequenceEqual(["Ubuntu-24.04"]) && wslOnly.WslDistributions.Count == 5, "Report stopped distributions without probing them");
     Check(wslOnly.Selected is { Id: "wsl://Debian", Compatible: true, CanManage: false, InWsl: true } debian &&
-        debian.Executable == fakeWsl && debian.Arguments.SequenceEqual(["-d", "Debian", "--exec", "/usr/bin/node", "/usr/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]) &&
+        debian.Executable == fakeWsl && debian.Arguments.SequenceEqual(["-d", "Debian", "--cd", "~", "--exec", "/usr/bin/node", "/usr/lib/node_modules/@konbakuyomu/smart-search/npm/bin/smart-search.js"]) &&
         debian.Environment["WSL_UTF8"] == "1" && debian.Title == "WSL Debian · 1.2.3" && debian.Note.Contains("sudo"), "Use the only CLI found, in WSL, launched without a shell; a root-owned npm prefix is left to the terminal");
     Check(wslOnly.Installations.Single(item => item.Id == "wsl://Old") is { Compatible: false, CanManage: true, Version: "1.2.2", Prefix: "/home/o/node", Note.Length: > 0 },
         "An old npm CLI in WSL is shown as needing an update, and the App can update it");
     Check(wslOnly.InstallTargets is [{ Id: "wsl://Arch", Npm: { Prefix: "/home/a/.npm-global", Distribution: "Arch" } arch }, { Id: "wsl://Fedora", Npm: null, Note.Length: > 0 }] &&
-        arch.Command[5] == "-ic" && arch.Command[8..].SequenceEqual(["/home/a/node/bin/node", "/home/a/node/lib/node_modules/npm/bin/npm-cli.js"]),
+        arch.Command[7] == "-ic" && arch.Command[10..].SequenceEqual(["/home/a/node/bin/node", "/home/a/node/lib/node_modules/npm/bin/npm-cli.js"]),
         "Distributions without a CLI become install targets, using the shell that has Node.js; without Node.js they explain why: " + JsonSerializer.Serialize(wslOnly.InstallTargets.Select(item => new { item.Id, item.Note })));
     File.Delete(probes);
     await wslOnly.DiscoverAsync(includeStoppedWsl: true);
-    Check(wslOnly.Installations.Single(item => item.Id == "wsl://Ubuntu-24.04") is { Version: "1.2.4", Compatible: true, CanManage: true } ubuntu && ubuntu.Manager[5] == "-ic" &&
+    Check(wslOnly.Installations.Single(item => item.Id == "wsl://Ubuntu-24.04") is { Version: "1.2.4", Compatible: true, CanManage: true } ubuntu && ubuntu.Manager[7] == "-ic" &&
         File.ReadAllText(probes).Contains("Ubuntu-24.04 -lc") && File.ReadAllText(probes).Contains("Ubuntu-24.04 -ic"), "Explicit detection starts stopped distributions and falls back to an interactive shell for nvm");
     wslOnly.SelectInstallation("wsl://Ubuntu-24.04");
     File.Delete(probes);
@@ -240,13 +253,13 @@ try
     await wslManaged.InstallOrRepairAsync("1.2.4");
     var wslInstall = JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(root, "wsl-operations.json")))!;
     Check(wslManaged.Selected is { Id: "wsl://Old", Version: "1.2.4", Compatible: true } &&
-        wslInstall[..5].SequenceEqual(["-d", "Old", "--exec", "bash", "-lc"]) && wslInstall[6..].SequenceEqual(["smart-search", "/home/o/node/bin/node",
+        wslInstall[..7].SequenceEqual(["-d", "Old", "--cd", "~", "--exec", "bash", "-lc"]) && wslInstall[8..].SequenceEqual(["smart-search", "/home/o/node/bin/node",
             "/home/o/node/lib/node_modules/npm/bin/npm-cli.js", "install", "--global", "--prefix", "/home/o/node", "--include=optional", "@konbakuyomu/smart-search@1.2.4"]),
         "Update an old WSL CLI in its own prefix, without a shell parsing the arguments: " + JsonSerializer.Serialize(wslInstall));
     await wslManaged.InstallOrRepairAsync("1.2.4", "wsl://Arch");
     wslInstall = JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(root, "wsl-operations.json")))!;
     Check(wslManaged.Selected?.Id == "wsl://Old" && wslManaged.Installations.Single(item => item.Id == "wsl://Arch") is { Version: "1.2.4", Compatible: true } &&
-        wslManaged.InstallTargets.All(item => item.Id != "wsl://Arch") && wslInstall[4] == "-ic" && wslInstall[^4..].SequenceEqual(["--prefix", "/home/a/.npm-global", "--include=optional", "@konbakuyomu/smart-search@1.2.4"]),
+        wslManaged.InstallTargets.All(item => item.Id != "wsl://Arch") && wslInstall[6] == "-ic" && wslInstall[^4..].SequenceEqual(["--prefix", "/home/a/.npm-global", "--include=optional", "@konbakuyomu/smart-search@1.2.4"]),
         "Install into another distribution with npm's own global prefix and keep the current choice");
 
     // Windows without a CLI is a target too, while a CLI in WSL stays selected.

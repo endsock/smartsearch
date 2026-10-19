@@ -386,8 +386,12 @@ internal sealed class CLIInstallationManager
     private static string[] WslNames(string output) => output.Replace("\0", "").Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
         .Where(name => !name.StartsWith("docker-desktop", StringComparison.OrdinalIgnoreCase)).ToArray();
 
+    // Everything starts in the Linux home. From the App's Windows profile directory, mise and npm
+    // would read the Windows config files there as project settings, and mise refuses them.
+    private static string[] WslArguments(string distribution, IEnumerable<string> command) => ["-d", distribution, "--cd", "~", "--exec", .. command];
+
     private Task<string> WslAsync(string distribution, string mode, string script, params string[] arguments) =>
-        CommandAsync([_wslPath!, "-d", distribution, "--exec", "bash", mode, script, "smart-search", .. arguments], WslEnvironment, 45);
+        CommandAsync([_wslPath!, .. WslArguments(distribution, ["bash", mode, script, "smart-search", .. arguments])], WslEnvironment, 45);
 
     // The probe scripts report facts as "smart-search-<name>=<value>" lines between any profile output.
     private static Dictionary<string, string> WslFacts(string output) => output.Split('\n')
@@ -444,7 +448,7 @@ internal sealed class CLIInstallationManager
                     _ => L("App 无法确定它的安装方式，请在 WSL 终端用原安装方式更新。")
                 });
             var version = String(info, "version");
-            Installations.Add(new(id, _wslPath!, ["-d", distribution, "--exec", .. launch], version.Length > 0 ? version : L("旧版"),
+            Installations.Add(new(id, _wslPath!, WslArguments(distribution, launch), version.Length > 0 ? version : L("旧版"),
                 "wsl", compatible, npm?.Command ?? [], npm?.Prefix ?? "", new(WslEnvironment), note, Distribution: distribution));
             return true;
         }
@@ -471,7 +475,7 @@ internal sealed class CLIInstallationManager
         if (!npm.StartsWith('/') || !root.StartsWith('/')) return (null, "npm");
         if (facts.GetValueOrDefault("writable") != "1") return (null, "permission");
         return (new(npm, node, facts.GetValueOrDefault("npm-version", ""), root, root + "/lib/node_modules",
-            [_wslPath!, "-d", distribution, "--exec", "bash", mode, WslNpmRun, "smart-search", node, npm], new(WslEnvironment), distribution), "");
+            [_wslPath!, .. WslArguments(distribution, ["bash", mode, WslNpmRun, "smart-search", node, npm])], new(WslEnvironment), distribution), "");
     }
 
     private static string Sentences(params string[] parts) => string.Join(Localization.Language == "zh" ? "" : " ", parts.Where(part => part.Length > 0));
