@@ -207,11 +207,11 @@ try
     Check(wslOnly.Installations.Single(item => item.Id == "wsl://Old") is { Compatible: false, CanManage: true, Version: "1.2.2", Prefix: "/home/o/node", Note.Length: > 0 },
         "An old npm CLI in WSL is shown as needing an update, and the App can update it");
     Check(wslOnly.InstallTargets is [{ Id: "wsl://Arch", Npm: { Prefix: "/home/a/.npm-global", Distribution: "Arch" } arch }, { Id: "wsl://Fedora", Npm: null, Note.Length: > 0 }] &&
-        arch.Command[4] == "-ic" && arch.Command[7..].SequenceEqual(["/home/a/node/bin/node", "/home/a/node/lib/node_modules/npm/bin/npm-cli.js"]),
+        arch.Command[5] == "-ic" && arch.Command[8..].SequenceEqual(["/home/a/node/bin/node", "/home/a/node/lib/node_modules/npm/bin/npm-cli.js"]),
         "Distributions without a CLI become install targets, using the shell that has Node.js; without Node.js they explain why: " + JsonSerializer.Serialize(wslOnly.InstallTargets.Select(item => new { item.Id, item.Note })));
     File.Delete(probes);
     await wslOnly.DiscoverAsync(includeStoppedWsl: true);
-    Check(wslOnly.Installations.Single(item => item.Id == "wsl://Ubuntu-24.04") is { Version: "1.2.4", Compatible: true, CanManage: true } ubuntu && ubuntu.Manager[4] == "-ic" &&
+    Check(wslOnly.Installations.Single(item => item.Id == "wsl://Ubuntu-24.04") is { Version: "1.2.4", Compatible: true, CanManage: true } ubuntu && ubuntu.Manager[5] == "-ic" &&
         File.ReadAllText(probes).Contains("Ubuntu-24.04 -lc") && File.ReadAllText(probes).Contains("Ubuntu-24.04 -ic"), "Explicit detection starts stopped distributions and falls back to an interactive shell for nvm");
     wslOnly.SelectInstallation("wsl://Ubuntu-24.04");
     File.Delete(probes);
