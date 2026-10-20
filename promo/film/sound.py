@@ -131,7 +131,7 @@ def sweep(f0, f1, dur, wave='sine'):
 
 
 # ---------------------------------------------------------------- sound effects
-def sfx(kind):
+def sfx(kind, g=1.0):
     if kind == 'key':
         t = secs(0.05)
         f = RNG.uniform(2200, 3400)
@@ -241,6 +241,25 @@ def sfx(kind):
         return out
     if kind == 'peek':
         return 0.3 * sweep(600, 950, 0.12) * np.exp(-secs(0.12) * 10)
+    if kind == 'click':
+        # A soft mouse click: press and release, low-passed so it doesn't spike the peaks.
+        t = secs(0.06)
+        down = lp(hp(noise(0.06), 2000), 7000) * np.exp(-t * 400)
+        up = np.pad(lp(hp(noise(0.03), 2500), 7000) * np.exp(-secs(0.03) * 500), (int(0.035 * SR), 0))[:len(t)]
+        return 0.32 * down + 0.18 * up + 0.12 * np.sin(2 * np.pi * 1900 * t) * np.exp(-t * 300)
+    if kind == 'meter':
+        # A bar filling up: the higher the probability (carried in the cue's gain), the higher it climbs.
+        p = min(1.0, max(0.0, (g - 0.35) / 0.5))
+        t = secs(0.24)
+        return 0.3 * sweep(420, 700 + 900 * p, 0.24) * np.minimum(1, t / 0.01) * np.exp(-t * 7) + np.pad(sfx('tick') * 0.4, (int(0.2 * SR), 0))[:len(t)]
+    if kind == 'select':
+        out = np.zeros(int(0.9 * SR))
+        a, b = bell(note('E6'), 0.7, 0.24, 2.0), bell(note('B6'), 0.6, 0.14, 2.0)
+        out[:len(a)] += a
+        out[int(0.05 * SR):int(0.05 * SR) + len(b)] += b
+        pp = sfx('pop')
+        out[:len(pp)] += pp
+        return out
     if kind == 'tapestop':
         return np.zeros(1)   # applied to the music bus instead
     raise ValueError(kind)
@@ -351,17 +370,27 @@ def score(dur, T):
                     f = note(n) * (2 if octave else 1)
                     add(mus, pluck(f, 0.3, 0.14), t0 + k * beat / 2, 1.0, 0.25)
 
-    groove(6, 9)                                   # round 1
-    groove(9, 12, lead=True)                       # round 2
-    groove(12, 15, claps=True, lead=True, octave=True)   # round 3
-    for r in (T['r1'], T['r2'], T['r3']):
+    # Four rounds, three bars each; every bar index comes from the timetable.
+    b_route, b_r1, b_r2, b_r3, b_merge, b_end = (round(T[k] / bar) for k in ('route', 'r1', 'r2', 'r3', 'merge', 'end'))
+    groove(b_route, b_r1)                                  # round 1: routing
+    # While Jev scores the channels, a quiet sixteenth-note arpeggio "computes".
+    t, k = T['bars'], 0
+    while t < T['pick']:
+        add(mus, pluck(note(('A4', 'C5', 'E5', 'G5')[k % 4]) * (2 if k % 8 >= 4 else 1), 0.18, 0.07), t, 1.0, 0.35)
+        t += beat / 4
+        k += 1
+    add(drums, crash(0.22, 1.2), T['pick'], 1.0, 0.3)
+    groove(b_r1, b_r2, lead=True)                          # round 2: search
+    groove(b_r2, b_r3, lead=True)                          # round 3: read
+    groove(b_r3, b_merge, claps=True, lead=True, octave=True)   # round 4: answer
+    for r in (T['route'], T['r1'], T['r2'], T['r3']):
         add(drums, crash(0.3), r, 1.0, 0.1)
 
     # Merge: a break on a held chord, a riser into the cheer.
     add(mus, chord(('D3', 'F3', 'A3', 'C4', 'E4'), 1.6, 0.28), T['merge'], 1.0)
     add(mus, sfx('riser') * 0.7, T['jump'] - 0.6, 1.0)
-    groove(16, 20, claps=True, lead=True)          # cheer and montage
-    add(drums, crash(0.35), 32.0, 1.0, -0.1)
+    groove(b_merge + 1, b_end, claps=True, lead=True)      # cheer and montage
+    add(drums, crash(0.35), (b_merge + 1) * bar, 1.0, -0.1)
 
     # End card: impact, then a ringing chord and a slow arpeggio.
     add(mus, chord(('F3', 'A3', 'C4', 'E4', 'G4'), 2.4, 0.3), T['end'], 1.0)
@@ -382,7 +411,7 @@ def main():
     for e in data['events']:
         if e['type'] == 'tapestop':
             continue
-        add(fx, sfx(e['type']), e['t'], e['gain'], e['pan'])
+        add(fx, sfx(e['type'], e['gain']), e['t'], e['gain'], e['pan'])
     fx = reverb(fx, 1.0, 0.12)
     master = mix * 0.62 + fx * 0.9
     # Fade out the tail, soft-clip, write 16-bit stereo; loudness is set later with ffmpeg loudnorm.

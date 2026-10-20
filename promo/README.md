@@ -1,13 +1,16 @@
-# Smart Search promo film
+# Smart Search animations
 
-Code-rendered promo film for Smart Search. Every page draws one frame per call to
-`window.render(t)`; `tools/render.mjs` captures the frames with Playwright and encodes them
-with ffmpeg. Nothing here is published to npm.
+Code-rendered films for Smart Search. Every page draws one frame per call to `window.render(t)`;
+`tools/render.mjs` captures the frames with Playwright and encodes them with ffmpeg. Nothing here is published to npm.
 
-The film is **同一个问题** (45 s, 1920×1080, 60 fps): the same question asked twice, first with the
-built-in search (grey, 8 fps), then side by side with Smart Search (colour, 60 fps), until the two
-halves merge. The plan is in [film/brief.md](film/brief.md); the earlier three proposals are in
-[proposals/PLANS.md](proposals/PLANS.md).
+| Film | Length | Contents | Brief |
+| --- | --- | --- | --- |
+| **同一个问题** (`film/`) | 53 s | The same question asked with the built-in search (grey, 8 fps) and with Smart Search (colour, 60 fps), side by side: Jev routing, search, reading the original page, a cited answer | [film/brief.md](film/brief.md) |
+| **配置教程** (`config/`) | 69 s | The Windows App page by page: install the CLI, add and test a provider key, turn on Jev routing, update Skills, settings | [config/brief.md](config/brief.md) |
+| **日常使用** (`usage/`) | 62 s | Asking an AI tool, searching and researching in the App, reading Activity, four CLI commands, closing the App | [usage/brief.md](usage/brief.md) |
+
+The README's GIFs in `docs/media/` are cut from these films (see [GIFs](#gifs)). The earlier three proposals are in
+[proposals/PLANS.md](proposals/PLANS.md); review notes for the feature film are in [film/REVIEW.md](film/REVIEW.md).
 
 ## Build
 
@@ -17,35 +20,54 @@ Requires Node.js 18+, Python 3 with numpy and scipy, ffmpeg on `PATH` and a Play
 ```sh
 cd promo
 npm install
-bash film/build.sh          # out/film/smart-search-promo.mp4, about 15 minutes
-bash film/build.sh draft    # out/film/draft.mp4, 960x540 @ 30 fps
-node tools/render.mjs film/index.html out/still.png --still 20.5
+bash film/build.sh                                  # out/film/smart-search-promo.mp4
+bash tools/build.sh config smart-search-config      # out/config/smart-search-config.mp4
+bash tools/build.sh usage smart-search-usage        # out/usage/smart-search-usage.mp4
+bash tools/build.sh usage smart-search-usage draft  # 960x540 @ 30 fps preview
+bash tools/build.sh usage smart-search-usage audio  # rebuild only the sound and remux it
+node tools/render.mjs film/index.html out/still.png --still 15.9
 ```
 
-`film/timeline.js` is the one timetable: the picture reads it, and `tools/events.mjs` exports its sound
-cues for `film/sound.py`, which synthesizes the score and effects. The build peak-limits the mix and
-normalises it to -14 LUFS / -1 dBTP before muxing.
-
-Preview pages for the proposals render the same way:
-
-```sh
-node tools/render.mjs proposals/plan-a/index.html out/previews/plan-a.mp4 --fps 60 --duration 5.4
-node tools/render.mjs proposals/plan-b/index.html out/previews/plan-b.mp4 --fps 30 --duration 4.8
-node tools/render.mjs proposals/plan-c/index.html out/previews/plan-c.mp4 --fps 60 --duration 4.2
-```
+Each film's `timeline.js` is its one timetable: the picture reads it, and `tools/events.mjs` exports its sound cues.
+The feature film has its own score in `film/sound.py`; the tutorials share the calmer score in
+`shared/tutorial_sound.py`, built from the same synthesizers. The build peak-limits the mix, normalises it to
+-14 LUFS in two linear passes, and limits once more so the encoded file stays under -1 dBTP.
 
 `--size 960x540` renders a draft; `--subframes 4` adds motion blur; `--audio mix.wav` muxes sound.
+
+## GIFs
+
+The tutorials accept `?gif`, which cuts between camera framings instead of easing, so a GIF stores only what changes
+inside a shot.
+
+```sh
+node tools/render.mjs film/index.html out/gif/hero.mp4 --size 1280x720 --fps 15 --start 12.6 --duration 8.8
+node tools/render.mjs "usage/index.html?gif" out/gif/ask.mp4 --size 1280x720 --fps 15 --start 3.0 --duration 10.6
+node tools/render.mjs "config/index.html?gif" out/gif/config.mp4 --size 1280x720 --fps 15 --start 14.4 --duration 11.2
+node tools/render.mjs "usage/index.html?gif" out/gif/usage.mp4 --size 1280x720 --fps 15 --start 17.3 --duration 9.1
+ffmpeg -i out/gif/hero.mp4 -vf "fps=15,split[a][b];[a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" out/gif/hero.gif
+```
+
+| GIF in `docs/media/` | Source | Size |
+| --- | --- | --- |
+| `jev-routing.gif` | feature film 12.6–21.4 s | 3.4 MB |
+| `ask-ai.gif` | 日常使用 3.0–13.6 s | 0.7 MB |
+| `app-setup.gif` | 配置教程 14.4–25.6 s | 2.1 MB |
+| `app-search.gif` | 日常使用 17.3–26.4 s | 1.5 MB |
 
 ## Layout
 
 | Path | Contents |
 | --- | --- |
-| `film/` | The film: brief, timetable, page, render logic, sound synthesis, build script, review notes |
-| `shared/clawd.js` | Clawd as an 18x10 pixel grid: poses, magnifier props, icons; Canvas and SVG output |
-| `shared/motion.js` | Time-only easing, closed-form springs, seeded random, font preloading |
-| `tools/render.mjs` | Frame-by-frame renderer (still, video, segment, motion blur, audio mux) |
-| `tools/events.mjs` | Exports a timetable's sound cues to JSON |
-| `proposals/` | The three plans, their preview pages and key frames |
+| `film/` | The feature film: brief, timetable, page, render logic, score, build wrapper, review notes |
+| `config/`, `usage/` | The two tutorials: brief, timetable, page, render logic |
+| `shared/app.js`, `shared/app.css` | The Windows App (WinUI 3, light theme) redrawn at 150 %, with its zh-CN strings |
+| `shared/tutorial.js`, `shared/tutorial.css` | Tutorial machinery: measured camera framings, pointer path, captions, step chip, cheers |
+| `shared/clawd.js`, `shared/actor.js` | Clawd as an 18x10 pixel grid: poses, props, icons; the actor that draws him |
+| `shared/motion.js` | Time-only easing, closed-form springs, seeded random, typing rhythm, font preloading |
+| `shared/tutorial_sound.py` | The tutorials' score |
+| `tools/` | Frame renderer, cue exporter, build script |
+| `proposals/` | The three original plans, their preview pages and key frames |
 | `assets/` | Smaller copies of the Smart Search icon and the app mascot |
 
 ## Credits
@@ -53,8 +75,9 @@ node tools/render.mjs proposals/plan-c/index.html out/previews/plan-c.mp4 --fps 
 - Clawd is Anthropic's mascot. This is an unofficial fan depiction, not affiliated with or endorsed by Anthropic.
 - `assets/smart-search-256.png` and `assets/mascot-720.png` are resized copies of Smart Search's own artwork
   (`assets/branding/smart-search.png`, `desktop/windows/Assets/mascot.png`).
+- The App screens are a redrawn illustration of the Smart Search Windows App; their text comes from its source.
 - Quoted documentation: react.dev `useEffect` reference and "Synchronizing with Effects", checked on 2026-10-20.
-- Score and sound effects are synthesized in `film/sound.py`; no samples are used.
+- Scores and sound effects are synthesized in `film/sound.py` and `shared/tutorial_sound.py`; no samples are used.
 - Fonts (SIL Open Font License 1.1, via Fontsource): Fusion Pixel 12px, Noto Sans SC, ZCOOL KuaiLe, Inter, JetBrains Mono.
 - `tools/render.mjs` is a Node port of `scripts/render.py` from [Kianzzz/xilo-opus-video](https://github.com/Kianzzz/xilo-opus-video).
 - The Clawd grid follows the derivation in [lemomo-ai/lemo-opuscar](https://github.com/lemomo-ai/lemo-opuscar).

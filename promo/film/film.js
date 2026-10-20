@@ -2,12 +2,15 @@
 // Every frame is a pure function of t; all times come from timeline.js, which the sound script reads too.
 import { clawdSVG, pixartSVG, MAGNIFIER, BIG_EYE, OLD_MAGNIFIER, FOG_EYE, ICONS } from '../shared/clawd.js';
 import { clamp, lerp, prog, easeInOut, easeOut, easeIn, spring, springTo, SPRING, hop, rnd, loadFonts } from '../shared/motion.js';
-import { T, PROMPT, INSTALL, SETUP, QUESTION, ANSWER_R, ANSWER_L, QUOTE, QUOTE_HI, SOURCES, AGENTS, TYPE, typed } from './timeline.js';
+import { T, PROMPT, INSTALL, SETUP, QUESTION, ANSWER_R, ANSWER_L, QUOTE, QUOTE_HI, SOURCES, AGENTS, ROUTES, RESEARCH, nodeT, TYPE, typed } from './timeline.js';
+import { appMarkup, showPage, providerList, input as appInput } from '../shared/app.js';
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
 const fit = () => { stage.style.transform = `scale(${innerWidth / 1920})`; };
 fit(); addEventListener('resize', fit);
+// The montage's App window is injected first so its text is part of the font preload.
+document.getElementById('appMB').innerHTML = appMarkup('mbA', { w: 1440, h: 800, left: 240, top: 220 });
 
 const step8 = t => Math.floor(t * 8) / 8;
 const PX = 9;
@@ -49,8 +52,8 @@ function camL(t) {
     const k = easeInOut(prog(t, 0.6, 3.0));
     return cam(lerp(1.4, 1.2, k) + 0.04 * easeInOut(prog(t, 3.0, T.split)), lerp(700, 890, k), lerp(330, 455, k), 960, 540);
   }
-  if (t < T.r1) { const k = easeInOut(prog(t, T.split, T.split + 0.5)); return cam(lerp(1.24, 0.74, k), 890, lerp(455, 500, k), lerp(960, 480, k), lerp(540, 560, k)); }
-  if (t < T.r2) return cam(0.95, 760, 430, 480, 560);   // the spinning tool calls
+  if (t < T.route) { const k = easeInOut(prog(t, T.split, T.split + 0.5)); return cam(lerp(1.24, 0.74, k), 890, lerp(455, 500, k), lerp(960, 480, k), lerp(540, 560, k)); }
+  if (t < T.r2) return cam(0.95, 760, 430, 480, 560);   // the spinning tool calls, through routing and search
   if (t < T.r3) return cam(1.0, 1380, 560, 480, 560);   // the summary card
   return cam(0.9, 820, 560, 480, 560);                  // the answer from memory
 }
@@ -67,6 +70,24 @@ const pageRect = t => {
 };
 const line1 = () => LINES[0] || { x: 0, y: 0, w: 760, h: 50 };
 const walkX = t => PAGE.x + QX + line1().x + lerp(36, line1().w - 36, easeInOut(prog(t, T.walk0, T.walk1)));
+const JEV = { x: 1010, y: 600, row: 58, row0: 74 };   // the routing panel (right world), below the Bash row
+const RANK = ROUTES.map(r => [...ROUTES].sort((a, b) => b.p - a.p).indexOf(r));
+
+// Round 1: Clawd jumps down onto the routing panel, nods with every bar and cheers when one channel is picked.
+function routeR(t) {
+  const j0 = T.jevOpen + 0.35, j1 = T.jevOpen + 0.75;
+  if (t < j0 - 0.15) return { x: 1700, y: TOP_R, sq: 0.03 * Math.sin(t * Math.PI * 4), pose: { eyes: t > T.search ? 'd' : 'n', arms: 'down', legs: 'stand' } };
+  if (t < j0) return { x: 1700, y: TOP_R, sq: 0.25 * easeOut(prog(t, j0 - 0.15, j0)), pose: { eyes: 'd', arms: 'down', legs: 'tuck' } };
+  if (t < j1) { const k = prog(t, j0, j1); return { x: 1700, y: lerp(TOP_R, JEV.y, easeIn(k)) - 70 * hop(k), sq: -0.12, pose: { eyes: 'wide', arms: 'up', legs: 'tuck' } }; }
+  let sq = 0.28 * Math.exp(-(t - j1) * 9) * Math.cos((t - j1) * 22);
+  ROUTES.forEach((_, i) => { const d = t - (T.bars + i * 0.22 + 0.32); if (d > 0 && d < 0.4) sq += 0.1 * Math.exp(-d * 12) * Math.cos(d * 30); });
+  if (t < T.pick) return { x: 1700, y: JEV.y, sq, pose: { eyes: t < T.sort ? 'l' : 'd', arms: 'down', legs: 'stand' }, land: j1 };
+  const c = t - T.pick;
+  if (c < 0.5) return { x: 1700, y: JEV.y - 46 * hop(c / 0.5), sq: -0.1, pose: { eyes: 'happy', arms: 'up', legs: 'tuck' } };
+  const d = c - 0.5;
+  return { x: 1700, y: JEV.y, sq: 0.22 * Math.exp(-d * 9) * Math.cos(d * 22), land: T.pick + 0.5,
+    pose: { eyes: c < 1.6 ? 'happy' : (c > 2.1 && c < 2.2 ? 'blink' : 'd'), arms: c < 1.2 ? 'up' : 'down', legs: 'stand' } };
+}
 
 function clawdR(T0) {
   const t = T0 < T.upgrade ? step8(T0) : T0;
@@ -77,14 +98,16 @@ function clawdR(T0) {
     return { x: lerp(2080, 1700, k), y: lerp(650, TOP_R, k) - 180 * hop(k), sq: -0.12, pose: { eyes: 'wide', arms: 'up', legs: 'tuck' } };
   }
   if (t < T.upgrade) return { x: 1700, y: TOP_R, sq: t < T.rIn + 0.75 ? 0.25 : 0, pose: { eyes: blink(9.9) ? 'blink' : 'l', arms: 'down', legs: 'stand' } };
-  if (t < T.r1) {
+  if (t < T.route) {
     const d = t - T.upgrade;
     return { x: 1700, y: TOP_R - (d < 0.5 ? 34 * hop(d / 0.5) : 0), sq: d < 0.5 ? -0.1 : 0.2 * Math.exp(-(d - 0.5) * 8) * Math.cos((d - 0.5) * 24),
       pose: { eyes: d < 1.0 ? 'happy' : 'n', arms: d < 1.0 ? 'up' : 'down', legs: d < 0.5 ? 'tuck' : 'stand' } };
   }
+  if (t < T.r1) return routeR(t);
   if (t < T.r2) {
-    const J0 = T.hopR1, J1 = T.hopR1 + 0.42, to = { x: 1420, y: CARD(0).y };
-    if (t < J0 - 0.15) return { x: 1700, y: TOP_R, sq: 0.03 * Math.sin(t * Math.PI * 4), pose: { eyes: t > T.results ? 'd' : 'n', arms: 'down', legs: 'stand' } };
+    const J0 = T.hopR1, J1 = T.hopR1 + 0.42, to = { x: 1420, y: CARD(0).y }, back = T.r1 + 0.5;
+    if (t < back) { const k = prog(t, T.r1, back); return { x: 1700, y: lerp(JEV.y, TOP_R, k) - 480 * k * (1 - k), sq: -0.12, pose: { eyes: 'wide', arms: 'up', legs: 'tuck' } }; }
+    if (t < J0 - 0.15) { const d = t - back; return { x: 1700, y: TOP_R, sq: 0.25 * Math.exp(-d * 9) * Math.cos(d * 22) + 0.03 * Math.sin(t * Math.PI * 4), pose: { eyes: t > T.results ? 'd' : 'n', arms: 'down', legs: 'stand' }, land: back }; }
     if (t < J0) return { x: 1700, y: TOP_R, sq: 0.25 * easeOut(prog(t, J0 - 0.15, J0)), pose: { eyes: 'd', arms: 'down', legs: 'tuck' } };
     if (t < J1) { const k = prog(t, J0, J1); return { x: lerp(1700, to.x, easeInOut(k)), y: lerp(TOP_R, to.y, k) - 120 * hop(k), sq: -0.15 * hop(k), pose: { eyes: 'wide', arms: 'up', legs: 'tuck' } }; }
     const d = t - J1, sq = 0.3 * Math.exp(-d * 9) * Math.cos(d * 22);
@@ -107,7 +130,7 @@ function clawdR(T0) {
   const home = { x: 1640, y: TOP_R };
   const from = { x: walkX(T.walk1), y: PAGE.y + QY + line1().y + 4 };
   if (t < T.r3 + 0.45) { const k = prog(t, T.r3, T.r3 + 0.45); return { x: lerp(from.x, home.x, easeInOut(k)), y: lerp(from.y, home.y, k) - 110 * hop(k), sq: -0.12, pose: { eyes: 'wide', arms: 'up', legs: 'tuck' } }; }
-  if (t < T.stampR + 0.05) { const d = t - T.r3 - 0.45; return { ...home, sq: 0.25 * Math.exp(-d * 9) * Math.cos(d * 22), pose: { eyes: blink(25.6) ? 'blink' : 'd', arms: 'down', legs: 'stand' }, land: T.r3 + 0.45 }; }
+  if (t < T.stampR + 0.05) { const d = t - T.r3 - 0.45; return { ...home, sq: 0.25 * Math.exp(-d * 9) * Math.cos(d * 22), pose: { eyes: blink(T.r3 + 1.6) ? 'blink' : 'd', arms: 'down', legs: 'stand' }, land: T.r3 + 0.45 }; }
   if (t < T.merge + 1.6) {
     const beat = (t - T.stampR) % 0.5, k = beat / 0.5;
     return { x: home.x, y: home.y - 26 * hop(Math.min(1, k * 1.6)), sq: k > 0.62 ? 0.18 * Math.sin((k - 0.62) / 0.38 * Math.PI) : -0.06,
@@ -119,9 +142,9 @@ function clawdR(T0) {
 }
 
 function camR(t) {
-  let z = springTo(t, [[0, 1], [T.r1 + 0.3, 1.06], [T.r2 + 0.2, 1.02], [T.r3 + 0.1, 1.03], [T.tear + 0.1, 1.0]], 6, 0.95);
+  let z = springTo(t, [[0, 1], [T.route + 0.3, 0.92], [T.r1 + 0.3, 1.06], [T.r2 + 0.2, 1.02], [T.r3 + 0.1, 1.03], [T.tear + 0.1, 1.0]], 6, 0.95);
   let cx = springTo(t, [[0, 1440], [T.r1 + 0.3, 1470], [T.r2 + 0.2, 1440], [T.r3 + 0.1, 1440]], 6, 0.95);
-  const cy = springTo(t, [[0, 540], [T.r1 + 0.3, 580], [T.r2 + 0.2, 560], [T.r3 + 0.1, 560]], 6, 0.95);
+  const cy = springTo(t, [[0, 540], [T.route + 0.3, 650], [T.r1 + 0.3, 580], [T.r2 + 0.2, 560], [T.r3 + 0.1, 560]], 6, 0.95);
   if (t >= T.r2 && t < T.r3 + 0.6) {
     // Follow Clawd along the quote with a little lag.
     const c = clawdR(Math.max(T.r2, t - 0.25));
@@ -150,10 +173,11 @@ function clawdL(T0) {
     if (t >= T.oldLens) return { x: 760, y: 250, pose: { eyes: 'none', arms: 'hold', legs: 'stand' }, extra: OLD_LENS + (t > 7.0 ? Q : '') };
     return { x: 760, y: 250 - (up ? 16 : 0), sq: !up && k < 0.4 ? 0.14 : 0, pose: { eyes: t > T.summary ? 'r' : 'u', arms: up ? 'up' : 'down', legs: up ? 'tuck' : 'stand' }, extra };
   }
-  if (t < T.r1) return { x: 760, y: 250, pose: { eyes: t > 9.0 && t < 9.12 ? 'blink' : 'r', arms: 'down', legs: 'tuck' }, extra: SWEAT };
+  if (t < T.route) return { x: 760, y: 250, pose: { eyes: t > 9.0 && t < 9.12 ? 'blink' : 'r', arms: 'down', legs: 'tuck' }, extra: SWEAT };
+  if (t < T.r1) return { x: 720, y: 250, pose: { eyes: 'u', arms: 'out', legs: 'stand' }, extra: (t > T.route + 0.75 ? Q : '') + SWEAT };   // nothing to choose from
   if (t < T.r2) return { x: 720, y: 250, pose: { eyes: Math.floor(t * 8) % 24 === 0 ? 'blink' : 'd', arms: 'down', legs: 'tuck' } };
-  if (t < T.r3) return { x: 1290, y: 420, pose: { eyes: 'none', arms: 'hold', legs: 'stand' }, extra: OLD_LENS + SWEAT + (t > 19.5 ? Q : '') };
-  if (t < T.stampL) return { x: 900, y: 250, pose: { eyes: t < 25.4 ? 'u' : 'd', arms: 'down', legs: 'stand' } };
+  if (t < T.r3) return { x: 1290, y: 420, pose: { eyes: 'none', arms: 'hold', legs: 'stand' }, extra: OLD_LENS + SWEAT + (t > T.r2 + 1.5 ? Q : '') };
+  if (t < T.stampL) return { x: 900, y: 250, pose: { eyes: t < T.r3 + 1.4 ? 'u' : 'd', arms: 'down', legs: 'stand' } };
   if (t < T.stampL + 0.6) return { x: 900, y: 250, sq: 0.2, pose: { eyes: 'wide', arms: 'up', legs: 'stand' }, extra: BANG + SWEAT };
   return { x: 900, y: 250, pose: { eyes: 'r', arms: 'down', legs: 'stand' }, extra: SWEAT };
 }
@@ -212,13 +236,14 @@ function rowsRight(T0) {
   if (t >= T.search) {
     rows.push(`${bul(t > T.results ? 'ok' : (Math.floor(t * 6) % 2 ? 'ink' : ''))}<b>Bash</b>(smart-search search "useEffect 清理时机" --format markdown)`);
     const lifted = i => t > T.lift + i * 0.14 ? ' style="opacity:.06"' : '';
-    if (t >= T.results) rows.push(`${elbow}<span class="dim">…（回答正文 14 行）</span>`);
-    if (t >= T.results + 0.1) rows.push(`   ## 主要来源`);
+    if (t >= T.results) rows.push(`${elbow}<span class="dim">…（检索结果与摘录）</span>`);
+    if (t >= T.results + 0.05) rows.push(`   <span class="dim">证据：not_evaluated</span>`);
+    if (t >= T.results + 0.1) rows.push(`   ## 来源`);
     SOURCES.forEach(([title, url], i) => { if (t >= T.results + 0.2 + i * 0.08) rows.push(`<span${lifted(i)}>   - [${title}](<span class="url">${url}</span>)</span>`); });
   }
   if (t >= T.fetchR) {
     rows.push('', `${bul(t > T.fetchR + 0.3 ? 'ok' : 'ink')}<b>Bash</b>(smart-search fetch "<span class="url">https://react.dev/reference/react/useEffect</span>")`);
-    if (t >= T.fetchR + 0.3) rows.push(`${elbow}<span class="dim">…（正文 212 行，Markdown）</span>`);
+    if (t >= T.fetchR + 0.3) rows.push(`${elbow}<span class="dim">…（原网页正文，Markdown）</span>`);
   }
   if (t >= T.answer) {
     const n = typed(TYPE.answerR, t);
@@ -279,7 +304,8 @@ function dust(x, y, t, t0, z = 1) {
 }
 
 // ---------- montage ----------
-const nodePos = [[330, 570], [760, 712], [1210, 852]];
+const nodePos = [[190, 520], [520, 640], [850, 760], [1180, 880]];
+const MB_FLIPS = ['xai', 'exa', 'jina'], flipT = i => T.cutB + 0.45 + i * 0.3, MB_PASS = T.cutB + 1.45;
 function montage(t) {
   const a = t >= T.montage && t < T.cutB, b = t >= T.cutB && t < T.cutC, c = t >= T.cutC && t < T.end;
   vis($('ma'), a); vis($('mb'), b); vis($('mc'), c);
@@ -288,36 +314,48 @@ function montage(t) {
   if (a) {
     css($('ma'), { transform: drift(T.montage), transformOrigin: '960px 540px' });
     lab($('ma').querySelector('.label'), T.montage);
-    const cmd = 'smart-search research "React 状态管理方案对比" --budget deep';
+    const cmd = 'smart-search research "React 状态管理方案对比" --budget standard';
     const n = Math.floor(clamp(prog(t, T.montage + 0.05, T.montage + 0.45)) * cmd.length);
     setRows($('rowsD'), [`<span class="p">$</span> ${esc(cmd.slice(0, n))}`]);
+    const sub = pop(t, T.montage + 0.2, SPRING.card);
+    css($('ma').querySelector('.sublabel'), { opacity: String(clamp(sub * 1.5)), transform: `translateX(${(1 - sub) * -60}px)` });
     nodePos.forEach(([x, y], i) => {
-      const k = pop(t, T.montage + 0.5 + i * 0.35);
+      const k = pop(t, nodeT(i));
       css($('nd' + i), { left: `${x}px`, top: `${y}px`, transform: `scale(${k})`, opacity: String(clamp(k * 2)) });
-      if (i < 2) {
-        const [x2, y2] = nodePos[i + 1], len = Math.hypot(x2 - x, y2 - y), lk = easeOut(prog(t, T.montage + 0.62 + i * 0.35, T.montage + 0.85 + i * 0.35));
+      if (i < nodePos.length - 1) {
+        const [x2, y2] = nodePos[i + 1], len = Math.hypot(x2 - x, y2 - y), lk = easeOut(prog(t, nodeT(i) + 0.12, nodeT(i) + 0.4));
         css($('lk' + i), { left: `${x + 120}px`, top: `${y + 40}px`, width: `${len * lk}px`, transform: `rotate(${Math.atan2(y2 - y, x2 - x)}rad)` });
       }
     });
-    const hopTo = (i) => [nodePos[i][0] + 110, nodePos[i][1]];
-    let p = [1500, 260], pose = { eyes: 'd', arms: 'wave', legs: 'stand' }, sq = 0;
-    for (let i = 0; i < 3; i++) {
-      const j0 = T.montage + 0.55 + i * 0.35, j1 = j0 + 0.3;
-      const from = i === 0 ? [1500, 260] : hopTo(i - 1), to = hopTo(i);
-      if (t >= j0 && t < j1) { const k = prog(t, j0, j1); p = [lerp(from[0], to[0], k), lerp(from[1], to[1], k) - 90 * hop(k)]; pose = { eyes: 'wide', arms: 'up', legs: 'tuck' }; break; }
-      if (t >= j1) { p = to; pose = { eyes: i === 2 ? 'happy' : 'd', arms: i === 2 ? 'up' : 'down', legs: 'stand' }; sq = 0.25 * Math.exp(-(t - j1) * 9) * Math.cos((t - j1) * 22); }
-      if (t < T.montage + 0.55) { p = [1500, 260]; pose = { eyes: 'd', arms: 'down', legs: 'stand' }; }
+    // Clawd hops down the steps as each one appears.
+    // Clawd stands near each step's right end, clear of the step above.
+    const hopTo = (i) => [nodePos[i][0] + $('nd' + i).offsetWidth - 100, nodePos[i][1]], start = [1500, 290], last = nodePos.length - 1;
+    let p = start, pose = { eyes: 'd', arms: 'down', legs: 'stand' }, sq = 0;
+    for (let i = 0; i <= last; i++) {
+      const j0 = nodeT(i) + 0.08, j1 = j0 + 0.3;
+      const from = i === 0 ? start : hopTo(i - 1), to = hopTo(i);
+      if (t >= j0 && t < j1) { const k = prog(t, j0, j1); p = [lerp(from[0], to[0], k), lerp(from[1], to[1], k) - 90 * hop(k)]; pose = { eyes: 'wide', arms: 'up', legs: 'tuck' }; sq = -0.12; break; }
+      if (t >= j1) { p = to; pose = { eyes: i === last ? 'happy' : 'd', arms: i === last ? 'up' : 'down', legs: 'stand' }; sq = 0.25 * Math.exp(-(t - j1) * 9) * Math.cos((t - j1) * 22); }
     }
     return { x: p[0], y: p[1], sq, pose };
   }
   if (b) {
     css($('mb'), { transform: drift(T.cutB), transformOrigin: '960px 540px' });
     lab($('mb').querySelector('.label'), T.cutB);
-    [0, 1, 2].forEach(i => { const k = pop(t, T.cutB + 0.45 + i * 0.3); css($('st' + i), { transform: `scale(${k})`, opacity: String(clamp(k * 2)) }); });
-    const m = $('mb').querySelector('img');
-    css(m, { transform: `translateY(${(1 - pop(t, T.cutB + 0.15)) * 120 + 4 * Math.sin((t - T.cutB) * 4)}px)` });
+    const w = pop(t, T.cutB, SPRING.card);
+    css($('mbA'), { transform: `translateY(${((1 - w) * 90).toFixed(1)}px)`, opacity: String(clamp(w * 2)) });
+    // Three providers turn 已配置 one by one; the list keeps its final order so nothing jumps.
+    const n = MB_FLIPS.filter((_, i) => t >= flipT(i)).length;
+    html($('mbA-pl'), providerList('mbA', { selected: 'exa', configured: MB_FLIPS.slice(0, n), sortBy: MB_FLIPS, hover: n && t - flipT(n - 1) < 0.25 ? MB_FLIPS[n - 1] : '' }));
+    const passed = t >= MB_PASS, pill = $('mbA-exa-pill');
+    html(pill, passed ? '通过' : '尚未测试');
+    pill.classList.toggle('ok', passed);
+    css(pill, { transform: `scale(${passed ? pop(t, MB_PASS, [22, 0.55]) : 1})` });
+    vis($('mbA-exa-res'), passed);
+    // Scroll from the key down to the test result, as the page would.
+    css($('mbA-pd-exa'), { transform: `translateY(${-lerp(190, 560, easeInOut(prog(t, T.cutB + 0.85, T.cutB + 1.35))).toFixed(1)}px)` });
     const wave = Math.floor((t - T.cutB) * 4) % 2;
-    return { x: 1500, y: 220, pose: { eyes: 'happy', arms: wave ? 'wave' : 'down', legs: 'tuck' } };
+    return { x: 1500, y: 220 + (1 - w) * 90, pose: { eyes: 'happy', arms: wave ? 'wave' : 'down', legs: 'tuck' } };
   }
   if (c) {
     css($('mc'), { transform: drift(T.cutC), transformOrigin: '960px 540px' });
@@ -412,8 +450,8 @@ window.render = function (t) {
     for (let i = 0; i < 3; i++) {
       const el = $('c' + i), k = spring(t - (T.lift + i * 0.14), ...SPRING.card);
       const out = t > T.expand ? spring(t - T.expand - i * 0.05, ...SPRING.card) : 0;
-      const row = $('rowsR').children[5 + i];
-      const start = { x: 1030, y: TOP_R + 52 + 26 + (row && row.style.display !== 'none' ? row.offsetTop : (5 + i) * 31), w: 820, h: 31 }, end = CARD(i);
+      const row = $('rowsR').children[6 + i];
+      const start = { x: 1030, y: TOP_R + 52 + 26 + (row && row.style.display !== 'none' ? row.offsetTop : (6 + i) * 31), w: 820, h: 31 }, end = CARD(i);
       const r = { x: lerp(start.x, end.x, k), y: lerp(start.y, end.y, k) + out * 420, w: lerp(start.w, end.w, k), h: lerp(start.h, end.h, k) };
       const shown = t >= T.lift + i * 0.14 && !(i === 0 && t >= T.expand) && out < 0.98;
       vis(el, shown);
@@ -441,6 +479,25 @@ window.render = function (t) {
       const g = pop(t, T.gloss, SPRING.card);
       css($('gloss'), { opacity: String(clamp(g * 1.5)), transform: `translateY(${(1 - g) * 24}px)` });
     }
+    // Round 1: the routing panel. Bars fill in program order, rows sort by probability, the top one is dispatched.
+    const jv = $('jev'), jOn = t >= T.jevOpen && t < T.r1 + 0.4;
+    vis(jv, jOn);
+    if (jOn) {
+      const k = spring(t - T.jevOpen, ...SPRING.card), out = easeIn(prog(t, T.r1 + 0.02, T.r1 + 0.4));
+      css(jv, { transform: `translateY(${((1 - k) * -40 + out * 50).toFixed(1)}px) scale(${((0.84 + 0.16 * k) * (1 - 0.25 * out)).toFixed(4)})`, opacity: String((clamp(k * 2) * (1 - out)).toFixed(3)) });
+      const ks = t >= T.sort ? spring(t - T.sort, ...SPRING.card) : 0;
+      ROUTES.forEach((r, i) => {
+        const row = $('jr' + i), kb = spring(t - T.bars - i * 0.22, ...SPRING.card);
+        const picked = t >= T.pick && RANK[i] === 0, dim = t >= T.pick && !picked;
+        row.classList.toggle('on', picked);
+        css(row, { top: `${(JEV.row0 + JEV.row * lerp(i, RANK[i], ks)).toFixed(1)}px`, zIndex: String(10 - RANK[i]), opacity: dim ? (1 - 0.5 * clamp((t - T.pick) * 4)).toFixed(3) : '1' });
+        css(row.querySelector('.jb'), { width: `${(320 * r.p * kb).toFixed(1)}px` });
+        html(row.querySelector('.jv'), t >= T.bars + i * 0.22 ? (r.p * Math.min(1, kb)).toFixed(2) : '—');
+        css(row.querySelector('.jp'), { transform: `scale(${picked ? pop(t, T.pick + 0.05, [22, 0.55]) : 0})` });
+      });
+      const kf = pop(t, T.pick + 0.6, SPRING.card);
+      css(jv.querySelector('.jf'), { opacity: String(clamp(kf * 1.5)), transform: `translateY(${((1 - kf) * 16).toFixed(1)}px)` });
+    }
     // Upgrade ring from Clawd's feet.
     const rk = prog(t, T.upgrade, T.upgrade + 0.7), rr = 30 + 1400 * easeOut(rk);
     css($('ringR'), { left: `${1700 - rr}px`, top: `${TOP_R - rr}px`, width: `${2 * rr}px`, height: `${2 * rr}px`, borderWidth: `${8 + 22 * (1 - rk)}px`, opacity: rk > 0 && rk < 1 ? String(1 - rk) : '0' });
@@ -455,7 +512,7 @@ window.render = function (t) {
   const bK = pop(t, T.split + 0.4, SPRING.card), bOut = easeIn(prog(t, T.merge, T.merge + 0.4));
   html($('banner'), `同一个问题：${QUESTION}`);
   css($('banner'), { transform: `translateX(-50%) translateY(${(1 - bK) * -140 - bOut * 170}px)`, opacity: t >= T.split + 0.4 && worlds ? '1' : '0' });
-  const rounds = [[T.ready, 'READY…'], [T.go, 'GO!'], [T.r1, '第 1 回合 · 搜索'], [T.r2, '第 2 回合 · 读原文'], [T.r3, '第 3 回合 · 回答']];
+  const rounds = [[T.ready, 'READY…'], [T.go, 'GO!'], [T.route, '第 1 回合 · 选路'], [T.r1, '第 2 回合 · 搜索'], [T.r2, '第 3 回合 · 读原文'], [T.r3, '第 4 回合 · 回答']];
   const cur = rounds.filter(([a]) => t >= a).pop();
   if (cur && t < T.merge + 0.4) {
     html($('round').firstElementChild, cur[1]);
@@ -471,8 +528,11 @@ window.render = function (t) {
   const ono = tL >= T.r1 + 0.4 && tL < T.r2 ? '卡……' : tL >= T.r2 + 0.4 && tL < T.r3 ? '糊……' : '';
   html(onoL, ono);
   css(onoL, { left: '70px', top: '190px', transform: `rotate(${-7 + (Math.floor(tL * 8) % 2) * 3}deg) translate(${(Math.floor(tL * 8) % 3) * 4}px, 0)`, opacity: ono ? '1' : '0' });
-  const sw = pop(t, T.lift + 0.05), swOut = prog(t, T.lift + 1.4, T.lift + 1.7);
-  css($('onoR'), { left: '1630px', top: '470px', fontSize: '104px', transform: `scale(${sw * (1 - swOut)}) rotate(${-12 + 8 * sw}deg)`, opacity: t > T.lift && t < T.lift + 1.7 ? '1' : '0' });
+  // 叮！when Jev picks a channel, 唰！when the sources lift out.
+  const ding = t < T.r1, o0 = ding ? T.pick : T.lift;
+  const sw = pop(t, o0 + 0.05), swOut = prog(t, o0 + 1.4, o0 + 1.7);
+  html($('onoR'), ding ? '叮！' : '唰！');
+  css($('onoR'), { left: ding ? '1390px' : '1630px', top: ding ? '388px' : '470px', fontSize: ding ? '96px' : '104px', transform: `scale(${sw * (1 - swOut)}) rotate(${-12 + 8 * sw}deg)`, opacity: t > o0 && t < o0 + 1.7 ? '1' : '0' });
   const stR = pop(t, T.stampR, [22, 0.5]), stL = pop(t, T.stampL, [22, 0.5]);
   css($('stampR'), { left: '1480px', top: '745px', transform: `scale(${t >= T.stampR ? 2.2 - 1.2 * stR : 0}) rotate(-8deg)`, opacity: t >= T.stampR && t < T.tear + 0.5 && worlds ? String(clamp((t - T.stampR) * 10)) : '0' });
   css($('stampL'), { left: '300px', top: '640px', transform: `scale(${t >= T.stampL ? 2.2 - 1.2 * stL : 0}) rotate(7deg)`, opacity: t >= T.stampL ? String(clamp((t - T.stampL) * 10)) : '0' });
@@ -480,16 +540,16 @@ window.render = function (t) {
   capText($('cap'), t, [
     [0.5, 3.9, '让 Claude Code 去查一下<b>当前文档</b>'],
     [T.stuck + 0.3, T.split - 0.05, '内置搜索：一直<b>转圈</b>，读网页只拿到<b>摘要</b>'],
-    [T.split + 0.6, T.r1 - 0.05, '同一个问题，右边换上 <b>Smart Search</b>'],
+    [T.split + 0.6, T.route - 0.05, '同一个问题，右边换上 <b>Smart Search</b>'],
   ]);
   css($('cap'), { left: '960px', top: '940px' });
-  capText($('capL'), tL, [[T.r1 + 0.5, T.r2 - 0.1, '还在转圈……'], [T.r2 + 0.5, T.r3 - 0.1, '只拿到摘要'], [T.r3 + 0.6, T.merge, '只能凭记忆']]);
+  capText($('capL'), tL, [[T.route + 0.5, T.r1 - 0.1, '只有一个内置搜索'], [T.r1 + 0.5, T.r2 - 0.1, '还在转圈……'], [T.r2 + 0.5, T.r3 - 0.1, '只拿到摘要'], [T.r3 + 0.6, T.merge, '只能凭记忆']]);
   css($('capL'), { left: '480px', top: '950px' });
-  capText($('capR'), t, [[T.results + 0.3, T.r2 - 0.1, '<b>主要来源</b>一次列全'], [T.expand + 0.4, T.r3 - 0.1, '抓下原网页，<b>原话</b>可引用'], [T.answer + 0.3, T.merge, '回答带<b>出处</b>，点开就能核对']]);
+  capText($('capR'), t, [[T.jevOpen + 0.5, T.pick - 0.05, '<b>Jev</b> 给每个渠道打分'], [T.pick + 0.1, T.r1 - 0.1, '只派发<b>最合适</b>的那个'], [T.results + 0.3, T.r2 - 0.1, '<b>来源</b>一次列全'], [T.expand + 0.4, T.r3 - 0.1, '抓下原网页，<b>原话</b>可引用'], [T.answer + 0.3, T.merge, '回答带<b>出处</b>，点开就能核对']]);
   css($('capR'), { left: '1440px', top: '950px' });
 
   const sk = pop(t, T.skill, SPRING.card);
-  css($('skill'), { left: '1080px', top: '720px', opacity: t >= T.skill && t < T.r1 ? String(clamp(sk * 2)) : '0', transform: `scale(${0.6 + 0.4 * sk})` });
+  css($('skill'), { left: '1080px', top: '720px', opacity: t >= T.skill && t < T.route ? String(clamp(sk * 2)) : '0', transform: `scale(${0.6 + 0.4 * sk})` });
   const kk = pop(t, T.enter, [24, 0.6]);
   css($('key'), { left: '1360px', top: '860px', opacity: t >= T.enter && t < T.enter + 0.9 ? String(1 - prog(t, T.enter + 0.6, T.enter + 0.9)) : '0', transform: `scale(${0.7 + 0.3 * kk}) translateY(${t < T.enter + 0.12 ? 6 : 0}px)` });
   const ck = pop(t, T.cheer - 0.1, SPRING.card);
@@ -513,6 +573,7 @@ window.render = function (t) {
     if (t > T.stampR && t < T.stampR + 1) fxs += sparkles(x, y, t, T.stampR + 0.1);
     if (t > T.cheer && t < T.cheer + 1) fxs += sparkles(x, y, t, T.cheer, 6, 120);
     if (t > T.upgrade && t < T.upgrade + 1) fxs += sparkles(x, y, t, T.upgrade, 6, 110);
+    if (t > T.pick && t < T.pick + 1) fxs += sparkles(x, y, t, T.pick, 6, 110);
   } else actorR.draw(null);
 
   // Montage and end card use their own actor.
@@ -558,10 +619,22 @@ function buildCards() {
     el.querySelector('.u').textContent = SOURCES[i][1].replace('https://', '');
   }
   $('agents').innerHTML = AGENTS.map((a, i) => { const r = agentRect(i); return `<div class="agent" style="left:${r.x}px;top:${r.y}px">${a}</div>`; }).join('');
+  ROUTES.forEach((r, i) => {
+    const row = $('jr' + i);
+    row.querySelector('.jn').textContent = r.name; row.querySelector('.jc').textContent = r.cap;
+    row.querySelector('.jb').classList.toggle('hi', r.p >= 0.5);
+  });
+  RESEARCH.forEach((r, i) => { $('nd' + i).textContent = r.text; $('nd' + i).classList.toggle('j', r.judge); });
+  showPage('mbA', 'providers');
+  vis($('mbA-pd-exa'), true); vis($('mbA-pd-routing'), false);
+  appInput($('mbA-exa-key'), { ph: '••••••••' });
+  $('mbA-exa-res').innerHTML = '<div class="ss-sub">测试时的有效配置 · 2026-10-20 14:03:12</div><div class="ss-sub">检查方式：真实请求</div>';
 }
 
 const TEXT = document.body.textContent + PROMPT + INSTALL + SETUP + QUESTION + ANSWER_R + ANSWER_L + QUOTE + AGENTS.join('') + SOURCES.flat().join('')
-  + '同一个问题：READY…GO!第回合搜索读原文回答卡糊……还在转圈只拿到摘要只能凭记忆主要来源一次列全抓下原网页，原话可引用回答带出处，点开就能核对让去查一下当前文档内置搜索：一直转圈，读网页只拿到摘要右边换上✓有出处？（）正文行Markdown8FPS60$>…';
+  + ROUTES.map(r => r.name + r.cap).join('') + RESEARCH.map(r => r.text).join('') + '0123456789.—'
+  + '同一个问题：READY…GO!第回合选路搜索读原文回答卡糊……叮唰！还在转圈只拿到摘要只能凭记忆只有一个内置搜索给每个渠道打分只派发最合适的那个来源一次列全检索结果与摘录证据：not_evaluated原网页正文抓下原网页，原话可引用回答带出处，点开就能核对让去查一下当前文档内置搜索：一直转圈，读网页只拿到摘要右边换上✓有出处？（）正文行Markdown8FPS60$>…'
+  + '已配置未配置通过尚未测试测试时的有效配置 · 2026-10-20 14:03:12检查方式：真实请求••••••••';
 loadFonts([
   ['400 22px "JetBrains Mono"', TEXT], ['700 22px "JetBrains Mono"', TEXT],
   ['400 22px "Noto Sans SC"', TEXT], ['500 44px "Noto Sans SC"', TEXT], ['700 44px "Noto Sans SC"', TEXT], ['900 44px "Noto Sans SC"', TEXT],

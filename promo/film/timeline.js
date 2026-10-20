@@ -1,7 +1,8 @@
 // One timetable for picture and sound. Pure data and functions: the page and tools/events.mjs both import it.
-import { rnd } from '../shared/motion.js';
+import { rnd, typing, typed } from '../shared/motion.js';
+export { typing, typed };
 
-export const DUR = 45;
+export const DUR = 53;
 export const BPM = 120;
 export const BEAT = 60 / BPM;      // 0.5 s
 export const BAR = 4 * BEAT;       // 2 s
@@ -13,14 +14,18 @@ export const T = {
   stuck: 4.0, fetch: 4.9, summary: 5.9, oldLens: 6.5,
   // S3 split and install
   split: 8.0, rIn: 8.2, install: 8.75, setup: 9.75, skill: 10.25, upgrade: 10.5, ready: 11.0, go: 11.55, clear: 11.3,
-  // rounds
-  r1: 12.0, search: 12.3, results: 12.75, lift: 13.3, hopR1: 14.3, lensR1: 15.1,
-  r2: 18.0, fetchR: 18.2, expand: 18.5, toLine: 19.35, walk0: 19.75, walk1: 21.3, cite: 22.1, gloss: 22.4,
-  r3: 24.0, answer: 24.35, answerL: 24.6, stampR: 26.5, stampL: 27.3,
+  // round 1: Jev routing (candidates scored by Noul, sorted, the top one dispatched)
+  route: 12.0, search: 12.3, jevOpen: 12.75, bars: 13.25, sort: 14.9, pick: 15.5,
+  // round 2: search
+  r1: 18.0, results: 18.25, lift: 18.8, hopR1: 19.8, lensR1: 20.6,
+  // round 3: read the original
+  r2: 24.0, fetchR: 24.2, expand: 24.5, toLine: 25.35, walk0: 25.75, walk1: 27.3, cite: 28.1, gloss: 28.4,
+  // round 4: answer
+  r3: 30.0, answer: 30.35, answerL: 30.6, stampR: 32.5, stampL: 33.3,
   // S7 merge
-  merge: 30.0, peek: 30.6, jump: 31.0, land: 31.6, tear: 31.7, cheer: 32.4,
+  merge: 36.0, peek: 36.6, jump: 37.0, land: 37.6, tear: 37.7, cheer: 38.4,
   // S8 montage and S9 end card
-  montage: 34.0, cutB: 36.0, cutC: 38.0, end: 40.0,
+  montage: 40.0, cutB: 43.0, cutC: 45.5, end: 48.0,
 };
 
 export const PROMPT = '查 React 当前文档里 useEffect 的清理规则，读相关页面，并给出来源。';
@@ -36,20 +41,24 @@ export const SOURCES = [
   ['Synchronizing with Effects – React', 'https://react.dev/learn/synchronizing-with-effects'],
   ['Lifecycle of Reactive Effects – React', 'https://react.dev/learn/lifecycle-of-reactive-effects'],
 ];
+// Candidate operations for round 1, in the order the program lists them, with illustrative Noul probabilities.
+export const ROUTES = [
+  { name: 'Tavily', cap: '网页搜索', p: 0.42 },
+  { name: 'Context7', cap: '文档检索', p: 0.71 },
+  { name: 'xAI', cap: '主搜索', p: 0.35 },
+  { name: 'Exa', cap: '文档检索', p: 0.86 },
+  { name: '智谱', cap: '网页搜索', p: 0.18 },
+];
+// The research cut: actions and Jev's judgments between rounds (judgments are styled differently).
+export const RESEARCH = [
+  { text: '第 1 轮：Exa + Context7 并发', judge: false },
+  { text: 'Jev：只有摘要，要读原文', judge: true },
+  { text: '第 2 轮：读原网页', judge: false },
+  { text: 'Jev：证据够了 ✓ 只引用读过的正文', judge: true },
+];
+export const nodeT = i => T.montage + 0.4 + i * 0.55;
 export const AGENTS = ['Codex', 'Claude Code', 'Cursor', 'OpenCode', 'GitHub Copilot', 'Gemini CLI', 'Cline', 'Roo Code', 'Kiro',
   'Qoder', 'CodeBuddy', 'Factory Droid', 'Pi Agent', 'Kilo CLI', 'Antigravity', 'Windsurf', 'Hermes Agent'];
-
-// Per-character times for a typed string, with seeded jitter so the rhythm feels human.
-export function typing(text, t0, cps, seed = 1) {
-  const out = [];
-  let t = t0;
-  [...text].forEach((ch, i) => {
-    out.push(t);
-    t += (1 / cps) * (0.55 + 0.9 * rnd(seed * 97 + i)) * (ch === ' ' ? 1.5 : 1);
-  });
-  return out;
-}
-export const typed = (times, t) => { let n = 0; while (n < times.length && times[n] <= t) n++; return n; };
 
 export const TYPE = {
   prompt: typing(PROMPT, T.type0, 24, 1),
@@ -84,16 +93,27 @@ export function events() {
   add(T.ready, 'pop', 0, 0.8);
   add(T.go, 'pop', 0, 1);
   for (let t = T.split + 0.5; t < T.r3 + 4; t += 1.0) add(t, 'tick', -0.6, 0.25);
-  // Round 1.
-  add(T.r1, 'slam', 0, 1);
+  // Round 1: routing.
+  add(T.route, 'slam', 0, 1);
   add(T.search, 'blip', 0.5, 0.6);
+  add(T.jevOpen, 'whoosh', 0.5, 0.6);
+  add(T.jevOpen + 0.05, 'pop', 0.5, 0.8);
+  add(T.jevOpen + 0.35, 'boing', 0.5, 0.7);
+  add(T.jevOpen + 0.75, 'land', 0.5, 0.6);
+  ROUTES.forEach((r, i) => add(T.bars + i * 0.22 + 0.32, 'meter', 0.5, 0.35 + 0.5 * r.p));
+  add(T.sort, 'whoosh', 0.5, 0.45);
+  add(T.pick, 'select', 0.5, 1);
+  add(T.r1, 'boing', 0.5, 0.6);
+  add(T.r1 + 0.5, 'land', 0.5, 0.5);
+  // Round 2: search.
+  add(T.r1, 'slam', 0, 1);
   add(T.results, 'stream', 0.5, 0.6);
   [0, 1, 2].forEach(i => add(T.lift + i * 0.14, 'pop', 0.5, 0.75 + 0.1 * i));
   add(T.lift + 0.1, 'whoosh', 0.5, 0.7);
   add(T.hopR1 - 0.15, 'boing', 0.5, 0.8);
   add(T.hopR1 + 0.42, 'land', 0.5, 0.8);
   add(T.lensR1, 'ching', 0.5, 0.9);
-  // Round 2.
+  // Round 3: read.
   add(T.r2, 'slam', 0, 1);
   add(T.fetchR, 'blip', 0.5, 0.6);
   add(T.expand, 'whoosh', 0.5, 0.8);
@@ -104,7 +124,7 @@ export function events() {
   add(T.cite, 'pop', 0.5, 1);
   add(T.gloss, 'chime', 0.5, 0.5);
   add(T.r2 + 0.6, 'sad', -0.6, 0.5);
-  // Round 3.
+  // Round 4: answer.
   add(T.r3, 'slam', 0, 1);
   add(T.answer, 'stream', 0.5, 0.9);
   TYPE.answerL.forEach((t, i) => { if (i % 4 === 0) add(t, 'key', -0.6, 0.4); });
@@ -122,8 +142,9 @@ export function events() {
   add(T.cheer, 'success', 0, 0.9);
   // Montage cuts and end card.
   [T.montage, T.cutB, T.cutC].forEach(t => add(t, 'whoosh', 0, 0.9));
-  [0, 1, 2].forEach(i => add(T.montage + 0.5 + i * 0.35, 'pop', 0, 0.6));
+  RESEARCH.forEach((_, i) => add(nodeT(i), i === 3 ? 'success' : 'pop', 0, 0.6));
   [0, 1, 2].forEach(i => add(T.cutB + 0.45 + i * 0.3, 'tickok', 0, 0.8));
+  add(T.cutB + 1.45, 'pop', 0.2, 0.7);   // the Exa test pill turns 通过
   AGENTS.forEach((_, i) => add(T.cutC + 0.3 + i * 0.055, 'tickok', -0.6 + 1.2 * (i % 6) / 5, 0.35));
   add(T.end - 1.6, 'riser', 0, 1);
   add(T.end, 'impact', 0, 1);

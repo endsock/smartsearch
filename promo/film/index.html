@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="/node_modules/@fontsource/jetbrains-mono/400.css">
 <link rel="stylesheet" href="/node_modules/@fontsource/jetbrains-mono/700.css">
 <link rel="stylesheet" href="/node_modules/@fontsource/zcool-kuaile/400.css">
+<link rel="stylesheet" href="../shared/app.css">
 <style>
   :root {
     --paper: #ECE5D8; --dots: #DDD3C2; --ink: #2A2622; --muted: #8C8378; --line: #E6DFD3; --white: #FFFFFF;
@@ -73,6 +74,24 @@
   #sumL .tag { position: absolute; left: 22px; top: -22px; background: #8C8378; color: #fff; font: 700 26px var(--sans); padding: 4px 16px; border-radius: 10px; }
   #sumL i { position: absolute; left: 30px; height: 18px; border-radius: 9px; background: #D7D0C4; filter: blur(4px); }
   .ringfx { position: absolute; border-radius: 50%; border-style: solid; border-color: var(--ss); box-sizing: border-box; }
+  #jev { position: absolute; left: 1010px; top: 600px; width: 860px; height: 448px; background: #fff; border-radius: 20px; border: 1px solid var(--line);
+    box-shadow: 0 24px 56px rgba(70, 50, 30, .16); overflow: hidden; transform-origin: 50% 0; }
+  #jev .jh { position: absolute; left: 0; right: 0; top: 0; height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 0 26px; border-bottom: 1px solid #EEE9E1; background: #F5F4FE; }
+  #jev .jh b { font: 700 30px var(--sans); color: var(--ss-deep); }
+  #jev .jh span { font: 500 21px var(--sans); color: var(--muted); }
+  .jr { position: absolute; left: 12px; right: 12px; height: 52px; border-radius: 12px; }
+  .jr.on { background: var(--ss-soft); box-shadow: inset 0 0 0 3px var(--ss); }
+  .jn { position: absolute; left: 14px; top: 7px; font: 700 28px var(--sans); color: var(--ink); }
+  .jc { position: absolute; left: 166px; top: 11px; font: 500 20px var(--sans); color: var(--ss-deep); background: var(--ss-soft); padding: 2px 10px; border-radius: 8px; }
+  .jr.on .jc { background: #fff; }
+  .jt { position: absolute; left: 292px; top: 18px; width: 320px; height: 16px; border-radius: 8px; background: #EEE9E1; overflow: hidden; }
+  .jb { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 8px; background: #C9C2B6; }
+  .jb.hi { background: var(--ss); }
+  .jv { position: absolute; left: 628px; top: 9px; font: 700 25px var(--mono); color: var(--ink); }
+  .jp { position: absolute; right: 12px; top: 9px; font: 700 21px var(--sans); color: #fff; background: var(--green); padding: 3px 12px; border-radius: 9px; }
+  .jth { position: absolute; left: 463px; top: 44px; height: 318px; border-left: 3px dashed var(--red); z-index: 20; }
+  .jthl { position: absolute; left: 399px; top: 12px; width: 130px; text-align: center; font: 700 19px var(--sans); color: var(--red); z-index: 20; }
+  .jf { position: absolute; left: 26px; right: 26px; top: 374px; font: 400 21px/1.5 var(--sans); color: var(--muted); }
 
   /* overlay: the comic layer, never filtered */
   #divider { position: absolute; left: 0; top: 0; }
@@ -101,19 +120,10 @@
   .scene { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; display: none; }
   .label { position: absolute; left: 110px; top: 70px; font: 400 92px/1.2 var(--fun); color: var(--ink); white-space: nowrap; }
   .label span { background: var(--hi); padding: 0 20px; border-radius: 14px; }
-  .node { position: absolute; padding: 22px 36px; border-radius: 18px; background: #fff; border: 1px solid var(--line); box-shadow: 0 14px 30px rgba(70, 50, 30, .10); font: 700 42px var(--sans); color: var(--ink); white-space: nowrap; }
-  .node b { color: var(--ss-deep); margin-right: 10px; font-family: var(--mono); }
+  .sublabel { position: absolute; left: 130px; top: 196px; font: 500 38px var(--sans); color: var(--muted); white-space: nowrap; }
+  .node { position: absolute; padding: 20px 32px; border-radius: 18px; background: #fff; border: 1px solid var(--line); box-shadow: 0 14px 30px rgba(70, 50, 30, .10); font: 700 36px var(--sans); color: var(--ink); white-space: nowrap; }
+  .node.j { background: var(--ss-soft); border-color: #C5D0F3; color: var(--ss-deep); }
   .link { position: absolute; height: 5px; background: var(--ss); border-radius: 3px; transform-origin: 0 50%; }
-  .app .side { position: absolute; left: 0; top: 52px; bottom: 0; width: 270px; background: #F6F4F0; border-right: 1px solid #ECE6DC; }
-  .app .nav { position: absolute; left: 22px; right: 22px; height: 52px; border-radius: 10px; font: 500 24px/52px var(--sans); color: var(--ink); padding-left: 20px; }
-  .app .nav.on { background: #E9E5DE; }
-  .app .main { position: absolute; left: 310px; top: 92px; right: 40px; }
-  .app h2 { margin: 0; font: 700 40px var(--sans); color: var(--ink); }
-  .cap-row { position: absolute; left: 0; right: 0; height: 104px; border-bottom: 1px solid #EEE9E1; }
-  .cap-row .n { position: absolute; left: 0; top: 18px; font: 700 30px var(--sans); color: var(--ink); }
-  .cap-row .pv { position: absolute; left: 0; top: 62px; display: flex; gap: 10px; }
-  .cap-row .pv span { font: 500 19px var(--mono); padding: 3px 10px; border-radius: 7px; background: var(--ss-soft); color: var(--ss-deep); }
-  .cap-row .st { position: absolute; right: 0; top: 26px; font: 700 26px var(--sans); color: var(--green); padding: 6px 16px; border-radius: 10px; background: #E3F2E6; }
   .agent { position: absolute; width: 300px; height: 92px; border-radius: 16px; background: #fff; border: 1px solid var(--line); box-shadow: 0 10px 24px rgba(70, 50, 30, .08);
     font: 600 28px/92px var(--sans); color: var(--ink); text-align: center; box-sizing: border-box; }
   .agent.on { border: 3px solid var(--ss); }
@@ -163,6 +173,16 @@
         <div id="gloss">→ 依赖变了：先用旧值跑清理，再用新值跑 setup</div>
         <div id="cite">[1]</div>
       </div></div>
+      <div id="jev">
+        <div class="jh"><b>Jev 选路</b><span>Noul 概率 · 示例数值</span></div>
+        <div class="jr" id="jr0"><span class="jn"></span><span class="jc"></span><span class="jt"><i class="jb"></i></span><span class="jv"></span><span class="jp">✓ 派发</span></div>
+        <div class="jr" id="jr1"><span class="jn"></span><span class="jc"></span><span class="jt"><i class="jb"></i></span><span class="jv"></span><span class="jp">✓ 派发</span></div>
+        <div class="jr" id="jr2"><span class="jn"></span><span class="jc"></span><span class="jt"><i class="jb"></i></span><span class="jv"></span><span class="jp">✓ 派发</span></div>
+        <div class="jr" id="jr3"><span class="jn"></span><span class="jc"></span><span class="jt"><i class="jb"></i></span><span class="jv"></span><span class="jp">✓ 派发</span></div>
+        <div class="jr" id="jr4"><span class="jn"></span><span class="jc"></span><span class="jt"><i class="jb"></i></span><span class="jv"></span><span class="jp">✓ 派发</span></div>
+        <div class="jth"></div><div class="jthl">阈值 0.5</div>
+        <div class="jf">search：只派发过线的最高一个 · research：每轮可派发多个<br>只在你已配置的渠道里挑；不生成查询，也不接触 Key</div>
+      </div>
       <div class="ringfx" id="ringR"></div>
     </div>
   </div>
@@ -170,33 +190,18 @@
   <!-- montage scenes -->
   <div class="scene" id="ma">
     <div class="paper"></div>
-    <div class="win" id="termD" style="left:300px; top:260px; width:1320px; height:190px">
+    <div class="win" id="termD" style="left:300px; top:290px; width:1320px; height:150px">
       <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">my-app — zsh</span></div>
       <div class="viewport"><div class="rows" id="rowsD"></div></div>
     </div>
-    <div class="link" id="lk0"></div><div class="link" id="lk1"></div>
-    <div class="node" id="nd0"><b>1</b>收集资料</div>
-    <div class="node" id="nd1"><b>2</b>检查缺少的证据</div>
-    <div class="node" id="nd2"><b>3</b>整理带来源的回答</div>
+    <div class="link" id="lk0"></div><div class="link" id="lk1"></div><div class="link" id="lk2"></div>
+    <div class="node" id="nd0"></div><div class="node" id="nd1"></div><div class="node" id="nd2"></div><div class="node" id="nd3"></div>
     <div class="label"><span>深度研究</span></div>
+    <div class="sublabel">Jev 每一轮都判断：证据够不够、缺什么</div>
   </div>
   <div class="scene" id="mb">
     <div class="paper"></div>
-    <div class="win app" id="appW" style="left:330px; top:220px; width:1300px; height:760px">
-      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Smart Search</span></div>
-      <div class="side">
-        <div class="nav" style="top:24px">概览</div><div class="nav on" style="top:84px">服务商</div><div class="nav" style="top:144px">搜索与研究</div>
-        <div class="nav" style="top:204px">活动</div><div class="nav" style="top:264px">更新 Skills</div><div class="nav" style="top:324px">设置与关于</div>
-        <img src="../assets/mascot-720.png" alt="" style="position:absolute; left:-6px; bottom:-70px; width:250px; height:250px">
-      </div>
-      <div class="main">
-        <h2>当前能力</h2>
-        <div class="cap-row" style="top:80px"><div class="n">主搜索</div><div class="pv"><span>xAI</span><span>OpenAI 兼容</span></div><div class="st" id="st0">已配置</div></div>
-        <div class="cap-row" style="top:200px"><div class="n">文档检索</div><div class="pv"><span>Context7</span><span>Exa</span></div><div class="st" id="st1">已配置</div></div>
-        <div class="cap-row" style="top:320px"><div class="n">网页抓取</div><div class="pv"><span>Jina</span><span>Firecrawl</span></div><div class="st" id="st2">已配置</div></div>
-        <div style="position:absolute; top:452px; font:400 24px var(--sans); color:var(--muted)">服务商由你选择，API Key 由你提供。</div>
-      </div>
-    </div>
+    <div id="appMB"></div>
     <div class="label"><span>自选服务商</span></div>
   </div>
   <div class="scene" id="mc">

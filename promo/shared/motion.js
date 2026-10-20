@@ -36,6 +36,18 @@ export const hop = k => (k <= 0 || k >= 1 ? 0 : Math.sin(Math.PI * k));
 // Quantise time to a frame rate, for pixel-art poses that update at 8–12 fps.
 export const step = (t, fps) => Math.floor(t * fps) / fps;
 
+// Per-character times for a typed string, with seeded jitter so the rhythm feels human.
+export function typing(text, t0, cps, seed = 1) {
+  const out = [];
+  let t = t0;
+  [...text].forEach((ch, i) => {
+    out.push(t);
+    t += (1 / cps) * (0.55 + 0.9 * rnd(seed * 97 + i)) * (ch === ' ' ? 1.5 : 1);
+  });
+  return out;
+}
+export const typed = (times, t) => { let n = 0; while (n < times.length && times[n] <= t) n++; return n; };
+
 // Load every face/text pair before the first frame so unicode-range subsets are ready.
 export async function loadFonts(pairs) {
   await Promise.all(pairs.map(([font, text]) => document.fonts.load(font, text)));
