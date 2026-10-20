@@ -25,7 +25,8 @@
 .ss-ni.hover { background: rgba(0, 0, 0, .035); }
 .ss-mascot { position: absolute; left: 0; bottom: 0; width: 324px; height: 240px; overflow: hidden; pointer-events: none; }
 .ss-mascot img { position: absolute; left: 0; bottom: -24px; width: 252px; height: 252px; }
-.ss-dot { position: absolute; right: 21px; bottom: 21px; width: 12px; height: 12px; border-radius: 50%; background: #B4B4B4; }
+.ss-dot { position: absolute; right: 21px; bottom: 21px; width: 12px; height: 12px; border-radius: 50%; background: rgba(0, 0, 0, 0.62); }
+.ss-dot.wait { background: #9D5D00; }
 .ss-dot.on { background: #35C759; }
 
 /* content area */

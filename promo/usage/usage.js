@@ -130,7 +130,7 @@ let FLY = { x: 0, y: 0 };
 
 // The overview the App opens on: CLI ready, basic configuration done.
 function staticOverview() {
-  html($('a-c1s'), '0.1.29 · 已就绪');
+  html($('a-c1s'), '0.1.30 · 已就绪');
   for (const id of ['a-c1b', 'a-c1r', 'a-c1x', 'a-c1m']) vis($(id), false);
   html($('a-c2s'), '基础配置已完成，可以开始搜索。');
   vis($('a-c2go'), true, 'inline-flex');

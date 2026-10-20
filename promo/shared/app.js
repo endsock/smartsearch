@@ -35,7 +35,8 @@ function overview(p) {
   <div class="ss-card" id="${p}-c1">${step(p, 1, '1. 准备本地环境', 'Node.js/npm 已就绪，等待准备 Smart Search CLI',
     btn(`${p}-c1b`, '安装 CLI', 'pri') + btn(`${p}-c1r`, '重新检测') + btn(`${p}-c1d`, '环境详情…') + `<span class="ss-link" id="${p}-c1m" style="align-self:center">手动下载 CLI</span>` + btn(`${p}-c1x`, '选择已有 CLI…'))}
     <div class="ss-sub" id="${p}-c1e" style="margin-top:14px">App 通过本机独立安装的 Smart Search CLI 读取配置并运行搜索，两者分别安装和更新。检测会复用已有的 mise 或 npm 安装。</div>
-    <div class="ss-prog" id="${p}-c1p" style="margin-top:16px; display:none"><i></i></div></div>
+    <div class="ss-prog" id="${p}-c1p" style="margin-top:16px; display:none"><i></i></div>
+    <div class="ss-sub" id="${p}-c1g" style="margin-top:14px; display:none"></div></div>
   <div class="ss-card" id="${p}-c2">${step(p, 2, '2. 配置服务商', '选择搜索服务，填写 API Key。', btn(`${p}-c2b`, '配置服务商') + btn(`${p}-c2go`, '开始搜索', 'pri', 'display:none'))}
     ${capRow(p, 0, '主搜索')}${capRow(p, 1, '文档检索')}${capRow(p, 2, '网页抓取')}
     <div class="ss-row" id="${p}-c2f" style="margin-top:20px"><span class="ss-btn">更多能力 ${ICON.chevron}</span><span class="ss-grow"></span><span class="ss-btn">配置详情…</span></div></div>
@@ -139,7 +140,7 @@ export function skillRows(p, { on = ['Codex', 'Claude Code', 'Cursor'], status =
 function skills(p) {
   return `<div class="ss-scroll ss-stack" id="${p}-sks" style="bottom:90px">
     <div class="ss-stack s8"><div class="ss-h1">更新 Skills</div><div class="ss-sub">Skills 由当前 CLI 提供；自动维护已接入目标，保留个人修改。</div></div>
-    <div class="ss-card ss-stack s12"><div class="ss-h2">当前 CLI 提供的 Skills</div><div>CLI 0.1.29</div><div class="ss-row" style="gap:12px">${btn(`${p}-skr`, '刷新 CLI 提供的 Skills')}${btn(`${p}-skp`, '检查详情与偏好')}</div></div>
+    <div class="ss-card ss-stack s12"><div class="ss-h2">当前 CLI 提供的 Skills</div><div>CLI 0.1.30</div><div class="ss-row" style="gap:12px">${btn(`${p}-skr`, '刷新 CLI 提供的 Skills')}${btn(`${p}-skp`, '检查详情与偏好')}</div></div>
     <div class="ss-stack s12"><div class="ss-h2">选择 Agent</div><div class="ss-sub">状态只表示 Smart Search Skill 内容。Codex 使用的 .agents/skills 也可能被其他兼容 Agent 读取。</div>
       <div class="ss-card" id="${p}-skrows">${skillRows(p)}</div></div>
     <div id="${p}-skres"></div>
@@ -149,7 +150,7 @@ function skills(p) {
 
 function settings(p) {
   return `<div class="ss-scroll ss-stack">
-    <div class="ss-card"><div class="ss-row"><img src="../assets/smart-search-256.png" alt="" style="width:72px;height:72px;border-radius:15px"><div class="ss-grow"><div class="ss-h2">Smart Search</div><div class="ss-sub">版本 0.1.29 · konbakuyomu/smartsearch</div></div><span class="ss-link">GitHub</span></div></div>
+    <div class="ss-card"><div class="ss-row"><img src="../assets/smart-search-256.png" alt="" style="width:72px;height:72px;border-radius:15px"><div class="ss-grow"><div class="ss-h2">Smart Search</div><div class="ss-sub">版本 0.1.30 · konbakuyomu/smartsearch</div></div><span class="ss-link">GitHub</span></div></div>
     <div class="ss-stack s12"><div class="ss-h2">通用</div><div class="ss-sub">管理语言、外观和配置目录。</div>
       <div class="ss-card" id="${p}-st-gen"><div class="ss-row" id="${p}-st-lang"><div class="ss-grow"><div class="ss-b">界面语言</div><div class="ss-sub">App 与独立 CLI 分别保存语言选择。</div></div><div class="ss-in dd" style="width:240px">跟随系统</div></div>
         <div class="ss-divline"></div><div class="ss-row" id="${p}-st-look"><div class="ss-grow"><div class="ss-b">外观</div><div class="ss-sub">跟随系统外观，或单独选择浅色、深色模式。</div></div><div class="ss-in dd" style="width:240px">跟随系统</div></div>

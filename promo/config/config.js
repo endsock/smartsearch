@@ -30,22 +30,22 @@ function applyApp(t, settled = false) {
   const [since, page] = pages.filter(([a]) => t >= a).pop();
   showPage('a', page, settled || since === 0 ? 1 : Math.min(1, spring(t - since, ...SPRING.card)));
   const connected = t >= T.ready;
-  cls($('a-dot'), 'on', connected);
-
-  // 概览, card 1: install the CLI.
-  const installing = t >= T.installing && t < T.ready;
-  html($('a-c1s'), connected ? '0.1.29 · 已就绪' : installing ? '正在检测本地环境…' : 'Node.js/npm 已就绪，等待准备 Smart Search CLI');
-  html($('a-c1e'), t >= T.flyCli && t < T.ready ? 'CLI 安装完成，正在重新连接。' : installing ? '正在通过原管理器安装或更新 CLI…'
-    : 'App 通过本机独立安装的 Smart Search CLI 读取配置并运行搜索，两者分别安装和更新。检测会复用已有的 mise 或 npm 安装。');
-  const busy1 = t >= T.c1Press && t < T.flyCli;
-  html($('a-c1b'), busy1 ? '处理中…' : '安装 CLI');
-  cls($('a-c1b'), 'off', busy1 && t >= T.installing);
+  // 概览, card 1: install the CLI. While the App installs, the card shows only the operation, 环境详情… and progress.
+  const installing = t >= T.installing && t < T.flyCli, connecting = t >= T.flyCli && t < T.ready;
+  cls($('a-dot'), 'on', connected); cls($('a-dot'), 'wait', connecting);
+  html($('a-c1s'), connected ? '0.1.30 · 已就绪' : connecting ? '正在检测本地环境…' : installing ? '正在通过原管理器安装或更新 CLI…'
+    : 'Node.js/npm 已就绪，等待准备 Smart Search CLI');
+  html($('a-c1b'), t >= T.c1Press ? '处理中…' : '安装 CLI');
+  cls($('a-c1b'), 'off', t >= T.c1Press);
   // Once the install returns the App finds a compatible CLI: no install button or manual links, only 重新检测 while it connects.
-  const found = t >= T.flyCli;
-  vis($('a-c1b'), !found, 'inline-flex'); vis($('a-c1x'), !found, 'inline-flex'); vis($('a-c1m'), !found, 'inline');
-  vis($('a-c1r'), !connected, 'inline-flex');
-  vis($('a-c1p'), installing && t < T.flyCli);
+  const idle = t < T.installing;
+  vis($('a-c1b'), idle, 'inline-flex'); vis($('a-c1x'), idle, 'inline-flex'); vis($('a-c1m'), idle, 'inline');
+  vis($('a-c1r'), !installing && !connected, 'inline-flex');
+  vis($('a-c1e'), !installing);
+  vis($('a-c1p'), installing);
   if (installing) css($('a-c1p').firstElementChild, { left: `${((((t - T.installing) * 0.9) % 1.3) - 0.3) * 100}%` });
+  html($('a-c1g'), 'CLI 安装完成，正在重新连接。');
+  vis($('a-c1g'), connecting);
 
   // Card 2: rows appear once the backend is connected; all three filled when we come back.
   const back = t >= T.ov;
@@ -286,7 +286,7 @@ window.render = function (t) {
 
 // ---------- setup ----------
 const TEXT = document.body.textContent + CAPS.map(c => c[2]).join('') + STEPS.map(s => s.join('')).join('') + DLG1.body + DLG1.title + DLG2.body + DLG2.title
-  + NOTICES.map(n => n[2] + n[3]).join('') + '处理中…正在检测本地环境…正在通过原管理器安装或更新 CLI…CLI 安装完成，正在重新连接。0.1.29 · 已就绪基础配置已完成，可以开始搜索。'
+  + NOTICES.map(n => n[2] + n[3]).join('') + '处理中…正在检测本地环境…正在通过原管理器安装或更新 CLI…CLI 安装完成，正在重新连接。0.1.30 · 已就绪基础配置已完成，可以开始搜索。'
   + '测试中…用未保存的修改测试通过尚未测试正在等待服务商响应，请稍候。可在活动页取消。未保存修改的测试 · 2026-10-20 14:03:12此结果对应测试时尚未保存的修改；再次测试可确认当前配置。检查方式：真实请求技术详情⌄'
   + '有 1 2 项未保存修改 · 密钥留空会保留原值保存中…更新中…正在更新所选 Skills…已同步 4 个，失败 0 个。与来源一致已选择个 Agent已配置未配置 · 未保存••••••••⏩快进';
 loadFonts([

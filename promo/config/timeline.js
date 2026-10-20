@@ -7,7 +7,7 @@ export const BPM = 96;
 export const T = {
   title: 0.2, appIn: 2.4,
   // 1 概览: install the CLI
-  s1: 3.4, c1Press: 5.0, dlg1: 5.15, dlg1Press: 6.9, installing: 7.05, flyCli: 10.2, ready: 10.9, cheer1: 11.6,
+  s1: 3.4, c1Press: 5.0, dlg1: 5.15, dlg1Press: 6.9, installing: 7.05, flyCli: 9.4, ready: 10.9, cheer1: 11.6,
   // 2 服务商: one provider in full, two more fast-forwarded
   s2: 13.2, c2Press: 14.0, prov: 14.15, exaPress: 15.3, exa: 15.45, keyPress: 16.6, type0: 16.8, testPress: 19.6, testDone: 21.8,
   savePress: 23.4, saved: 23.9, flipX: 25.6, flipJ: 26.2, cheer2: 26.9,
@@ -53,14 +53,14 @@ export const CLICKS = [
 ];
 
 export const DLG1 = { title: '安装或更新独立 CLI？', ok: '继续',
-  body: 'C:\\Users\\me\\AppData\\Roaming\\npm\nCLI 最新版本：0.1.29\n\n只处理所选 CLI；配置和 Skills 保留。App 自身不会更新。' };
+  body: 'Windows · C:\\Users\\me\\AppData\\Roaming\\npm\nCLI 最新版本：0.1.30\n\n只处理所选 CLI；配置和 Skills 保留。App 自身不会更新。' };
 const SKILL_DIRS = [['Codex', '.agents'], ['Claude Code', '.claude'], ['Cursor', '.cursor'], ['Gemini CLI', '.gemini']];
 export const DLG2 = { title: '更新所选 Skills', ok: '备份并更新',
-  body: '来源版本：0.1.29\n' + SKILL_DIRS.map(([n, d]) => `${n}\nC:\\Users\\me\\${d}\\skills\\smart-search`).join('\n\n') + '\n将同步所选目标的托管文件；不同内容先备份，额外文件保留。' };
+  body: '来源版本：0.1.30\n' + SKILL_DIRS.map(([n, d]) => `${n}\nC:\\Users\\me\\${d}\\skills\\smart-search`).join('\n\n') + '\n将同步所选目标的托管文件；不同内容先备份，额外文件保留。' };
 
-// Notices open the 操作提示 flyout: [from, to, title, message].
+// Notices open the 操作提示 flyout: [from, to, title, message]. The App clears the install notice once it reconnects.
 export const NOTICES = [
-  [T.flyCli, T.flyCli + 2.3, '独立 CLI', 'CLI 安装完成，正在重新连接。'],
+  [T.flyCli, T.ready, '独立 CLI', 'CLI 安装完成，正在重新连接。'],
   [T.testPress + 0.15, T.testDone - 0.2, '正在测试未保存的修改', '这次测试不会保存配置。结果会显示在对应服务商下方。'],
   [T.saved, T.saved + 1.6, '已保存', '新配置会用于下一次任务；已经开始的任务继续使用它自己的配置快照。'],
   [T.rtSaved, T.rtSaved + 1.5, '已保存', '新配置会用于下一次任务；已经开始的任务继续使用它自己的配置快照。'],
