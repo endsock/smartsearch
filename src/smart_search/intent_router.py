@@ -166,6 +166,21 @@ def contains_any(query: str, keywords: set[str]) -> bool:
     return any(keyword.lower() in q for keyword in keywords)
 
 
+def contains_term(query: str, keywords: set[str]) -> bool:
+    """Like contains_any, but Latin keywords match whole words (with a plural s or a version
+    number), so "api" is not found in "capital" nor "repo" in "report". CJK keywords have no
+    word boundaries and still match as substrings."""
+    q = query.lower()
+    for keyword in keywords:
+        term = keyword.lower()
+        if not term.isascii():
+            if term in q:
+                return True
+        elif re.search(rf"(?<![a-z0-9]){re.escape(term)}(?:e?s)?(?![a-z])", q):
+            return True
+    return False
+
+
 def extract_urls(query: str) -> list[str]:
     urls = []
     for match in re.findall(r"https?://[^\s<>\]\)\"'，。；！？、：）】》」』]+", query):
@@ -189,7 +204,7 @@ def build_rules_route(
 ) -> IntentRouteResult:
     plan_intent_signals = plan_intent_signals or {}
     urls = extract_urls(query)
-    docs_intent = bool(plan_intent_signals.get("docs_api_intent")) or contains_any(query, DOCS_INTENT_KEYWORDS)
+    docs_intent = bool(plan_intent_signals.get("docs_api_intent")) or contains_term(query, DOCS_INTENT_KEYWORDS)
     zh_current_intent = (
         plan_intent_signals.get("locale_domain_scope") == "china"
         or contains_any(query, ZH_CURRENT_INTENT_KEYWORDS)
@@ -200,7 +215,7 @@ def build_rules_route(
         or contains_any(query, CURRENT_INTENT_KEYWORDS)
     )
     fetch_intent = bool(plan_intent_signals.get("known_url")) or bool(urls) or contains_any(query, FETCH_INTENT_KEYWORDS)
-    vertical_intent = contains_any(query, VERTICAL_INTENT_KEYWORDS)
+    vertical_intent = contains_term(query, VERTICAL_INTENT_KEYWORDS)
 
     capabilities: set[str] = set()
     supplemental_paths: list[str] = []

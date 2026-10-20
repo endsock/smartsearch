@@ -193,8 +193,8 @@ smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --p
 | `DEEPSEEK_TIMEOUT_SECONDS` | DeepSeek 搜索与抓取的读取超时，默认 `60` |
 | `SMART_SEARCH_VALIDATION_LEVEL` | `fast`、`balanced`、`strict` |
 | `SMART_SEARCH_FALLBACK_MODE` | `auto` 或 `off` |
-| `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` | `research` 路由优先 provider CSV，只能在同 capability 内调整顺序 |
-| `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` | `research` 禁用 provider CSV，不能改变 provider capability 边界 |
+| `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` | 自动选路优先的 provider CSV，普通搜索和 `research` 都适用（名称沿用旧称）；只能在同 capability 内调整顺序 |
+| `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` | 自动选路禁用的 provider CSV，普通搜索和 `research` 都适用（名称沿用旧称）；不能改变 provider capability 边界 |
 | `SMART_SEARCH_CONFIG_DIR` | 指定本机配置和日志根目录 |
 
 ## 服务商失败冷却

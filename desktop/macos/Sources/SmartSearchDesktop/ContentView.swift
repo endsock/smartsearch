@@ -691,7 +691,7 @@ private struct ConfigurationEditor: View {
 private func capabilityName(_ value: String) -> String {
     ["main_search": L("主搜索"), "docs_search": L("文档检索"), "web_fetch": L("网页抓取"),
      "web_search": L("网页搜索"), "vertical_search": L("垂直检索"), "site_map": L("站点地图"),
-     "synthesis": L("结果汇总"), "other": L("其他能力")][value] ?? value
+     "synthesis": L("结果汇总"), "other": L("其他能力"), "retrieval": L("检索渠道")][value] ?? value
 }
 
 private func providerPurpose(_ group: ProviderFieldGroup) -> String {
@@ -757,7 +757,7 @@ private struct ConfigPreviewView: View {
                     Text(L("检查已完成；请根据还缺的能力决定是否保存。"))
                         .foregroundStyle(.secondary)
                 }
-                ForEach(preview["missing"]?.arrayValue?.map(\.displayString) ?? [], id: \.self) { item in
+                ForEach(preview["missing"]?.arrayValue?.map { capabilityName($0.displayString) } ?? [], id: \.self) { item in
                     Text(item).foregroundStyle(.secondary)
                 }
             }

@@ -18022,5 +18022,9 @@
   "正在卸载 CLI…": [
     "正在卸载 CLI…",
     "Removing the CLI…"
+  ],
+  "检索渠道": [
+    "检索渠道",
+    "Retrieval channel"
   ]
 }

@@ -158,16 +158,16 @@ def preview(payload: dict[str, Any]) -> dict[str, Any]:
     merged = {str(key).strip().upper(): "" if value is None else str(value) for key, value in values.items()}
     with config.snapshot(merged):
         capability_status = service.get_capability_status()
-        required = [] if config.minimum_profile == "off" else ["main_search", "docs_search", "web_fetch"]
-    missing = [name for name in required if not capability_status.get(name, {}).get("ok")]
+        # The same minimum profile the overview reports, so a draft never "passes" differently.
+        minimum = service._minimum_profile_result(config.minimum_profile, capability_status)
     return {
         "ok": True,
         "error_type": "",
         "error": "",
         "capability_status": capability_status,
-        "required": required,
-        "missing": missing,
-        "minimum_profile_ok": not missing,
+        "required": minimum["required"],
+        "missing": minimum["missing"],
+        "minimum_profile_ok": minimum["ok"],
     }
 
 
