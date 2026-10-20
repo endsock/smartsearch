@@ -1519,6 +1519,7 @@ public sealed partial class MainWindow : Window
         "web_fetch" => L("网页抓取"),
         "vertical_search" => L("垂直检索"),
         "site_map" => L("站点地图"), "synthesis" => L("结果汇总"), "other" => L("其他能力"),
+        "retrieval" => L("检索渠道"),
         _ => capability
     };
 

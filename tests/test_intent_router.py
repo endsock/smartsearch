@@ -59,6 +59,25 @@ async def test_route_outputs_multiple_capabilities_for_url_verification(monkeypa
     assert not result["executed_search"]
 
 
+@pytest.mark.parametrize("query, docs, vertical", [
+    ("What is the capital of France", False, False),
+    ("rapid prototyping methods", False, False),
+    ("nuclear reactor safety", False, False),
+    ("annual report 2025 revenue", False, False),
+    ("lawn care tips", False, False),
+    ("React useEffect cleanup", True, False),
+    ("python3 asyncio", True, False),
+    ("Vue3 composition API", True, False),
+    ("调用api接口超时", True, False),
+    ("list of web frameworks", True, False),
+    ("Next.js app router", True, False),
+    ("github repos about rust", False, True),
+])
+def test_docs_and_vertical_keywords_match_whole_words(query, docs, vertical):
+    route = service.build_rules_route(query, mode="rules")
+    assert (route.docs_intent, route.intent_signals["vertical_intent"]) == (docs, vertical)
+
+
 @pytest.mark.asyncio
 async def test_route_keeps_zh_current_field_narrow_for_english_current_queries():
     result = await service.route("today AI news", mode="local")

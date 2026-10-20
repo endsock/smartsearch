@@ -6,7 +6,7 @@
 - `research`：Jev 选择互补动作并发执行，读取发现的网页，判断证据缺口，必要时继续。原问题、子问题和有限缺口查询由程序提供，Jev 只选择候选，不生成任意查询或工具调用。只有实际 fetched/read 的内容进入 `citations`。可选过滤和 `SMART_SEARCH_JEV_SYNTHESIZE=false|auto|true` 只影响深入搜索。
 - `deep` 继续离线生成计划，`steps[].command` 是供人或 AI 手动编排的建议。`research` 实际执行记录单独保存在 `routing_decision.rounds` 和 `stage_results` 中。
 
-默认 `SMART_SEARCH_INTENT_ROUTER=jev`。没有 TypeSafe key 或无法得到有效判断时，`--fallback auto` 使用本地能力规则并标记降级，`--fallback off` 明确失败。显式 `local` 从不调用 Jev。旧 `hybrid` 映射为 `jev`，`rules` 和 `off` 映射为 `local`。旧 embedding/classifier 字段和 Key 保留但不使用，`route-calibrate` 是不联网的退役兼容命令。
+默认 `SMART_SEARCH_INTENT_ROUTER=jev`。没有 TypeSafe key 或无法得到有效判断时，`--fallback auto` 使用本地能力规则并标记降级，`--fallback off` 明确失败。没有 TypeSafe key 时，`research` 读到第一批网页正文就停止（`judgment_unavailable`），结果总是标记降级；`deep` 使用 strict，需要 Jev 判断证据充分，所以不会返回 `ok=true`。`SMART_SEARCH_JEV_SYNTHESIZE=true` 仍会汇总读到的证据，`auto` 需要 Jev。需要稳定的深入搜索时请配置 TypeSafe key。显式 `local` 从不调用 Jev。旧 `hybrid` 映射为 `jev`，`rules` 和 `off` 映射为 `local`。旧 embedding/classifier 字段和 Key 保留但不使用，`route-calibrate` 是不联网的退役兼容命令。
 
 `route` 默认只预览本地能力，不调用模型或检索服务；显式 `--remote` 才进行可能计费的 Jev 诊断。直接 provider 命令保持明确的调用语义。
 
@@ -84,7 +84,7 @@ smart-search config set SMART_SEARCH_JEV_SYNTHESIZE auto
 
 启用自动判断：`smart-search config set SMART_SEARCH_JEV_SYNTHESIZE auto`。原有 JSON 布尔值和 `1/0`、`yes/no`、`on/off` 仍兼容。独立汇总连接缺失或被限制时，自动模式直接返回证据；地址、Key、模型名只填写一部分会报告配置错误，不会调用主模型。Jev 判断失败、超时或响应无效时也返回证据并记录原因。过滤未开启时，判断依据是最终未过滤的证据；长文使用带有截断标记的预览。
 
-`research` 保留研究计划、子问题、正文证据和报告字段，由 Jev 选择每轮检索/阅读动作。quick 最多 2 轮、每轮 1 操作、每渠道 3 结果及 45 秒；standard 为 3/2/5 及 120 秒；deep 上限 10/10/20，并使用配置总超时。这些上限还受用户 JEV 配置约束，deep 默认也不会自动扩大到最大值。deep 使用 strict，其他 budget 使用 balanced。搜索摘要与模型回答只作发现候选，只有实际 fetched/read 正文能进入 citations；Context7 实际文档属于 read，库介绍不属于。`--evidence-dir` 或默认证据目录保存 `00-plan.json`、正文 Markdown、`summary.json` 和 `report.json`；正文失败或缺口未解决会明确标记。`deep` 命令继续是离线规划器。
+`research` 保留研究计划、子问题、正文证据和报告字段，由 Jev 选择每轮检索/阅读动作。quick 最多 2 轮、每轮 1 操作、每渠道 3 结果及 45 秒；standard 为 3/2/5 及 120 秒；deep 上限 10/10/20，并使用配置总超时。这些上限还受用户 JEV 配置约束，deep 默认也不会自动扩大到最大值。deep 使用 strict，其他 budget 使用 balanced。同一轮中一个渠道先返回结果后，其余索引搜索和网页读取最多再等 15 秒（或本轮已用时间）就取消；搜索模型（xAI 等主搜索）自己联网搜索、耗时更长，会等到本轮检索超时。搜索摘要与模型回答只作发现候选，只有实际 fetched/read 正文能进入 citations；Context7 实际文档属于 read，库介绍不属于。`--evidence-dir` 或默认证据目录保存 `00-plan.json`、正文 Markdown、`summary.json` 和 `report.json`；正文失败或缺口未解决会明确标记。`deep` 命令继续是离线规划器。
 
 ## 二分过滤
 

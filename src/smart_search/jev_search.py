@@ -509,8 +509,8 @@ async def search(
             before = len(evidence)
             round_attempt_start = len(attempts)
             if is_research:
-                tasks = {asyncio.create_task(execute_one(item, retrieval_timeout)) for item in selected}
-                pending = tasks
+                tasks = {asyncio.create_task(execute_one(item, retrieval_timeout)): item for item in selected}
+                pending = set(tasks)
                 try:
                     while pending:
                         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
@@ -519,6 +519,12 @@ async def search(
                                 _, pending = await asyncio.wait(
                                     pending, timeout=max(STRAGGLER_GRACE_SECONDS, time.monotonic() - phase_start)
                                 )
+                            # A search model runs its own web search and is far slower than an index
+                            # lookup; it keeps its retrieval timeout instead of the straggler grace.
+                            models = {task for task in pending if tasks[task]["capability"] == "main_search"}
+                            if models:
+                                await asyncio.wait(models)
+                                pending -= models
                             break
                 finally:
                     for task in pending:
@@ -613,7 +619,9 @@ async def search(
             "status": "disabled" if settings.synthesis_mode == "false" else "skipped",
             "decision_source": "config",
         }
-        useful_evidence = bool(answer_evidence and assessment["useful"])
+        # Without Jev, usefulness is unknown (None); an explicit "true" still summarizes what was read.
+        useful_evidence = bool(answer_evidence and (assessment["useful"] or
+                                                    (assessment["useful"] is None and settings.synthesis_mode == "true")))
         if settings.synthesis_mode != "false" and not useful_evidence:
             synthesis["reason"] = "no_confirmed_useful_evidence"
         if settings.synthesis_mode == "auto" and not judge_available:

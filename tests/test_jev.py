@@ -793,6 +793,33 @@ async def test_dedicated_synthesis_ignores_main_model_and_request_override(monke
 
 
 @pytest.mark.asyncio
+async def test_explicit_synthesis_runs_without_typesafe(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "jev")
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", "true")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "https://summary.example.org/v1")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", "summary-secret")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_MODEL", "summary-model")
+    calls = scripted_jev(monkeypatch, [], [])
+
+    async def exa(*args, **kwargs):
+        return {"ok": True, "results": [hit("Unverified but read evidence")]}
+
+    async def complete(self, headers, payload, ctx=None):
+        return "Summary of the evidence."
+
+    monkeypatch.setattr(service, "exa_search", exa)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "_execute_with_transport_fallback", complete)
+    result = await run_loop("question")
+
+    assert not calls
+    assert result["degraded"]
+    assert result["synthesis"]["status"] == "ok"
+    assert result["content"] == "Summary of the evidence."
+
+
+@pytest.mark.asyncio
 async def test_incomplete_dedicated_synthesis_never_calls_main_model(monkeypatch, configured):
     monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", "true")
     monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_MODEL", "summary-model")
@@ -993,6 +1020,39 @@ async def test_research_cancels_straggler_after_first_nonempty_result(monkeypatc
     assert "Fast useful evidence" in result["content"]
     assert cancelled.is_set()
     assert {item["provider"]: item["status"] for item in result["provider_attempts"]} == {"exa": "ok", "zhipu": "cancelled"}
+
+
+@pytest.mark.asyncio
+async def test_research_waits_for_search_model_past_straggler_grace(monkeypatch, configured):
+    from smart_search import jev_search
+
+    monkeypatch.setattr(jev_search, "STRAGGLER_GRACE_SECONDS", 0.1)
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
+    scripted_jev(monkeypatch, [{"exa:search", "xai-responses:search", "zhipu:search"}], [{"useful": 0.95, "sufficient": 0.95}])
+    cancelled = asyncio.Event()
+
+    async def exa(*args, **kwargs):
+        return {"ok": True, "results": [hit("Fast index evidence")]}
+
+    async def model_search(self, query, platform="", ctx=None):
+        await asyncio.sleep(0.4)
+        return 'Model conclusion.\n\nsources([{"url":"https://example.org/model","title":"Model source"}])'
+
+    async def zhipu(*args, **kwargs):
+        try:
+            await asyncio.sleep(30)
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(service, "exa_search", exa)
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", model_search)
+    monkeypatch.setattr(service, "zhipu_search", zhipu)
+    result = await asyncio.wait_for(run_loop("question"), 5)
+
+    statuses = {item["provider"]: item["status"] for item in result["provider_attempts"]}
+    assert statuses == {"exa": "ok", "xai-responses": "ok", "zhipu": "cancelled"}
+    assert cancelled.is_set()
 
 
 @pytest.mark.asyncio
