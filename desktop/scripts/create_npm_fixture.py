@@ -32,7 +32,10 @@ else if(args[0]==='install' || args[0]==='uninstall') {
   fs.writeFileSync(path.join(prefix,'operations.json'),JSON.stringify(args));
   const package=path.join(modules,'@konbakuyomu/smart-search');
   if(args[0]==='uninstall') fs.renameSync(package,package+'.uninstalled');
-  else { const file=path.join(package,'package.json'), data=JSON.parse(fs.readFileSync(file)); data.version='1.2.4';fs.writeFileSync(file,JSON.stringify(data)); }
+  else {
+    if(!fs.existsSync(package)) fs.renameSync(package+'.uninstalled',package);
+    const file=path.join(package,'package.json'), data=JSON.parse(fs.readFileSync(file)); data.version='1.2.4';fs.writeFileSync(file,JSON.stringify(data));
+  }
 } else process.exit(9);
 """)
     script.chmod(0o755)
