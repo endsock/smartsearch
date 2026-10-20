@@ -73,13 +73,27 @@ App 只负责管理；关掉 App 后，AI 仍会按 Skill 里的说明调用 CLI
       <p><b>在 App 里搜索</b><br><sub>「搜索与研究」页选工具、填问题，结果和来源链接一起给，可以复制或导出。</sub></p>
     </td>
     <td width="50%" valign="top">
-      <p><b>三支完整动画</b></p>
-      <sub>功能片、配置教程和日常使用三支动画都用代码逐帧渲染，源文件在 <a href="promo/"><code>promo/</code></a>，可在本地重新生成。</sub>
+      <p><b>三支完整视频</b></p>
+      <sub>功能片、配置教程和日常使用的完整视频在<a href="#完整视频">下方</a>。三支都用代码逐帧渲染，源文件在 <a href="promo/"><code>promo/</code></a>，可在本地重新生成。</sub>
       <br><br>
       <sub>动画里的 Clawd 是非官方同人形象，与 Anthropic 无关；App 界面为 Windows 版的示意重绘，文字取自源码。</sub>
     </td>
   </tr>
 </table>
+
+### 完整视频
+
+**功能片《同一个问题》**（53 秒）：同一个问题，内置搜索和 Smart Search 并排比较：Jev 选路、搜索、读原网页，最后给出带来源的回答。
+
+https://github.com/user-attachments/assets/8909f8b9-394b-4617-b6bb-3c8b6904efc6
+
+**配置教程**（69 秒）：跟着 Windows App 逐页配置：安装 CLI、填写并测试 API Key、打开 Jev 选路、更新 Skills。
+
+https://github.com/user-attachments/assets/d2b17aea-1abe-4658-808a-1f212649e5e1
+
+**日常使用**（62 秒）：在 AI 里直接问、在 App 里搜索和研究、查看活动、常用命令，关掉 App 也能继续用。
+
+https://github.com/user-attachments/assets/915cb409-e012-4aa4-8910-3d213f732386
 
 ## 快速开始
 

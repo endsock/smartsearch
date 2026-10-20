@@ -73,13 +73,29 @@ It helps when you are:
       <p><b>Search in the App</b><br><sub>On Search &amp; research, pick a tool and enter a question; the result comes with its source links, ready to copy or export.</sub></p>
     </td>
     <td width="50%" valign="top">
-      <p><b>The full animations</b></p>
-      <sub>The feature film, the setup tutorial and the everyday-use tutorial are rendered frame by frame from code; their sources are in <a href="promo/"><code>promo/</code></a> and can be rebuilt locally.</sub>
+      <p><b>The full videos</b></p>
+      <sub>The feature film, the setup tutorial and the everyday-use tutorial are <a href="#full-videos">below</a>. All three are rendered frame by frame from code; their sources are in <a href="promo/"><code>promo/</code></a> and can be rebuilt locally.</sub>
       <br><br>
       <sub>Clawd in the animations is an unofficial fan depiction, not affiliated with Anthropic. The App screens are a redrawn illustration of the Windows App, with text taken from its source.</sub>
     </td>
   </tr>
 </table>
+
+### Full videos
+
+The captions are in Chinese.
+
+**The feature film, “The Same Question”** (53 s): the same question asked with the built-in search and with Smart Search, side by side: Jev routing, search, reading the original page, and an answer with sources.
+
+https://github.com/user-attachments/assets/8909f8b9-394b-4617-b6bb-3c8b6904efc6
+
+**Setup tutorial** (69 s): the Windows App page by page: install the CLI, add and test an API key, turn on Jev routing, update Skills.
+
+https://github.com/user-attachments/assets/d2b17aea-1abe-4658-808a-1f212649e5e1
+
+**Everyday use** (62 s): ask your AI directly, search and research in the App, read Activity, the common commands, and keep working after closing the App.
+
+https://github.com/user-attachments/assets/915cb409-e012-4aa4-8910-3d213f732386
 
 ## Quick start
 
