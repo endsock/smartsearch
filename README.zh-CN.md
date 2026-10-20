@@ -85,7 +85,7 @@ App 只负责管理；关掉 App 后，AI 仍会按 Skill 里的说明调用 CLI
 
 ### 用 App（推荐）
 
-1. **安装 App，装好 CLI。** 在[发行页](https://github.com/konbakuyomu/smartsearch/releases/latest)下载适合系统的安装包。打开后，「概览」第一步会查找本机的 npm（也可以手动指定路径），点「安装 CLI」即可安装并连接独立 CLI。
+1. **安装 App，装好 CLI。** 在[发行页](https://github.com/konbakuyomu/smartsearch/releases/latest)下载适合系统的安装包。打开后，「概览」第一步会查找本机的 npm（也可以手动指定路径），点「安装 CLI」即可安装并连接独立 CLI。Windows 上有 WSL 发行版时，按钮按环境分开：「安装到 Windows」「安装到 WSL <发行版>」（WSL 里需要 Node.js 18 或更新版本）。
 2. **配置服务商。** 打开「服务商」，为主搜索、文档检索、网页抓取各选一个服务商，填 API Key，点「测试」确认可用后「保存更改」。页面上有每家「申请 Key」的入口。最少配一个检索渠道就能用；三类都配上，选路时可选的渠道更多。
 3. **打开 Jev 选路（可选）。** 在「服务商 → 意图路由」填 TypeSafe API Key。路由模式默认是「JEV 语义路由」；不填 Key 时会按本地规则选路。
 4. **接入 AI 工具。** 打开「更新 Skills」，勾选你用的 Agent（默认是 Codex、Claude Code、Cursor），点「更新所选 Skills」。内容不同的文件会先备份，额外文件保留。更新后重新打开 Agent 会话，就可以开始问了。

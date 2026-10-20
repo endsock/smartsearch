@@ -85,7 +85,7 @@ It helps when you are:
 
 ### With the App (recommended)
 
-1. **Install the App and the CLI.** Download the package for your system from [Releases](https://github.com/konbakuyomu/smartsearch/releases/latest). Step 1 on **Overview** finds npm on your machine (or takes a manual path); **Install CLI** installs and connects the independent CLI.
+1. **Install the App and the CLI.** Download the package for your system from [Releases](https://github.com/konbakuyomu/smartsearch/releases/latest). Step 1 on **Overview** finds npm on your machine (or takes a manual path); **Install CLI** installs and connects the independent CLI. On Windows with a WSL distribution, each environment gets its own button: **Install in Windows** and **Install in WSL &lt;distribution&gt;** (WSL needs Node.js 18 or later).
 2. **Configure providers.** On **Providers**, choose one provider each for main search, documentation search and page fetching, enter its API key, click **Test**, then **Save changes**. Each provider has a **Get API key** link. One working retrieval channel is enough to search; with all three, routing has more channels to choose from.
 3. **Turn on Jev routing (optional).** Under **Providers → Intent routing**, enter a TypeSafe API key. The router mode defaults to **JEV semantic routing**; without a key, channels are chosen by local rules.
 4. **Connect your AI tools.** On **Update Skills**, select your Agents (Codex, Claude Code and Cursor are selected by default) and click **Update selected Skills**. Files that differ are backed up first and extra files are kept. Reopen your Agent session and start asking.
