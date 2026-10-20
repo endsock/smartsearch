@@ -73,6 +73,13 @@ export const MAGNIFIER = {
 };
 // The eye seen through the lens: twice the size, drawn after the lens.
 export const BIG_EYE = { rows: ['ee', 'ee', 'ee', 'ee'], pal: { e: PAL.eye } };
+// The old magnifier (the built-in search): grey ring, fogged lens, a crack across it.
+export const OLD_MAGNIFIER = {
+  rows: MAGNIFIER.rows.map((row, r) => [...row].map((ch, c) => (ch === 'b' || ch === 'w') && (c + r === 7 || c + r === 8 && r % 2) ? 'x' : ch).join('')),
+  pal: { k: '#8E8A84', b: 'rgba(200,200,196,.88)', w: 'rgba(200,200,196,.88)', h: '#6E5440', x: '#5A5650' },
+};
+// What Clawd sees through the fogged lens: a smudge instead of an eye.
+export const FOG_EYE = { rows: ['.ss.', 'ssss', 'ssss', '.ss.'], pal: { s: 'rgba(120,116,110,.55)' } };
 // Pixel art from a glyph mask: '#' cells get `fill`, and every empty neighbour gets an `ink` outline.
 export function outlined(mask, fill, ink = PAL.ink) {
   const H = mask.length + 2, W = mask[0].length + 2;

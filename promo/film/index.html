@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Smart Search · 同一个问题</title>
+<link rel="stylesheet" href="/node_modules/@fontsource/noto-sans-sc/400.css">
+<link rel="stylesheet" href="/node_modules/@fontsource/noto-sans-sc/500.css">
+<link rel="stylesheet" href="/node_modules/@fontsource/noto-sans-sc/700.css">
+<link rel="stylesheet" href="/node_modules/@fontsource/noto-sans-sc/900.css">
+<link rel="stylesheet" href="/node_modules/@fontsource/inter/400.css">
+<link rel="stylesheet" href="/node_modules/@fontsource/inter/600.css">
+<link rel="stylesheet" href="/node_modules/@fontsource/inter/700.css">
+<link rel="stylesheet" href="/node_modules/@fontsource/jetbrains-mono/400.css">
+<link rel="stylesheet" href="/node_modules/@fontsource/jetbrains-mono/700.css">
+<link rel="stylesheet" href="/node_modules/@fontsource/zcool-kuaile/400.css">
+<style>
+  :root {
+    --paper: #ECE5D8; --dots: #DDD3C2; --ink: #2A2622; --muted: #8C8378; --line: #E6DFD3; --white: #FFFFFF;
+    --clay: #D97757; --ss: #728CE2; --ss-deep: #4A62C9; --ss-soft: #DCE4FA; --hi: #FFE07A; --red: #D9483B; --green: #2F9E4F;
+    --mono: "JetBrains Mono", "Noto Sans SC", monospace;
+    --sans: "Inter", "Noto Sans SC", sans-serif;
+    --fun: "ZCOOL KuaiLe", "Noto Sans SC", sans-serif;
+  }
+  html, body { margin: 0; background: var(--paper); overflow: hidden; }
+  #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden; background: var(--paper); }
+  .layer { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+  .cam { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+  .paper { position: absolute; left: -2000px; top: -2000px; width: 5920px; height: 5080px;
+    background: var(--paper) radial-gradient(circle, var(--dots) 1.7px, transparent 2.2px) 0 0 / 30px 30px; }
+
+  /* windows */
+  .win { position: absolute; background: var(--white); border-radius: 18px; overflow: hidden;
+    box-shadow: 0 28px 60px rgba(70, 50, 30, .13), 0 2px 6px rgba(70, 50, 30, .08); }
+  .bar { height: 52px; background: #F7F4EF; border-bottom: 1px solid #EDE7DD; display: flex; align-items: center; padding: 0 22px; gap: 10px; }
+  .dot { width: 13px; height: 13px; border-radius: 50%; background: #E2DBD0; }
+  .bar .title { flex: 1; text-align: center; margin-right: 60px; font: 400 18px var(--sans); color: var(--muted); }
+  .viewport { position: absolute; left: 0; right: 0; top: 52px; bottom: 0; overflow: hidden; }
+  .rows { position: absolute; left: 40px; right: 40px; top: 26px; font: 400 22px/36px var(--mono); color: var(--ink); }
+  .rows.sm { font-size: 19px; line-height: 31px; }
+  .row { min-height: 36px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .rows.sm .row { min-height: 31px; }
+  .row .p { color: var(--muted); }
+  .row b { font-weight: 700; }
+  .row .dim { color: var(--muted); }
+  .row .url { color: #5A6FC4; }
+  .bul { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #B9B0A3; margin: 0 12px 3px 2px; vertical-align: middle; }
+  .bul.ok { background: var(--green); } .bul.ink { background: var(--ink); }
+  .elbow { display: inline-block; width: 12px; height: 14px; border-left: 2px solid #B9B0A3; border-bottom: 2px solid #B9B0A3; margin: 0 14px 7px 28px; vertical-align: middle; }
+  .spin { display: inline-block; width: 20px; height: 20px; border-radius: 50%; border: 3px solid #E4DED4; border-top-color: #8C8378; vertical-align: middle; margin-bottom: 5px; box-sizing: border-box; }
+  .caret { display: inline-block; width: 11px; height: 25px; background: var(--muted); vertical-align: middle; margin-left: 3px; }
+
+  /* cards and the page */
+  .card { position: absolute; background: var(--white); border-radius: 16px; border: 1px solid var(--line); box-shadow: 0 14px 30px rgba(70, 50, 30, .10); box-sizing: border-box; overflow: hidden; }
+  .card .fav { position: absolute; left: 22px; top: 22px; width: 48px; height: 48px; border-radius: 12px; background: #23272F; color: #fff; font: 600 25px/48px var(--sans); text-align: center; }
+  .card .t { position: absolute; left: 88px; top: 18px; font: 600 26px var(--sans); color: var(--ink); white-space: nowrap; }
+  .card .u { position: absolute; left: 88px; top: 64px; font: 400 18px var(--mono); color: #6B6358; background: #F4EFE7; border-radius: 8px; padding: 4px 10px; white-space: nowrap; }
+  .card .ring { position: absolute; inset: 0; border: 4px solid var(--ss); border-radius: 16px; opacity: 0; }
+  #page { position: absolute; background: var(--white); border-radius: 18px; border: 1px solid var(--line); box-shadow: 0 24px 56px rgba(70, 50, 30, .14); overflow: hidden; }
+  #page .pin { position: absolute; left: 0; top: 0; width: 880px; height: 680px; }
+  #page .urlbar { height: 58px; background: #F3F0FF; border-bottom: 1px solid #E3DEF5; font: 400 20px/58px var(--mono); color: #4B5DB0; padding-left: 64px; position: relative; }
+  #page .urlbar::before { content: ""; position: absolute; left: 28px; top: 22px; width: 14px; height: 11px; border-radius: 2px; background: #8A93C7; }
+  #page .urlbar::after { content: ""; position: absolute; left: 30px; top: 14px; width: 6px; height: 7px; border: 2px solid #8A93C7; border-bottom: 0; border-radius: 6px 6px 0 0; }
+  #page h1 { position: absolute; left: 48px; top: 84px; margin: 0; font: 700 50px var(--sans); color: var(--ink); }
+  #page .bar2 { position: absolute; left: 48px; height: 14px; border-radius: 7px; background: #ECE7DE; }
+  #page .h { position: absolute; left: 48px; top: 214px; font: 600 24px var(--sans); color: var(--muted); }
+  #page .setup { position: absolute; left: 48px; top: 258px; font: 700 22px var(--mono); color: var(--ink); }
+  #quote { position: absolute; left: 48px; top: 400px; width: 790px; font: 400 28px/46px var(--sans); color: var(--ink); }
+  #quote span { position: relative; z-index: 1; }
+  .hl { position: absolute; background: var(--hi); border-radius: 4px; z-index: 0; }
+  #gloss { position: absolute; left: 48px; top: 606px; font: 500 27px var(--sans); color: var(--ss-deep); white-space: nowrap; }
+  #cite { position: absolute; right: 30px; top: 84px; font: 700 26px var(--mono); color: #fff; background: var(--ss); border-radius: 12px; padding: 4px 14px; }
+  #sumL { position: absolute; left: 1100px; top: 420px; width: 560px; height: 300px; background: #FBFAF7; border: 3px dashed #CFC6B8; border-radius: 18px; box-sizing: border-box; }
+  #sumL .tag { position: absolute; left: 22px; top: -22px; background: #8C8378; color: #fff; font: 700 26px var(--sans); padding: 4px 16px; border-radius: 10px; }
+  #sumL i { position: absolute; left: 30px; height: 18px; border-radius: 9px; background: #D7D0C4; filter: blur(4px); }
+  .ringfx { position: absolute; border-radius: 50%; border-style: solid; border-color: var(--ss); box-sizing: border-box; }
+
+  /* overlay: the comic layer, never filtered */
+  #divider { position: absolute; left: 0; top: 0; }
+  .sticker { position: absolute; background: var(--white); border: 5px solid var(--ink); border-radius: 18px; box-shadow: 9px 9px 0 var(--ink); }
+  #banner { left: 50%; top: 26px; padding: 12px 34px; font: 900 36px var(--sans); color: var(--ink); white-space: nowrap; }
+  #round { position: absolute; left: 50%; top: 118px; font: 400 56px/1.2 var(--fun); color: var(--ink); white-space: nowrap; }
+  #round span { background: var(--hi); padding: 0 16px; border-radius: 12px; }
+  #vs { position: absolute; width: 112px; height: 112px; border-radius: 50%; background: var(--ink); color: #fff; font: 900 50px/112px var(--sans); text-align: center; }
+  .tagS { position: absolute; top: 30px; display: flex; align-items: center; gap: 12px; padding: 9px 18px; border-radius: 14px; background: rgba(255, 255, 255, .78); box-shadow: 0 8px 22px rgba(70, 50, 30, .10); font: 700 28px var(--sans); color: var(--ink); white-space: nowrap; }
+  .tagS img { width: 40px; height: 40px; border-radius: 10px; }
+  .tagS em { font: 700 20px var(--mono); font-style: normal; padding: 3px 9px; border-radius: 8px; background: #E9E5DE; color: var(--muted); }
+  .tagS em.fast { background: var(--ss); color: #fff; }
+  .ono { position: absolute; font: 400 120px var(--fun); white-space: nowrap; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; }
+  .stamp { position: absolute; padding: 6px 26px; border: 7px solid currentColor; border-radius: 16px; font: 900 64px/1.15 var(--sans); white-space: nowrap; background: rgba(255, 255, 255, .55); }
+  .cap { position: absolute; padding: 14px 32px; border-radius: 999px; background: rgba(255, 255, 255, .80); backdrop-filter: blur(14px);
+    box-shadow: 0 10px 30px rgba(70, 50, 30, .12); font: 500 50px var(--sans); color: var(--ink); white-space: nowrap; }
+  .cap b { font-weight: 700; background: linear-gradient(transparent 60%, var(--ss-soft) 60%); padding: 0 2px; }
+  .chip { position: absolute; padding: 12px 26px; border-radius: 14px; background: var(--white); border: 4px solid var(--ink); box-shadow: 7px 7px 0 var(--ink);
+    font: 700 32px var(--mono); color: var(--ink); white-space: nowrap; }
+  .chip.ok { font-family: var(--sans); }
+  .chip.ok::before { content: "✓ "; color: var(--green); }
+  .key { position: absolute; padding: 10px 26px; border-radius: 14px; background: #fff; border: 3px solid #CFC6B8; border-bottom-width: 8px; font: 700 34px var(--sans); color: var(--ink); }
+  .actor { position: absolute; left: 0; top: 0; }
+
+  /* montage */
+  .scene { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; display: none; }
+  .label { position: absolute; left: 110px; top: 70px; font: 400 92px/1.2 var(--fun); color: var(--ink); white-space: nowrap; }
+  .label span { background: var(--hi); padding: 0 20px; border-radius: 14px; }
+  .node { position: absolute; padding: 22px 36px; border-radius: 18px; background: #fff; border: 1px solid var(--line); box-shadow: 0 14px 30px rgba(70, 50, 30, .10); font: 700 42px var(--sans); color: var(--ink); white-space: nowrap; }
+  .node b { color: var(--ss-deep); margin-right: 10px; font-family: var(--mono); }
+  .link { position: absolute; height: 5px; background: var(--ss); border-radius: 3px; transform-origin: 0 50%; }
+  .app .side { position: absolute; left: 0; top: 52px; bottom: 0; width: 270px; background: #F6F4F0; border-right: 1px solid #ECE6DC; }
+  .app .nav { position: absolute; left: 22px; right: 22px; height: 52px; border-radius: 10px; font: 500 24px/52px var(--sans); color: var(--ink); padding-left: 20px; }
+  .app .nav.on { background: #E9E5DE; }
+  .app .main { position: absolute; left: 310px; top: 92px; right: 40px; }
+  .app h2 { margin: 0; font: 700 40px var(--sans); color: var(--ink); }
+  .cap-row { position: absolute; left: 0; right: 0; height: 104px; border-bottom: 1px solid #EEE9E1; }
+  .cap-row .n { position: absolute; left: 0; top: 18px; font: 700 30px var(--sans); color: var(--ink); }
+  .cap-row .pv { position: absolute; left: 0; top: 62px; display: flex; gap: 10px; }
+  .cap-row .pv span { font: 500 19px var(--mono); padding: 3px 10px; border-radius: 7px; background: var(--ss-soft); color: var(--ss-deep); }
+  .cap-row .st { position: absolute; right: 0; top: 26px; font: 700 26px var(--sans); color: var(--green); padding: 6px 16px; border-radius: 10px; background: #E3F2E6; }
+  .agent { position: absolute; width: 300px; height: 92px; border-radius: 16px; background: #fff; border: 1px solid var(--line); box-shadow: 0 10px 24px rgba(70, 50, 30, .08);
+    font: 600 28px/92px var(--sans); color: var(--ink); text-align: center; box-sizing: border-box; }
+  .agent.on { border: 3px solid var(--ss); }
+  .agent i { position: absolute; right: 14px; top: 10px; font: normal 700 22px/1 var(--sans); color: var(--green); }
+
+  /* end card */
+  #endc .icon { position: absolute; width: 150px; height: 150px; border-radius: 34px; box-shadow: 0 18px 40px rgba(70, 50, 30, .16); }
+  #endc .word { position: absolute; font: 700 92px var(--sans); color: var(--ink); white-space: nowrap; letter-spacing: -1px; }
+  #endc .tagline { position: absolute; font: 500 44px var(--sans); color: var(--ink); white-space: nowrap; }
+  #endc .gh { position: absolute; font: 400 28px var(--mono); color: var(--muted); white-space: nowrap; }
+  #endc .note { position: absolute; left: 110px; bottom: 44px; font: 400 22px var(--sans); color: var(--muted); white-space: nowrap; }
+  #endc .mascot { position: absolute; width: 640px; height: 640px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <!-- left world: the built-in search -->
+  <div class="layer" id="wl">
+    <div class="cam" id="camL">
+      <div class="paper"></div>
+      <div class="win" id="termL" style="left:300px; top:250px; width:1180px; height:470px">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">my-app — claude</span></div>
+        <div class="viewport"><div class="rows" id="rowsL"></div></div>
+      </div>
+      <div id="sumL"><span class="tag">只拿到摘要</span>
+        <i style="top:48px;width:470px"></i><i style="top:92px;width:420px"></i><i style="top:136px;width:490px"></i><i style="top:180px;width:300px"></i><i style="top:224px;width:380px"></i></div>
+    </div>
+  </div>
+  <!-- right world: Smart Search -->
+  <div class="layer" id="wr">
+    <div class="cam" id="camR">
+      <div class="paper"></div>
+      <div class="win" id="termR" style="left:990px; top:300px; width:900px; height:580px">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title" id="titleR">~ — zsh</span></div>
+        <div class="viewport"><div class="rows sm" id="rowsR"></div></div>
+      </div>
+      <div class="card" id="c0"><div class="fav">r</div><div class="t"></div><div class="u"></div><div class="ring"></div></div>
+      <div class="card" id="c1"><div class="fav">r</div><div class="t"></div><div class="u"></div><div class="ring"></div></div>
+      <div class="card" id="c2"><div class="fav">r</div><div class="t"></div><div class="u"></div><div class="ring"></div></div>
+      <div id="page"><div class="pin">
+        <div class="urlbar">react.dev/reference/react/useEffect</div>
+        <h1>useEffect</h1>
+        <div class="bar2" style="top:150px;width:640px"></div><div class="bar2" style="top:176px;width:520px"></div>
+        <div class="h">Parameters</div>
+        <div class="setup">setup:</div>
+                <div id="quote"></div>
+        <div id="gloss">→ 依赖变了：先用旧值跑清理，再用新值跑 setup</div>
+        <div id="cite">[1]</div>
+      </div></div>
+      <div class="ringfx" id="ringR"></div>
+    </div>
+  </div>
+
+  <!-- montage scenes -->
+  <div class="scene" id="ma">
+    <div class="paper"></div>
+    <div class="win" id="termD" style="left:300px; top:260px; width:1320px; height:190px">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">my-app — zsh</span></div>
+      <div class="viewport"><div class="rows" id="rowsD"></div></div>
+    </div>
+    <div class="link" id="lk0"></div><div class="link" id="lk1"></div>
+    <div class="node" id="nd0"><b>1</b>收集资料</div>
+    <div class="node" id="nd1"><b>2</b>检查缺少的证据</div>
+    <div class="node" id="nd2"><b>3</b>整理带来源的回答</div>
+    <div class="label"><span>深度研究</span></div>
+  </div>
+  <div class="scene" id="mb">
+    <div class="paper"></div>
+    <div class="win app" id="appW" style="left:330px; top:220px; width:1300px; height:760px">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Smart Search</span></div>
+      <div class="side">
+        <div class="nav" style="top:24px">概览</div><div class="nav on" style="top:84px">服务商</div><div class="nav" style="top:144px">搜索与研究</div>
+        <div class="nav" style="top:204px">活动</div><div class="nav" style="top:264px">更新 Skills</div><div class="nav" style="top:324px">设置与关于</div>
+        <img src="../assets/mascot-720.png" alt="" style="position:absolute; left:-6px; bottom:-70px; width:250px; height:250px">
+      </div>
+      <div class="main">
+        <h2>当前能力</h2>
+        <div class="cap-row" style="top:80px"><div class="n">主搜索</div><div class="pv"><span>xAI</span><span>OpenAI 兼容</span></div><div class="st" id="st0">已配置</div></div>
+        <div class="cap-row" style="top:200px"><div class="n">文档检索</div><div class="pv"><span>Context7</span><span>Exa</span></div><div class="st" id="st1">已配置</div></div>
+        <div class="cap-row" style="top:320px"><div class="n">网页抓取</div><div class="pv"><span>Jina</span><span>Firecrawl</span></div><div class="st" id="st2">已配置</div></div>
+        <div style="position:absolute; top:452px; font:400 24px var(--sans); color:var(--muted)">服务商由你选择，API Key 由你提供。</div>
+      </div>
+    </div>
+    <div class="label"><span>自选服务商</span></div>
+  </div>
+  <div class="scene" id="mc">
+    <div class="paper"></div>
+    <div id="agents"></div>
+    <div class="label"><span>装进 17 个工具</span></div>
+  </div>
+
+  <!-- end card -->
+  <div class="scene" id="endc">
+    <div class="paper"></div>
+    <img class="icon" id="eIcon" src="../assets/smart-search-256.png" alt="">
+    <div class="word" id="eWord">Smart Search</div>
+    <div class="tagline" id="eTag">让 AI 联网查资料、读网页，回答时有来源可查。</div>
+    <div class="chip" id="eCmd">npm install -g @konbakuyomu/smart-search</div>
+    <div class="gh" id="eGh">github.com/konbakuyomu/smartsearch</div>
+    <img class="mascot" id="eMascot" src="../assets/mascot-720.png" alt="">
+    <div class="note" id="eNote">Clawd 为非官方同人形象，与 Anthropic 无关 · Smart Search 以 MIT 协议开源</div>
+  </div>
+
+  <!-- overlay -->
+  <div class="layer" id="ov">
+    <div class="layer" id="ovL">
+      <div class="tagS" id="tagL" style="left:40px">内置搜索 <em>8 FPS</em></div>
+      <div class="ono" id="onoL" style="color:#B8B1A6"></div>
+      <div class="stamp" id="stampL" style="color:var(--red)">出处？</div>
+      <div class="cap" id="capL"></div>
+    </div>
+    <svg id="divider" width="1920" height="1080"><polyline id="zig" fill="none" stroke="#2A2622" stroke-width="10" stroke-linejoin="miter"/></svg>
+    <div id="vs">VS</div>
+    <div class="tagS" id="tagR" style="right:40px"><img src="../assets/smart-search-256.png" alt="">Smart Search <em id="fpsR">8 FPS</em></div>
+    <div class="sticker" id="banner"></div>
+    <div id="round"><span></span></div>
+    <div class="ono" id="onoR" style="color:var(--ss)">唰！</div>
+    <div class="stamp" id="stampR" style="color:var(--green)">有出处 ✓</div>
+    <div class="cap" id="capR"></div>
+    <div class="chip ok" id="skill">Skill 已装进 Claude Code</div>
+    <div class="cap" id="cap"></div>
+    <div class="key" id="key">Enter</div>
+    <div class="chip" id="cmd">npm install -g @konbakuyomu/smart-search</div>
+    <div id="fx"></div>
+    <div class="actor" id="aL"></div>
+    <div class="actor" id="aR"></div>
+    <div class="actor" id="aE"></div>
+  </div>
+</div>
+<script type="module" src="film.js"></script>
+</body>
+</html>
