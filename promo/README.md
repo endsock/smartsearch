@@ -38,13 +38,13 @@ The feature film has its own score in `film/sound.py`; the tutorials share the c
 ## GIFs
 
 The tutorials accept `?gif`, which cuts between camera framings instead of easing, so a GIF stores only what changes
-inside a shot.
+inside a shot. Render the GIF sources losslessly (`--crf 0`), so codec noise does not count as change.
 
 ```sh
-node tools/render.mjs film/index.html out/gif/hero.mp4 --size 1280x720 --fps 15 --start 12.6 --duration 8.8
-node tools/render.mjs "usage/index.html?gif" out/gif/ask.mp4 --size 1280x720 --fps 15 --start 3.0 --duration 10.6
-node tools/render.mjs "config/index.html?gif" out/gif/config.mp4 --size 1280x720 --fps 15 --start 14.4 --duration 11.2
-node tools/render.mjs "usage/index.html?gif" out/gif/usage.mp4 --size 1280x720 --fps 15 --start 17.3 --duration 9.1
+node tools/render.mjs film/index.html out/gif/hero.mp4 --size 1280x720 --fps 15 --start 12.6 --duration 8.8 --crf 0
+node tools/render.mjs "usage/index.html?gif" out/gif/ask.mp4 --size 1280x720 --fps 15 --start 3.0 --duration 10.6 --crf 0
+node tools/render.mjs "config/index.html?gif" out/gif/config.mp4 --size 1280x720 --fps 15 --start 14.4 --duration 11.2 --crf 0
+node tools/render.mjs "usage/index.html?gif" out/gif/usage.mp4 --size 1280x720 --fps 15 --start 17.3 --duration 9.1 --crf 0
 ffmpeg -i out/gif/hero.mp4 -vf "fps=15,split[a][b];[a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" out/gif/hero.gif
 ```
 
@@ -53,7 +53,7 @@ ffmpeg -i out/gif/hero.mp4 -vf "fps=15,split[a][b];[a]palettegen=max_colors=160:
 | `jev-routing.gif` | feature film 12.6–21.4 s | 3.4 MB |
 | `ask-ai.gif` | 日常使用 3.0–13.6 s | 0.7 MB |
 | `app-setup.gif` | 配置教程 14.4–25.6 s | 2.1 MB |
-| `app-search.gif` | 日常使用 17.3–26.4 s | 1.5 MB |
+| `app-search.gif` | 日常使用 17.3–26.4 s | 1.1 MB |
 
 ## Layout
 

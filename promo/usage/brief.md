@@ -24,6 +24,6 @@
 
 ```sh
 bash tools/build.sh usage smart-search-usage
-node tools/render.mjs "usage/index.html?gif" out/gif/ask.mp4 --size 1280x720 --fps 15 --start 3.0 --duration 10.6
-node tools/render.mjs "usage/index.html?gif" out/gif/usage.mp4 --size 1280x720 --fps 15 --start 17.3 --duration 9.1
+node tools/render.mjs "usage/index.html?gif" out/gif/ask.mp4 --size 1280x720 --fps 15 --start 3.0 --duration 10.6 --crf 0
+node tools/render.mjs "usage/index.html?gif" out/gif/usage.mp4 --size 1280x720 --fps 15 --start 17.3 --duration 9.1 --crf 0
 ```

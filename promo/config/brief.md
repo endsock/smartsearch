@@ -35,5 +35,5 @@
 ```sh
 bash tools/build.sh config smart-search-config          # out/config/smart-search-config.mp4
 bash tools/build.sh config smart-search-config draft    # 960×540 小样
-node tools/render.mjs "config/index.html?gif" out/gif/config.mp4 --size 1280x720 --fps 15 --start 14.4 --duration 11.2
+node tools/render.mjs "config/index.html?gif" out/gif/config.mp4 --size 1280x720 --fps 15 --start 14.4 --duration 11.2 --crf 0
 ```
