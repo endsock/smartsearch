@@ -1,0 +1,1 @@
+windows配置文件路径：C:\Users\kimsky\AppData\Local\smart-search\config.json
