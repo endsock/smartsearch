@@ -11,7 +11,7 @@ if (args.Length >= 4 && args[0] == "--wsl")
 {
     var (distribution, linuxConfig) = (args[1], args[2]);
     var installation = new CLIInstallation("wsl://" + distribution, Path.Combine(Environment.SystemDirectory, "wsl.exe"),
-        ["-d", distribution, "--exec", .. args[3..]], "", "wsl", true, [], "", new() { ["WSL_UTF8"] = "1" }, Distribution: distribution);
+        ["-d", distribution, "--cd", "~", "--exec", .. args[3..]], "", "wsl", true, [], "", new() { ["WSL_UTF8"] = "1" }, Distribution: distribution);
     await using var wslClient = new BackendClient { Installation = installation };
     for (var attempt = 0; attempt < 2; attempt++)
     {

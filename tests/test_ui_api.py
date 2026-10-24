@@ -189,13 +189,13 @@ def test_preview_is_offline_and_answers_the_minimum_profile(isolated, monkeypatc
     empty = ui_api.preview({"values": {}})
     assert empty["ok"] is True
     assert empty["minimum_profile_ok"] is False
-    assert empty["missing"] == ["main_search", "docs_search", "web_fetch"]
+    assert empty["missing"] == ["retrieval"]
 
-    full = ui_api.preview({"values": {
-        "XAI_API_KEY": "x", "EXA_API_KEY": "y", "TAVILY_API_KEY": "z",
-    }})
-    assert full["minimum_profile_ok"] is True
-    assert full["missing"] == []
+    # One retrieval channel passes, exactly as the overview's minimum profile does.
+    single = ui_api.preview({"values": {"EXA_API_KEY": "y"}})
+    assert single["minimum_profile_ok"] is True
+    assert single["missing"] == []
+    assert single["minimum_profile_ok"] == service._minimum_profile_result("standard", single["capability_status"])["ok"]
 
 
 def test_preview_saves_nothing(isolated):

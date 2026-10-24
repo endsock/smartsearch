@@ -102,7 +102,9 @@ def test_preview_matches_environment_and_disabled_provider(monkeypatch):
     assert state["values"]["XAI_API_KEY"] and "synthetic-primary" not in json.dumps(state)
     assert ui_api.preview({"values": {}})["minimum_profile_ok"]
     preview = ui_api.preview({"values": {"TAVILY_ENABLED": "false"}})
-    assert preview["missing"] == ["web_fetch"]
+    assert preview["missing"] == [] and preview["capability_status"]["web_fetch"]["configured"] == []
+    disabled = ui_api.preview({"values": {"SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS": "xai-responses,exa,tavily"}})
+    assert disabled["missing"] == ["retrieval"] and not disabled["minimum_profile_ok"]
     config.set_config_value("TAVILY_ENABLED", "false")
     assert preview["capability_status"] == service.get_capability_status()
     with use_language("en"), pytest.raises(ValueError, match="Invalid XAI_TOOLS"):

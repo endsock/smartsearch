@@ -180,7 +180,7 @@ Research provider advantage routing:
 - AnySearch: explicit vertical intent only, such as CVE, finance, legal, academic, and repository/codebase search.
 - Sciverse: explicit-only academic provider in this release; use direct `sciverse-*` commands rather than `research` fallback.
 
-Safe research overrides are `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` and `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS`. They may reorder or disable providers only inside capabilities the provider already supports; they must not move a provider across capability boundaries.
+Safe routing overrides are `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` and `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS`; despite the names they apply to automatic routing in both ordinary search and research. They may reorder or disable providers only inside capabilities the provider already supports; they must not move a provider across capability boundaries.
 
 ## Closeout Lessons
 

@@ -10,7 +10,7 @@ Skill 的目标清单、正文、状态、安装、备份和移除由 CLI 提供
 
 App 与 CLI 通过 `--desktop-capabilities` 和 JSON 行协议协商兼容性，不比较两者产品版本是否相同。
 
-Windows App 也可以连接 WSL 发行版里的 CLI：列出发行版不会启动它们，只自动探测正在运行或已被选中的发行版，未运行的需用户点击“检测 WSL”。探测用登录 shell、失败再用交互 shell 执行 `--desktop-capabilities`，记下其中的 `launch_command`，之后以 `wsl.exe -d <发行版> --exec <launch_command> --desktop-backend` 直接启动，通过标准输入输出通信。WSL 安装与本机安装在同一列表中二选一，配置、Skills 和活动记录都属于所选的一边；App 不在 WSL 中安装、更新或卸载 CLI。
+Windows App 也可以连接 WSL 发行版里的 CLI：列出发行版不会启动它们，只自动探测正在运行或已被选中的发行版，未运行的需用户点击“检测 WSL”。探测用登录 shell、失败再用交互 shell 执行 `--desktop-capabilities`，记下其中的 `launch_command`，之后以 `wsl.exe -d <发行版> --cd ~ --exec <launch_command> --desktop-backend` 直接启动，通过标准输入输出通信。App 在 WSL 中执行的命令都从 Linux 主目录开始，以免 mise、npm 把 Windows 用户目录里的配置当作项目配置。WSL 安装与本机安装在同一列表中二选一，配置、Skills 和活动记录都属于所选的一边。WSL 里用 npm 安装的 CLI 由 App 通过该发行版自己的 Node.js 与 npm-cli.js 安装或更新：在找到它们的同一个 shell 中以参数数组运行（`bash -lc '"$@"' …`），不拼接命令行，装回 CLI 所在的前缀，新装时用 npm 的全局前缀，之后执行 mise/asdf 的 reshim。目录必须当前用户可写，App 不使用 sudo；root 拥有的前缀、mise 的 npm 后端和无法识别的安装只显示终端命令。没有 CLI 的 Windows npm 环境和已探测的发行版列为安装目标。App 不在 WSL 中卸载 CLI。
 
 npm 主包通过精确版本 optionalDependencies 选择 macOS / Windows / Linux 的 x64 或 arm64 平台包。平台包携带冻结后的 Python 解释器、依赖及资源；启动器隔离外部 Python/venv/Conda/PyInstaller 环境。没有 postinstall，不回退到系统 Python。构建管线先验证六个平台包的真实 npm 安装，再发布平台包，最后发布主包；新平台包需配置 npm 发布权限。Linux 要求 glibc 2.35+。
 

@@ -17931,14 +17931,6 @@
     "没有在 WSL 中找到 smart-search。请先在 WSL 中安装 CLI，并确认 bash 能直接运行 smart-search。",
     "smart-search was not found in WSL. Install the CLI in WSL first and make sure bash can run smart-search directly."
   ],
-  "位于 WSL {0}，使用该发行版中的配置和 Skills。请在 WSL 终端用原安装方式更新 CLI。": [
-    "位于 WSL {0}，使用该发行版中的配置和 Skills。请在 WSL 终端用原安装方式更新 CLI。",
-    "Installed in WSL {0}; it uses that distribution's configuration and Skills. Update the CLI from a WSL terminal with the tool you installed it with."
-  ],
-  "WSL {0} 中的 CLI 版本过旧，App 无法连接。请在 WSL 终端更新：npm install -g @konbakuyomu/smart-search@latest": [
-    "WSL {0} 中的 CLI 版本过旧，App 无法连接。请在 WSL 终端更新：npm install -g @konbakuyomu/smart-search@latest",
-    "The CLI in WSL {0} is too old for the App to connect. Update it from a WSL terminal: npm install -g @konbakuyomu/smart-search@latest"
-  ],
   "旧版": [
     "旧版",
     "old version"
@@ -17966,5 +17958,73 @@
   "{0} · 需要更新": [
     "{0} · 需要更新",
     "{0} · update needed"
+  ],
+  "位于 WSL {0}，使用该发行版中的配置和 Skills。": [
+    "位于 WSL {0}，使用该发行版中的配置和 Skills。",
+    "Installed in WSL {0}; it uses that distribution's configuration and Skills."
+  ],
+  "WSL {0} 中的 CLI 版本过旧，App 无法连接。": [
+    "WSL {0} 中的 CLI 版本过旧，App 无法连接。",
+    "The CLI in WSL {0} is too old for the App to connect."
+  ],
+  "此 CLI 由 mise 管理，请在 WSL 终端更新：mise use -g npm:@konbakuyomu/smart-search@latest": [
+    "此 CLI 由 mise 管理，请在 WSL 终端更新：mise use -g npm:@konbakuyomu/smart-search@latest",
+    "mise manages this CLI. Update it from a WSL terminal: mise use -g npm:@konbakuyomu/smart-search@latest"
+  ],
+  "npm 全局目录需要管理员权限，请在 WSL 终端更新：sudo npm install -g @konbakuyomu/smart-search@latest": [
+    "npm 全局目录需要管理员权限，请在 WSL 终端更新：sudo npm install -g @konbakuyomu/smart-search@latest",
+    "Its npm global directory needs administrator rights. Update it from a WSL terminal: sudo npm install -g @konbakuyomu/smart-search@latest"
+  ],
+  "App 无法确定它的安装方式，请在 WSL 终端用原安装方式更新。": [
+    "App 无法确定它的安装方式，请在 WSL 终端用原安装方式更新。",
+    "The App cannot tell how it was installed. Update it from a WSL terminal with the tool you installed it with."
+  ],
+  "WSL {0} 的 npm 全局目录需要管理员权限，App 不使用 sudo。请在 WSL 终端运行：sudo npm install -g @konbakuyomu/smart-search@latest": [
+    "WSL {0} 的 npm 全局目录需要管理员权限，App 不使用 sudo。请在 WSL 终端运行：sudo npm install -g @konbakuyomu/smart-search@latest",
+    "The npm global directory in WSL {0} needs administrator rights, and the App does not use sudo. In a WSL terminal, run: sudo npm install -g @konbakuyomu/smart-search@latest"
+  ],
+  "WSL {0} 中的 Node.js 没有配套的 npm。请重新安装 Node.js，再点击“检测 WSL”。": [
+    "WSL {0} 中的 Node.js 没有配套的 npm。请重新安装 Node.js，再点击“检测 WSL”。",
+    "Node.js in WSL {0} has no matching npm. Reinstall Node.js, then click Detect WSL."
+  ],
+  "WSL {0} 中没有找到 Node.js 18 或更新版本。请先在 WSL 中安装 Node.js，再点击“检测 WSL”。": [
+    "WSL {0} 中没有找到 Node.js 18 或更新版本。请先在 WSL 中安装 Node.js，再点击“检测 WSL”。",
+    "No Node.js 18 or later was found in WSL {0}. Install Node.js in WSL, then click Detect WSL."
+  ],
+  "{0} 中的 CLI 已安装或更新为 {1}。": [
+    "{0} 中的 CLI 已安装或更新为 {1}。",
+    "The CLI in {0} is now {1}."
+  ],
+  "更新 {0} 中的 CLI": [
+    "更新 {0} 中的 CLI",
+    "Update the CLI in {0}"
+  ],
+  "这些环境还没有 Smart Search CLI。安装使用该环境自己的 npm，不会改动其他环境。": [
+    "这些环境还没有 Smart Search CLI。安装使用该环境自己的 npm，不会改动其他环境。",
+    "These environments have no Smart Search CLI yet. Installing uses that environment's own npm and leaves the others unchanged."
+  ],
+  "安装到 {0}": [
+    "安装到 {0}",
+    "Install in {0}"
+  ],
+  "在 WSL 中安装 Node.js": [
+    "在 WSL 中安装 Node.js",
+    "Install Node.js in WSL"
+  ],
+  "未安装 CLI 的环境": [
+    "未安装 CLI 的环境",
+    "Environments without the CLI"
+  ],
+  "WSL {0} · npm {1} · {2}": [
+    "WSL {0} · npm {1} · {2}",
+    "WSL {0} · npm {1} · {2}"
+  ],
+  "正在卸载 CLI…": [
+    "正在卸载 CLI…",
+    "Removing the CLI…"
+  ],
+  "检索渠道": [
+    "检索渠道",
+    "Retrieval channel"
   ]
 }
