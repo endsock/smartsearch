@@ -47,6 +47,17 @@ Use the local `smart-search` command as the default execution layer for web rese
 - `providers status` / `providers reset`: inspect or clear the persisted failure cooldown for optional providers; use it when a channel keeps reporting the same failure.
 - `model current`: inspect explicit provider models only. Change models with `smart-search config set XAI_MODEL ...` or `smart-search config set OPENAI_COMPATIBLE_MODEL ...`.
 
+## Restricting Search to Websites
+
+When the user limits a search to specific websites, pass bare domains using the per-call `search --include-domains DOMAIN...` flag:
+
+```sh
+smart-search search "北京天气" --providers anthropic-messages --include-domains weather.com.cn --format json
+smart-search search "API documentation" --include-domains docs.example.com developer.mozilla.org --format json
+```
+
+Domains may be space- or comma-separated. This flag is not saved to configuration and affects only this search. Supported channels are Messages, Exa, and Zhipu (one domain only); unsupported channels are excluded from selection and fallback, and no eligible channel is an explicit error. Do not remove the restriction to bypass an error. Do not use `--platform`, `site:` text, or natural-language instructions as substitutes for structured filtering. Use bare domains, not URLs, paths, or wildcards. `research` does not expose this flag; use constrained `search` calls and fetch the selected pages instead.
+
 ## Key Boundaries
 
 - `smart-search` should resolve from the user's PATH.

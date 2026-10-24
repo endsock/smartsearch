@@ -1468,6 +1468,7 @@ def _t(lang: str, zh: str, en: str) -> str:
 
 def _display_provider(provider: str, lang: str) -> str:
     names = {
+        "anthropic-messages": "Anthropic Messages",
         "xai-responses": "xAI Responses",
         "openai-compatible": "OpenAI-compatible",
         "zhipu": _t(lang, "智谱", "Zhipu"),
@@ -1699,8 +1700,8 @@ def _prompt_provider_multi_select(
         "否": "skip",
         "都配": "all",
         "全部": "all",
-        "两个": "all",
-        "both": "all",
+        "两个": "both",
+        "both": "both",
         "all": "all",
         "xai": "xai-responses",
         "openai": "openai-compatible",
@@ -1714,6 +1715,8 @@ def _prompt_provider_multi_select(
         return []
     if "all" in tokens:
         return providers
+    if "both" in tokens:
+        return providers[:2]
     selected = [provider for provider in providers if provider in tokens]
     return selected if selected else [provider for provider in providers if provider in set(default_selected)]
 
@@ -1817,7 +1820,7 @@ def _prompt_main_search(values: dict[str, str], current: dict[str, str], lang: s
             "选择 main_search provider",
             "Choose main_search providers",
         ),
-        ["xai-responses", "openai-compatible"],
+        ["xai-responses", "openai-compatible", "anthropic-messages"],
         default_selected,
         lang,
     )
@@ -1830,6 +1833,13 @@ def _prompt_main_search(values: dict[str, str], current: dict[str, str], lang: s
             optional=True,
             lang=lang,
         )
+    if "anthropic-messages" in selected:
+        for key, label in (
+            ("ANTHROPIC_API_URL", _t(lang, "Messages API 地址（包含 /v1）", "Messages API URL (include /v1)")),
+            ("ANTHROPIC_API_KEY", "Messages API key"),
+            ("ANTHROPIC_MODEL", _t(lang, "Messages 模型", "Messages model")),
+        ):
+            values[key] = _prompt_value(key, label, current.get(key, ""), lang=lang)
     if "openai-compatible" in selected:
         values["OPENAI_COMPATIBLE_API_URL"] = _prompt_value(
             "OPENAI_COMPATIBLE_API_URL",
@@ -2403,6 +2413,8 @@ async def _run_async_impl(args: argparse.Namespace) -> int:
             "fallback": args.fallback,
             "providers": args.providers,
         }
+        if args.include_domains:
+            search_kwargs["include_domains"] = args.include_domains
         if args.stream is not None:
             search_kwargs["stream"] = args.stream
         if args.timeout is not None and "timeout_seconds" in inspect.signature(service.search).parameters:
@@ -2937,6 +2949,10 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.set_defaults(command="search")
     search_parser.add_argument("query")
     search_parser.add_argument("--platform", default="")
+    search_parser.add_argument(
+        "--include-domains", nargs="+", default=[], metavar="DOMAIN",
+        help="Restrict this search to bare domains (space or comma separated). Supports Messages, Exa, and single-domain Zhipu; unsupported channels are excluded. Not saved to config; --platform and site: text are not substitutes.",
+    )
     search_parser.add_argument("--model", default="")
     search_parser.add_argument("--extra-sources", type=int, default=0)
     search_parser.add_argument("--validation", choices=["fast", "balanced", "strict"], default="")

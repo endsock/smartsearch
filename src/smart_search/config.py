@@ -49,6 +49,7 @@ class Config:
     }
     PROVIDER_ENABLED_KEYS: dict[str, str] = {
         "xai-responses": "XAI_ENABLED",
+        "anthropic-messages": "ANTHROPIC_ENABLED",
         "openai-compatible": "OPENAI_COMPATIBLE_ENABLED",
         "context7": "CONTEXT7_ENABLED",
         "exa": "EXA_ENABLED",
@@ -142,6 +143,16 @@ class Config:
         "SMART_SEARCH_LOG_TO_FILE",
         "SSL_VERIFY",
     }
+    _ANTHROPIC_DEFAULTS = {
+        "ANTHROPIC_API_URL": "",
+        "ANTHROPIC_API_KEY": "",
+        "ANTHROPIC_MODEL": "",
+        "ANTHROPIC_MAX_TOKENS": "2048",
+        "ANTHROPIC_API_VERSION": "2023-06-01",
+        "ANTHROPIC_STREAM": "false",
+        "ANTHROPIC_WEB_SEARCH_MAX_USES": "5",
+    }
+    _CONFIG_KEYS.update(_ANTHROPIC_DEFAULTS)
     _CONFIG_KEYS.update(JEV_DEFAULTS)
     _CONFIG_KEYS.update(PROVIDER_ENABLED_KEYS.values())
     _LEGACY_CONFIG_KEYS: dict[str, str] = {}
@@ -165,6 +176,7 @@ class Config:
         "SMART_SEARCH_MINIMUM_PROFILE",
         "SMART_SEARCH_INTENT_ROUTER",
     })
+    _MODEL_CACHE_KEYS |= frozenset(_ANTHROPIC_DEFAULTS) | {"ANTHROPIC_ENABLED"}
     # Keys validated on write. The four original entries validate unconditionally;
     # the rest skip an empty value, which every getter already reads as "unset".
     _PLAIN_FLOAT_KEYS = frozenset({
@@ -405,6 +417,19 @@ class Config:
             hint = tr(' (sandbox/CI 下可设 SMART_SEARCH_CONFIG_DIR 指向可写目录)') if isinstance(e, PermissionError) else ""
             raise ValueError(tr('无法保存配置文件: {0}{1}', str(e), hint))
 
+    @staticmethod
+    def _config_string(key: str, value) -> str:
+        if key == "TAVILY_API_KEY" and isinstance(value, list):
+            if not all(
+                isinstance(item, dict)
+                and isinstance(item.get("key"), str)
+                and isinstance(item.get("is_enable"), bool)
+                for item in value
+            ):
+                raise ValueError("TAVILY_API_KEY entries require a string key and boolean is_enable")
+            return next((item["key"] for item in value if item["is_enable"]), "")
+        return str(value)
+
     def _get_config_value(self, key: str, default: str | None = None) -> str | None:
         snapshot = _snapshot.get()
         if snapshot is not None:
@@ -421,7 +446,7 @@ class Config:
                 value = data.get(legacy_key)
         if value is None:
             return default
-        return str(value)
+        return self._config_string(key, value)
 
     def get_saved_config(self, masked: bool = True, *, data: dict | None = None) -> dict:
         if data is None:
@@ -436,7 +461,7 @@ class Config:
                 normalized[new_key] = str(data[old_key])
         for key, value in data.items():
             if key in self._CONFIG_KEYS and value is not None:
-                normalized[key] = str(value)
+                normalized[key] = self._config_string(key, value)
         if not masked:
             return normalized
         return {key: self._mask_if_secret(key, value) for key, value in normalized.items()}
@@ -631,6 +656,20 @@ class Config:
     def openai_compatible_stream(self) -> bool:
         return (self._get_config_value("OPENAI_COMPATIBLE_STREAM", "false") or "false").lower() in ("true", "1", "yes")
 
+    def anthropic_settings(self) -> dict:
+        values = {key: self._get_config_value(key, default) or default
+                  for key, default in self._ANTHROPIC_DEFAULTS.items()}
+        return {
+            "api_url": values["ANTHROPIC_API_URL"].strip(),
+            "api_key": values["ANTHROPIC_API_KEY"].strip(),
+            "model": values["ANTHROPIC_MODEL"].strip(),
+            "max_tokens": self._parse_positive_int_value("ANTHROPIC_MAX_TOKENS", values["ANTHROPIC_MAX_TOKENS"]),
+            "api_version": values["ANTHROPIC_API_VERSION"],
+            "stream": self._validate_enum_value("ANTHROPIC_STREAM", values["ANTHROPIC_STREAM"],
+                                                 {"true", "false", "1", "0", "yes", "no"}) in {"true", "1", "yes"},
+            "max_uses": self._parse_positive_int_value("ANTHROPIC_WEB_SEARCH_MAX_USES", values["ANTHROPIC_WEB_SEARCH_MAX_USES"]),
+        }
+
     def parse_xai_tools(self, raw: str | None = None) -> list[str]:
         raw = raw or self.xai_tools_raw
         tools: list[str] = []
@@ -721,6 +760,12 @@ class Config:
             return
         if key == "SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS":
             self._parse_non_negative_float_value(key, value)
+            return
+        if key in {"ANTHROPIC_MAX_TOKENS", "ANTHROPIC_WEB_SEARCH_MAX_USES"}:
+            self._parse_positive_int_value(key, value)
+            return
+        if key == "ANTHROPIC_STREAM":
+            self._validate_enum_value(key, value, {"true", "false", "1", "0", "yes", "no"})
             return
         if key == "SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD":
             self._parse_positive_int_value(key, value)
@@ -1162,7 +1207,16 @@ class Config:
             config_parameter_errors.append(str(exc))
         xai_configured = self.provider_enabled("xai-responses") and bool(self.xai_api_key)
         openai_configured = self.provider_enabled("openai-compatible") and bool(self.openai_compatible_api_url and self.openai_compatible_api_key)
-        explicit_main_configured = xai_configured or openai_configured
+        anthropic_values = {key: self._get_config_value(key, default) or default
+                            for key, default in self._ANTHROPIC_DEFAULTS.items()}
+        anthropic_configured = self.provider_enabled("anthropic-messages") and all(
+            anthropic_values[key].strip() for key in ("ANTHROPIC_API_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL")
+        )
+        try:
+            self.anthropic_settings()
+        except ValueError as exc:
+            config_parameter_errors.append(str(exc))
+        explicit_main_configured = xai_configured or openai_configured or anthropic_configured
         if explicit_main_configured:
             config_status = tr('ok: 配置完整')
         else:
@@ -1198,7 +1252,9 @@ class Config:
             self._ALLOWED_OPENAI_COMPATIBLE_API_MODES,
         )
         primary_api_mode = tr('未配置')
-        if xai_configured:
+        if anthropic_configured:
+            primary_api_mode = "messages"
+        elif xai_configured:
             primary_api_mode = "xai-responses"
         elif openai_configured:
             primary_api_mode = openai_compatible_api_mode
@@ -1233,6 +1289,7 @@ class Config:
 
         return {
             **jev_info,
+            **{key: self._mask_if_secret(key, value) for key, value in anthropic_values.items()},
             **{key: self.provider_enabled(provider) for provider, key in self.PROVIDER_ENABLED_KEYS.items()},
             "XAI_API_URL": self.xai_api_url,
             "XAI_API_KEY": self._mask_api_key(self.xai_api_key) if self.xai_api_key else tr('未配置'),

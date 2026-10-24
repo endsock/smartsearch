@@ -21,6 +21,7 @@ The default wizard offers Jev or local routing. The CLI browser page remains ava
 | --- | --- | --- | --- | --- |
 | xAI Responses API | Primary live search with `web_search,x_search` tools | `XAI_API_KEY`, `XAI_API_URL`, `XAI_MODEL`, `XAI_TOOLS`, `XAI_REASONING_EFFORT` | [docs.x.ai](https://docs.x.ai/docs) | [xAI API keys](https://console.x.ai/team/default/api-keys) |
 | OpenAI-compatible Chat Completions / Responses | Primary search through OpenAI or a compatible relay; no xAI search tools are sent in either mode | `OPENAI_COMPATIBLE_API_URL`, `OPENAI_COMPATIBLE_API_KEY`, `OPENAI_COMPATIBLE_MODEL`, `OPENAI_COMPATIBLE_API_MODE`, `OPENAI_COMPATIBLE_FALLBACK_MODELS`, `OPENAI_COMPATIBLE_STREAM` | [OpenAI platform docs](https://platform.openai.com/docs) | [OpenAI API keys](https://platform.openai.com/api-keys) or your relay provider |
+| Anthropic-compatible Messages | Main search using `web_search_20250305` and structured citations; Bearer-authenticated compatible services | `ANTHROPIC_API_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_MAX_TOKENS`, `ANTHROPIC_API_VERSION`, `ANTHROPIC_STREAM`, `ANTHROPIC_WEB_SEARCH_MAX_USES` | [Messages protocol](https://docs.anthropic.com/en/api/messages) | Your compatible provider |
 | Exa | Low-noise official docs, API, paper, product, trusted-page discovery | `EXA_API_KEY` | [Exa docs](https://docs.exa.ai/) | [Exa API keys](https://dashboard.exa.ai/api-keys) |
 | Context7 | SDK, library, framework, and API documentation fallback | `CONTEXT7_API_KEY`, `CONTEXT7_BASE_URL` | [Context7 docs](https://context7.com/docs) | [Context7](https://context7.com/) |
 | Zhipu Web Search API | Chinese, domestic, current, or domain-filtered web discovery | `ZHIPU_API_KEY`, `ZHIPU_API_URL`, `ZHIPU_SEARCH_ENGINE` | [Zhipu web search docs](https://docs.bigmodel.cn/cn/guide/tools/web-search) | [Zhipu API keys](https://open.bigmodel.cn/usercenter/apikeys) |
@@ -33,6 +34,23 @@ The default wizard offers Jev or local routing. The CLI browser page remains ava
 | TypeSafe / Jev | Optional semantic routing and evidence judgments | `TYPESAFE_API_KEY`, `TYPESAFE_API_URL`, `TYPESAFE_MODEL` | [TypeSafe API](https://docs.typesafe.ai/api) | See the TypeSafe documentation |
 | AnySearch | Experimental vertical search acceptance surface; not a default fallback | `ANYSEARCH_API_URL`, `ANYSEARCH_API_KEY`, `ANYSEARCH_TIMEOUT_SECONDS` | [AnySearch docs](https://www.anysearch.com/docs) | [AnySearch API keys](https://www.anysearch.com/console/api-keys) |
 | Sciverse | Explicit experimental academic search, semantic paper retrieval, document chunks, and citation/reference relations; not a default fallback | `SCIVERSE_API_TOKEN`, `SCIVERSE_API_URL`, `SCIVERSE_TIMEOUT_SECONDS` | [Sciverse Agent Tools](https://github.com/opendatalab/Sciverse-Agent-Tools) | Sciverse dashboard / token provider |
+
+## Messages-compatible services
+
+The independent `anthropic-messages` provider does not reuse or change `OPENAI_COMPATIBLE_*`. Save settings in the existing `config.json` through the App or `config set`:
+
+```sh
+smart-search config set ANTHROPIC_API_URL "http://your-relay:8317/v1"
+smart-search config set ANTHROPIC_API_KEY "your-relay-key"
+smart-search config set ANTHROPIC_MODEL "gemini-3.8-flash-high"
+smart-search config set ANTHROPIC_MAX_TOKENS "2048"
+smart-search config set ANTHROPIC_WEB_SEARCH_MAX_USES "5"
+smart-search search "Search Beijing weather" --providers anthropic-messages --include-domains weather.com.cn --format json
+```
+
+Both a `/v1` base and a full `/v1/messages` endpoint work without duplication. Defaults: version `2023-06-01`, non-streaming. Use `ANTHROPIC_STREAM=true` or `search --stream` for SSE. Only search attaches `web_search_20250305`. JSON and SSE text, citations and tool results are parsed and sources are deduplicated by URL. Tool errors, truncated output (`max_tokens`), and unfinished tool turns (`pause_turn`) fail explicitly rather than returning a complete answer. Use per-call `search --include-domains DOMAIN...` with space- or comma-separated bare domains. It is never saved to config or inferred from prose or `site:`. With this flag only Messages, Exa, or single-domain Zhipu search channels are eligible, including fallback; no eligible channel fails explicitly. `--platform` is only a prompt hint, not domain filtering. `ANTHROPIC_ENABLED=false` disables the provider. `providers test anthropic-messages` sends a real web search and may incur charges.
+
+Authentication follows Bearer-compatible relays: `Authorization: Bearer` plus `anthropic-version`, not the official Anthropic `x-api-key` authentication scheme.
 
 ## Routing and migration
 

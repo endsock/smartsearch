@@ -539,6 +539,9 @@ async def test_docs_search_falls_back_to_exa_when_context7_has_no_eligible_candi
 def test_research_provider_profiles_are_registered_with_capability_boundaries():
     profiles = service.provider_profiles()
 
+    assert profiles["anthropic-messages"]["capabilities"] == ["main_search", "web_search"]
+    assert service.RESEARCH_PROFILE_ORDER["main_search"][0] == "anthropic-messages"
+    assert service.RESEARCH_PROFILE_ORDER["web_search"][0] == "anthropic-messages"
     assert profiles["jina"]["capability"] == "web_fetch"
     assert "web_fetch" in profiles["tavily"]["capabilities"]
     assert "web_search" in profiles["firecrawl"]["capabilities"]

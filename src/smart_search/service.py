@@ -28,6 +28,7 @@ from .intent_router import (
 
 
 from .logger import log_info
+from .providers.anthropic_messages import AnthropicMessagesSearchProvider
 from .providers.anysearch import AnySearchProvider
 from .providers.context7 import Context7Provider
 from .providers.deepseek import DeepSeekToolsProvider
@@ -176,8 +177,8 @@ RESEARCH_JS_HEAVY_KEYWORDS = {
 }
 RESEARCH_PDF_KEYWORDS = {"pdf", "arxiv", "论文", "paper", ".pdf"}
 RESEARCH_PROFILE_ORDER = {
-    "main_search": ["xai-responses", "openai-compatible"],
-    "web_search": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"],
+    "main_search": ["anthropic-messages", "xai-responses", "openai-compatible"],
+    "web_search": ["anthropic-messages", "zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"],
     "docs_search": ["context7", "exa"],
     "web_fetch": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek"],
     "vertical_search": ["anysearch"],
@@ -185,6 +186,14 @@ RESEARCH_PROFILE_ORDER = {
     "synthesis": ["main-search"],
 }
 PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
+    "anthropic-messages": {
+        "capability": "main_search",
+        "capabilities": ["main_search", "web_search"],
+        "fallback_group": "main_search/web_search",
+        "minimum_profile_role": "main_search",
+        "quality_filters": ["source extraction required for high-risk claims"],
+        "route_reasons": ["Messages server-side web search", "domain-constrained discovery"],
+    },
     "xai-responses": {
         "capability": "main_search",
         "fallback_group": "main_search",
@@ -299,8 +308,9 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
         "route_reasons": ["evidence-only synthesis"],
     },
 }
-MAIN_SEARCH_FALLBACK_CHAIN = ["xai-responses", "openai-compatible"]
+MAIN_SEARCH_FALLBACK_CHAIN = ["anthropic-messages", "xai-responses", "openai-compatible"]
 MAIN_SEARCH_PROVIDER_ALIASES = {
+    "anthropic-messages": {"anthropic-messages", "anthropic", "messages"},
     "xai-responses": {"xai-responses", "xai", "grok", "grok-web-tools"},
     "openai-compatible": {"openai-compatible", "openai", "chat-completions", "primary"},
 }
@@ -525,6 +535,7 @@ def _provider_disabled_result(provider: str) -> dict[str, Any] | None:
 
 
 PROVIDER_CREDENTIAL_SOURCES: dict[str, Any] = {
+    "anthropic-messages": lambda: (config._get_config_value("ANTHROPIC_API_KEY"), config._get_config_value("ANTHROPIC_API_URL")),
     "xai-responses": lambda: (config.xai_api_key, config.xai_api_url),
     "openai-compatible": lambda: (config.openai_compatible_api_key, config.openai_compatible_api_url),
     "zhipu": lambda: (config.zhipu_api_key, config.zhipu_api_url),
@@ -969,6 +980,9 @@ def _provider_supports_capability(provider: str, capability: str) -> bool:
 def _provider_configured(provider: str) -> bool:
     if not config.provider_enabled(provider):
         return False
+    if provider == "anthropic-messages":
+        return all((config._get_config_value(key) or "").strip()
+                   for key in ("ANTHROPIC_API_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"))
     if provider == "xai-responses":
         return bool(config.xai_api_key)
     if provider == "openai-compatible":
@@ -1514,6 +1528,7 @@ def get_capability_status() -> dict[str, Any]:
             "configured": [
                 name
                 for name, enabled in [
+                    ("anthropic-messages", _provider_configured("anthropic-messages")),
                     ("zhipu", _provider_configured("zhipu")),
                     ("zhipu-mcp", _provider_configured("zhipu-mcp")),
                     ("tavily", _provider_configured("tavily")),
@@ -1523,7 +1538,7 @@ def get_capability_status() -> dict[str, Any]:
                 ]
                 if enabled
             ],
-            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"],
+            "fallback_chain": ["anthropic-messages", "zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"],
         },
         "docs_search": {
             "configured": [
@@ -1646,6 +1661,15 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
             "source": "OPENAI_COMPATIBLE_*",
         }
 
+    if _provider_allowed("anthropic-messages", provider_filter) and _provider_configured("anthropic-messages"):
+        by_provider["anthropic-messages"] = {
+            **config.anthropic_settings(),
+            "provider": "anthropic-messages", "mode": "messages", "api_mode": "messages",
+            "source": "ANTHROPIC_*",
+        }
+        if model_override:
+            by_provider["anthropic-messages"]["model"] = model_override
+
     return [
         by_provider[provider]
         for provider in MAIN_SEARCH_FALLBACK_CHAIN
@@ -1657,7 +1681,13 @@ def _main_search_providers(provider_configs: list[dict[str, Any]], fallback: str
     selected = provider_configs if fallback != "off" else provider_configs[:1]
     providers: list[Any] = []
     for provider_config in selected:
-        if provider_config["provider"] == "xai-responses":
+        if provider_config["provider"] == "anthropic-messages":
+            providers.append(AnthropicMessagesSearchProvider(**{
+                key: provider_config[key] for key in (
+                    "api_url", "api_key", "model", "max_tokens", "api_version", "stream", "max_uses"
+                )
+            }))
+        elif provider_config["provider"] == "xai-responses":
             providers.append(
                 XAIResponsesSearchProvider(
                     provider_config["api_url"],
@@ -1683,7 +1713,7 @@ def _main_search_providers(provider_configs: list[dict[str, Any]], fallback: str
 
 async def _search_model_channel(
     provider_config: dict[str, Any], query: str, platform: str, *,
-    deadline: float, fallback: str, model_override: str,
+    deadline: float, fallback: str, model_override: str, include_domains: list[str] | None = None,
 ) -> dict[str, Any]:
     """Keep existing model/transport failover inside the selected search channel."""
     candidates = (_openai_model_candidates(provider_config, fallback_mode=fallback, model_override=model_override)
@@ -1724,7 +1754,10 @@ async def _search_model_channel(
         activity.progress("main_search", candidate["provider"], candidate["model"])
         status, error_type, error = "error", "", ""
         try:
-            content = await asyncio.wait_for(provider.search(query, platform), max(0.001, deadline - time.monotonic()))
+            search_kwargs = {"include_domains": include_domains} if include_domains else {}
+            if include_domains and candidate["provider"] != "anthropic-messages":
+                raise ProviderCallError("parameter_error", "This model provider does not support --include-domains")
+            content = await asyncio.wait_for(provider.search(query, platform, **search_kwargs), max(0.001, deadline - time.monotonic()))
             if not content:
                 raise ProviderCallError("network_error", "Search model returned an empty response")
             answer, sources = split_answer_and_sources(content)
@@ -2195,9 +2228,14 @@ async def search(
     providers: str = "auto",
     stream: bool | None = None,
     timeout_seconds: float | None = None,
+    include_domains: str | list[str] | tuple[str, ...] = "",
 ) -> dict[str, Any]:
     start = time.time()
     try:
+        domains = list(dict.fromkeys(domain.lower() for domain in _normalize_domain_filter(include_domains) or []))
+        for domain in domains:
+            if not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", domain):
+                raise ValueError(source_message('Invalid --include-domains domain: {0}. Use bare domains, not URLs or site: syntax.', domain))
         effective_timeout = _resolve_search_timeout(timeout_seconds)
         validation_level = (validation or config.validation_level).strip().lower()
         fallback_mode = (fallback or config.fallback_mode).strip().lower()
@@ -2211,6 +2249,7 @@ async def search(
     return await jev_search.search(
         query, validation=validation_level, fallback=fallback_mode, providers=providers,
         timeout_seconds=effective_timeout, platform=platform, model=model, stream=stream, extra_sources=extra_sources,
+        include_domains=domains,
     )
 
 
@@ -3229,6 +3268,15 @@ async def _test_primary_responses(api_url: str, api_key: str, model: str) -> dic
 
 
 async def _test_main_provider_connection(provider_config: dict[str, Any]) -> dict[str, Any]:
+    if provider_config["provider"] == "anthropic-messages":
+        start = time.time()
+        provider = _main_search_providers([provider_config], "off")[0]
+        try:
+            await provider.search("Search for the official Python website and cite its URL.")
+        except Exception as exc:
+            error_type, error = classify_provider_exception(exc, additional_secrets=(provider.api_key,))
+            return {"status": error_type, "message": error, "response_time_ms": _elapsed_ms(start)}
+        return {"status": "ok", "message": "Messages API available", "response_time_ms": _elapsed_ms(start)}
     if provider_config["mode"] == "xai-responses":
         return await _test_primary_responses(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
     api_mode = provider_config.get("api_mode", provider_config.get("mode", "chat-completions"))
@@ -3497,6 +3545,7 @@ PROBE_TIMEOUT_CEILING = 20.0
 # real request; "shared:<id>" reuses another provider's probe because they share a
 # credential; "presence" only reports that a key is set.
 PROBE_KIND: dict[str, str] = {
+    "anthropic-messages": "main",
     "xai-responses": "main",
     "openai-compatible": "main",
     "exa": "live",
@@ -3646,6 +3695,10 @@ async def test_provider_connection(
 def _main_search_override_config(provider: str, overrides: dict[str, str]) -> dict[str, Any] | None:
     """Build a main-search provider config from unsaved form values."""
     get = lambda key, fallback="": str(overrides.get(key) or fallback).strip()  # noqa: E731
+    if provider == "anthropic-messages":
+        with config.snapshot(overrides):
+            configs = _main_search_provider_configs(providers=provider)
+        return configs[0] if configs else None
     if provider == "xai-responses":
         api_key = get("XAI_API_KEY", config.xai_api_key)
         if not api_key:
@@ -4015,7 +4068,7 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
             "fallback_chain": MAIN_SEARCH_FALLBACK_CHAIN,
             "ok": True,
         },
-        "web_search": {"configured": ["zhipu"], "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"], "ok": True},
+        "web_search": {"configured": ["zhipu"], "fallback_chain": ["anthropic-messages", "zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"], "ok": True},
         "docs_search": {"configured": ["context7"], "fallback_chain": ["context7", "exa"], "ok": True},
         "web_fetch": {"configured": ["tavily"], "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek"], "ok": True},
         "vertical_search": {
@@ -4246,7 +4299,7 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
         **minimum_status,
         "web_search": {
             "configured": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"],
-            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"],
+            "fallback_chain": ["anthropic-messages", "zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"],
             "ok": True,
         },
         "docs_search": {"configured": ["context7", "exa"], "fallback_chain": ["context7", "exa"], "ok": True},

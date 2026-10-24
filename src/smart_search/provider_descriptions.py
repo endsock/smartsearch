@@ -1,6 +1,14 @@
 """User-facing provider descriptions shared with Jev channel selection."""
 
 PROVIDER_DESCRIPTIONS: dict[str, dict[str, dict[str, str]]] = {
+    "anthropic-messages": {
+        "search": {
+            "en": "Answers through Anthropic-compatible Messages with server-side web search and citations.",
+            "zh": "通过 Anthropic 兼容 Messages 接口调用服务端联网搜索并返回引用。",
+            "guidance_en": "Best for broad web questions and configured domain restrictions; fetch key pages before treating citations as verified evidence.",
+            "guidance_zh": "适合通用联网问答和配置域名限制的搜索；关键引用仍需读取原页核验。",
+        },
+    },
     "xai-responses": {
         "search": {
             "en": "Answers questions with an xAI model, using web or X search when those tools are enabled.",

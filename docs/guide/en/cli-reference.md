@@ -113,6 +113,7 @@ Aliases: `s`
 
 ```text
 usage: smart-search search [-h] [--lang {auto,zh,en}] [--platform PLATFORM]
+                           [--include-domains DOMAIN [DOMAIN ...]]
                            [--model MODEL] [--extra-sources EXTRA_SOURCES]
                            [--validation {fast,balanced,strict}]
                            [--fallback {auto,off}] [--providers PROVIDERS]
@@ -129,6 +130,11 @@ options:
   --lang {auto,zh,en}   Interface language for this call; does not change the
                         saved preference.
   --platform PLATFORM
+  --include-domains DOMAIN [DOMAIN ...]
+                        Restrict this search to bare domains (space or comma
+                        separated). Supports Messages, Exa, and single-domain
+                        Zhipu; unsupported channels are excluded. Not saved to
+                        config; --platform and site: text are not substitutes.
   --model MODEL
   --extra-sources EXTRA_SOURCES
   --validation {fast,balanced,strict}
@@ -144,7 +150,7 @@ options:
   --output OUTPUT       Write rendered output to a file.
 ```
 
-Parser defaults: `--platform` = ``; `--model` = ``; `--extra-sources` = `0`; `--validation` = ``; `--fallback` = ``; `--providers` = `auto`; `--no-stream` = `True`; `--format` = `json`; `--output` = ``.
+Parser defaults: `--platform` = ``; `--include-domains` = `[]`; `--model` = ``; `--extra-sources` = `0`; `--validation` = ``; `--fallback` = ``; `--providers` = `auto`; `--no-stream` = `True`; `--format` = `json`; `--output` = ``.
 
 ## `smart-search route`
 
@@ -1151,9 +1157,10 @@ usage: smart-search providers test [-h] [--lang {auto,zh,en}]
 
 positional arguments:
   providers             Provider ids to check, e.g. exa zhipu. Known:
-                        anysearch, context7, deepseek, exa, firecrawl, jina,
-                        openai-compatible, sciverse, tavily, tinyfish, xai-
-                        responses, zhipu, zhipu-mcp, zhipu-mcp-reader.
+                        anthropic-messages, anysearch, context7, deepseek,
+                        exa, firecrawl, jina, openai-compatible, sciverse,
+                        tavily, tinyfish, xai-responses, zhipu, zhipu-mcp,
+                        zhipu-mcp-reader.
 
 options:
   -h, --help            show this help message and exit

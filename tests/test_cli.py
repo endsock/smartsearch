@@ -2595,7 +2595,7 @@ def test_setup_guided_main_search_can_save_both_peer_providers(monkeypatch, caps
         "OPENAI_COMPATIBLE_API_KEY": "relay-test-secret",
     }
     assert data["capability_status"]["main_search"]["configured"] == ["xai-responses", "openai-compatible"]
-    assert data["capability_status"]["main_search"]["fallback_chain"] == ["xai-responses", "openai-compatible"]
+    assert data["capability_status"]["main_search"]["fallback_chain"] == ["anthropic-messages", "xai-responses", "openai-compatible"]
 
 
 def test_setup_guided_configures_jev_without_retired_prompts(monkeypatch, capsys):

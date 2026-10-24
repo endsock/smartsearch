@@ -20,7 +20,7 @@
 
 ## Commands
 
-- `smart-search search QUERY [--platform NAME] [--model ID] [--extra-sources N] [--validation fast|balanced|strict] [--fallback auto|off] [--providers auto|CSV] [--stream|--no-stream] [--timeout SECONDS] [--format json|markdown|content] [--output PATH]` (`--timeout` overrides the persisted `SMART_SEARCH_TIMEOUT_SECONDS` total budget)
+- `smart-search search QUERY [--include-domains DOMAIN...] [--platform NAME] [--model ID] [--extra-sources N] [--validation fast|balanced|strict] [--fallback auto|off] [--providers auto|CSV] [--stream|--no-stream] [--timeout SECONDS] [--format json|markdown|content] [--output PATH]` (`--timeout` overrides the persisted `SMART_SEARCH_TIMEOUT_SECONDS` total budget)
 - `smart-search route QUERY [--validation fast|balanced|strict] [--router-mode jev|local] [--remote] [--format json|markdown|content] [--output PATH]`
 - `smart-search fetch URL [--format json|markdown|content] [--output PATH]`
 - `smart-search exa-search QUERY [--num-results N] [--search-type neural|keyword|auto] [--include-text] [--include-highlights] [--start-published-date YYYY-MM-DD] [--include-domains DOMAIN...] [--exclude-domains DOMAIN...] [--category NAME] [--format json|markdown|content] [--output PATH]`
@@ -58,6 +58,8 @@
 - `smart-search smoke [--mode mock|live] [--mock] [--live] [--format json|markdown|content] [--output PATH]`
 
 ## Aliases
+
+`search --include-domains` is per-call structured filtering, not saved configuration. Domains can be separated by spaces or commas. Messages maps it to `tools[].allowed_domains`, Exa to `includeDomains`, and Zhipu to `search_domain_filter` (one domain only). Other channels are excluded, including during fallback. An unsupported selection fails rather than silently broadening the search. `--platform` and `site:` text are not structured domain filters. Pass bare domains without URL schemes, paths, or wildcards. The `research` command does not accept this flag.
 
 Top-level aliases normalize to the same service behavior as their full command: `search`/`s`, `route`/`rt`, `fetch`/`f`, `map`/`m`, `exa-search`/`exa`/`x`, `exa-similar`/`xs`, `zhipu-search`/`z`/`zp`, `zhipu-mcp-search`/`zmcp-search`, `zhipu-mcp-reader`/`zmcp-reader`, `zhipu-mcp-search-doc`/`zmcp-doc`, `zhipu-mcp-repo-structure`/`zmcp-tree`, `zhipu-mcp-read-file`/`zmcp-file`, `anysearch-domains`/`as-domains`, `anysearch-search`/`as-search`/`as`, `anysearch-extract`/`as-extract`, `anysearch-batch`/`as-batch`, `sciverse-catalog`/`sv-catalog`, `sciverse-search`/`sv-search`/`sv`, `sciverse-semantic`/`sv-semantic`, `sciverse-read`/`sv-read`, `sciverse-relations`/`sv-relations`, `context7-library`/`c7`/`ctx7`, `context7-docs`/`c7d`/`c7docs`/`ctx7-docs`, `deep`/`dr`, `research`/`rs`, `route-calibrate`/`route-cal`/`rcal`, `doctor`/`d`, `diagnose`/`diag`, `setup`/`init`, `config`/`cfg`, `model`/`mdl`, `smoke`/`sm`, `providers`/`prov`, and `regression`/`reg`.
 

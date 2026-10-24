@@ -98,7 +98,8 @@
 
 ```text
 用法：smart-search search [-h] [--lang {auto,zh,en}] [--platform PLATFORM]
-                       [--model MODEL] [--extra-sources EXTRA_SOURCES]
+                       [--include-domains DOMAIN [DOMAIN ...]] [--model MODEL]
+                       [--extra-sources EXTRA_SOURCES]
                        [--validation {fast,balanced,strict}]
                        [--fallback {auto,off}] [--providers PROVIDERS]
                        [--stream | --no-stream] [--timeout SECONDS]
@@ -112,6 +113,11 @@
   -h, --help            显示此帮助并退出
   --lang {auto,zh,en}   本次调用的界面语言，不改变已保存的偏好。
   --platform PLATFORM
+  --include-domains DOMAIN [DOMAIN ...]
+                        Restrict this search to bare domains (space or comma
+                        separated). Supports Messages, Exa, and single-domain
+                        Zhipu; unsupported channels are excluded. Not saved to
+                        config; --platform and site: text are not substitutes.
   --model MODEL
   --extra-sources EXTRA_SOURCES
   --validation {fast,balanced,strict}
@@ -124,7 +130,7 @@
   --output OUTPUT       将渲染后的输出写入文件。
 ```
 
-解析器默认值：`--platform` = ``; `--model` = ``; `--extra-sources` = `0`; `--validation` = ``; `--fallback` = ``; `--providers` = `auto`; `--no-stream` = `True`; `--format` = `json`; `--output` = ``.
+解析器默认值：`--platform` = ``; `--include-domains` = `[]`; `--model` = ``; `--extra-sources` = `0`; `--validation` = ``; `--fallback` = ``; `--providers` = `auto`; `--no-stream` = `True`; `--format` = `json`; `--output` = ``.
 
 ## `smart-search route`
 
@@ -1060,9 +1066,10 @@
 
 位置参数:
   providers             Provider ids to check, e.g. exa zhipu. Known:
-                        anysearch, context7, deepseek, exa, firecrawl, jina,
-                        openai-compatible, sciverse, tavily, tinyfish, xai-
-                        responses, zhipu, zhipu-mcp, zhipu-mcp-reader.
+                        anthropic-messages, anysearch, context7, deepseek,
+                        exa, firecrawl, jina, openai-compatible, sciverse,
+                        tavily, tinyfish, xai-responses, zhipu, zhipu-mcp,
+                        zhipu-mcp-reader.
 
 选项:
   -h, --help            显示此帮助并退出

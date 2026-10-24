@@ -24,6 +24,7 @@ _FIELD_LABELS = {"query": "问题或关键词", "queries": "问题列表（每�
                  "budget": "研究深度", "timeout": "超时（秒）", "model": "模型", "output": "输出文件（可选）",
                  "evidence_dir": "研究证据目录", "ref": "分支或版本", "count": "结果数量", "num_results": "结果数量",
                  "router_mode": "路由方式", "validation": "来源要求", "fallback": "回退策略", "providers": "服务商筛选",
+                 "include_domains": "限定搜索域名（空格或逗号分隔）",
                  "extra_sources": "结果数量", "stream": "启用流式请求", "no_stream": "禁用流式请求", "remote": "允许远程路由判断"}
 
 
@@ -87,6 +88,7 @@ _FIELD_HELP = {
     "fallback": "一家失败后要不要自动换下一家。",
     "research/fallback": "auto 允许故障兜底和后续检索；off 关闭这些行为，但保留已发现来源的必要正文读取。",
     "providers": "限定只用哪些服务商，留空由路由决定。",
+    "include_domains": "仅本次搜索生效，不保存配置。支持 Messages、Exa、单域名智谱；不支持的渠道不参与兜底。填写裸域名，不是 URL 或 site: 语法。",
     "extra_sources": "本轮向选中渠道请求的结果条数，不增加检索渠道。",
     "stream": "对 OpenAI 兼容接口启用流式请求。部分服务只有流式下才肯长时间思考。",
     "no_stream": "对 OpenAI 兼容接口禁用流式请求。",

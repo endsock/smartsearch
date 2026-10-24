@@ -1,3 +1,4 @@
+from .anthropic_messages import AnthropicMessagesSearchProvider
 from .base import BaseSearchProvider, SearchResult
 from .anysearch import AnySearchProvider
 from .context7 import Context7Provider
@@ -12,6 +13,7 @@ from .zhipu import ZhipuWebSearchProvider
 from .zhipu_mcp import ZhipuMCPProvider
 
 __all__ = [
+    "AnthropicMessagesSearchProvider",
     "BaseSearchProvider",
     "SearchResult",
     "AnySearchProvider",

@@ -19,7 +19,15 @@ Generated from current configuration metadata. Active keys appear below. Retired
 | `OPENAI_COMPATIBLE_FALLBACK_MODELS` | Comma separated. Tried in order when the main model is unavailable. | `csv` | Not set |
 | `OPENAI_COMPATIBLE_API_MODE` | Most services want chat-completions. | `chat-completions, responses` | `chat-completions` |
 | `OPENAI_COMPATIBLE_STREAM` | Some services only think for long under streaming. | `bool` | `false` |
+| `ANTHROPIC_API_URL` | Independent Anthropic-compatible endpoint. Include /v1, or supply the full /v1/messages URL. | `url` | Not set |
+| `ANTHROPIC_API_KEY` | Get this from your compatible provider. Uses Authorization: Bearer authentication. | `secret` | Not set |
+| `ANTHROPIC_MODEL` | Required model identifier supplied by your compatible provider. | `text` | Not set |
+| `ANTHROPIC_MAX_TOKENS` | Positive integer. Truncated output is reported as an error. | `int` | `2048` |
+| `ANTHROPIC_API_VERSION` | Sent in the anthropic-version header. | `text` | `2023-06-01` |
+| `ANTHROPIC_STREAM` | Enable Messages SSE, with non-stream fallback for stream protocol failures. | `bool` | `false` |
+| `ANTHROPIC_WEB_SEARCH_MAX_USES` | Positive maximum uses of web_search_20250305 per request. | `int` | `5` |
 | `XAI_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
+| `ANTHROPIC_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `OPENAI_COMPATIBLE_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 
 ## Providers

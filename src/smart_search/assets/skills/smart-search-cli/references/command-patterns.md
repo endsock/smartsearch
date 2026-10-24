@@ -25,6 +25,8 @@ Deep Research planner output uses an explicit `--evidence-dir` when supplied, ot
 ```powershell
 smart-search search "query" --extra-sources 5 --timeout 300 --format json --output result.json
 smart-search search "query" --stream --format json
+smart-search search "北京天气" --providers anthropic-messages --include-domains weather.com.cn --format json
+smart-search search "API documentation" --include-domains docs.example.com developer.mozilla.org --format json
 smart-search diagnose openai-compatible --format markdown
 smart-search search "query" --platform "Reuters" --model "model-id" --extra-sources 3 --timeout 300 --format json
 smart-search search "nba战报" --format content
@@ -106,6 +108,8 @@ smart-search regression
 smart-search smoke --mock --format json
 smart-search smoke --mock --format markdown
 ```
+
+`search --include-domains DOMAIN...` applies only to this request, never to provider configuration. Use bare domains separated by spaces or commas; do not pass URLs, paths or wildcards. Messages and Exa support multiple domains; Zhipu supports one. Unsupported channels are excluded from routing and fallback, and no matching configured channel returns an explicit error. Preserve this restriction on retries; do not replace it with `--platform` or `site:` text. For domain-constrained research, run constrained `search` calls and then `fetch` the chosen pages; `research` has no such flag.
 
 `TAVILY_ENABLED=false` is a complete Tavily no-network switch even if `TAVILY_API_KEY` is still saved. It removes Tavily from automatic web-search/fetch routes, makes direct Tavily boundaries and `doctor` local-only, and makes `map` return a configuration error; it does not configure Firecrawl.
 

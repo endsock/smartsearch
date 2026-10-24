@@ -24,7 +24,7 @@ def _fallback_family(a: str, b: str) -> bool:
     return a == b or (a in ANSWER_CAPABILITIES and b in ANSWER_CAPABILITIES)
 
 
-def available_channels(svc: Any, query: str, evidence: list[dict], providers: str = "auto", *, queries: list[dict] | None = None, include_cooldown: bool = False) -> list[dict]:
+def available_channels(svc: Any, query: str, evidence: list[dict], providers: str = "auto", *, queries: list[dict] | None = None, include_cooldown: bool = False, include_domains: list[str] | None = None) -> list[dict]:
     """Only configured, enabled, allowed operations enter the model's state."""
     provider_filter = svc._parse_provider_filter(providers)
     disabled = set(svc.config.research_disabled_providers)
@@ -41,10 +41,22 @@ def available_channels(svc: Any, query: str, evidence: list[dict], providers: st
         if not include_cooldown and svc._provider_health_status(provider).get("state") == "cooldown":
             continue
         capabilities = profile.get("capabilities") or [profile["capability"]]
+        search_capabilities = [item for item in capabilities if item not in {"site_map", "web_fetch"}]
         for capability in capabilities:
             if capability == "site_map":
                 continue
+            default_order = svc.RESEARCH_PROFILE_ORDER.get(capability, [])
+            if provider in preferred:
+                preference_rank = preferred.index(provider)
+            elif provider in default_order:
+                preference_rank = len(preferred) + default_order.index(provider)
+            else:
+                preference_rank = len(preferred) + len(default_order)
             operation = "fetch" if capability == "web_fetch" else "search"
+            if include_domains and (operation != "search" or not (
+                provider in {"anthropic-messages", "exa"} or provider == "zhipu" and len(include_domains) == 1
+            )):
+                continue
             description = PROVIDER_DESCRIPTIONS[provider][operation]
             targets = [{"url": url, "query": query, "reason": source_message('read discovered source'), "subquestion_id": ""} for url in urls] if operation == "fetch" else queries
             for target in targets:
@@ -52,10 +64,10 @@ def available_channels(svc: Any, query: str, evidence: list[dict], providers: st
                 identity = url if operation == "fetch" else (actual_query if actual_query != query else "")
                 suffix = ":" + hashlib.sha256(identity.encode()).hexdigest()[:12] if identity else ""
                 channels.append({
-                    "id": f"{provider}:{operation}{suffix}", "provider": provider,
+                    "id": f"{provider}:{operation}{':' + capability if operation == 'search' and len(search_capabilities) > 1 else ''}{suffix}", "provider": provider,
                     "operation": operation, "capability": capability, "url": url,
                     "query": actual_query, "reason": target["reason"], "subquestion_id": target["subquestion_id"],
-                    "preference_rank": preferred.index(provider) if provider in preferred else len(preferred),
+                    "preference_rank": preference_rank,
                     "description": description["en"], "guidance": description["guidance_en"],
                 })
     return channels
@@ -135,7 +147,7 @@ def _normalize_results(results: list[dict], provider: str, operation: str) -> li
 
 
 class ChannelExecutor:
-    def __init__(self, svc: Any, client: JevClient, *, model: str = "", stream: bool | None = None, platform: str = "", count: int = 5, research: bool = False, fallback: str = "auto"):
+    def __init__(self, svc: Any, client: JevClient, *, model: str = "", stream: bool | None = None, platform: str = "", count: int = 5, research: bool = False, fallback: str = "auto", include_domains: list[str] | None = None):
         self.svc = svc
         self.client = client
         self.model = model
@@ -144,6 +156,7 @@ class ChannelExecutor:
         self.count = count
         self.research = research
         self.fallback = fallback
+        self.include_domains = include_domains or []
         self.model_results: dict[str, dict] = {}
 
     async def execute(self, channel: dict, query: str) -> list[dict]:
@@ -172,9 +185,11 @@ class ChannelExecutor:
                 raise ProviderCallError("parameter_error", source_message('Unsupported fetch channel'))
             results = [{"url": url, "content": content}]
         elif provider == "exa":
-            results = _check_data(await svc.exa_search(query, num_results=self.count, include_highlights=True)).get("results", [])
+            domain_kwargs = {"include_domains": self.include_domains} if self.include_domains else {}
+            results = _check_data(await svc.exa_search(query, num_results=self.count, include_highlights=True, **domain_kwargs)).get("results", [])
         elif provider == "zhipu":
-            results = _check_data(await svc.zhipu_search(query, count=self.count)).get("results", [])
+            domain_kwargs = {"search_domain_filter": self.include_domains[0]} if self.include_domains else {}
+            results = _check_data(await svc.zhipu_search(query, count=self.count, **domain_kwargs)).get("results", [])
         elif provider == "zhipu-mcp":
             results = _check_data(await svc.zhipu_mcp_search(query, count=self.count)).get("results", [])
         elif provider == "tavily":
@@ -189,12 +204,13 @@ class ChannelExecutor:
             results = _check_data(await svc.anysearch_search(query, max_results=self.count)).get("results", [])
         elif provider == "context7":
             results = await self._context7(query)
-        elif provider in {"xai-responses", "openai-compatible"}:
+        elif provider in svc.MAIN_SEARCH_FALLBACK_CHAIN:
             configs = svc._main_search_provider_configs(model_override=self.model, providers=provider)
             if self.stream is not None:
                 configs[0]["stream"] = self.stream
+            domain_kwargs = {"include_domains": self.include_domains} if self.include_domains else {}
             data = await svc._search_model_channel(configs[0], query, self.platform, deadline=self.client.deadline,
-                                                  fallback=self.fallback, model_override=self.model)
+                                                  fallback=self.fallback, model_override=self.model, **domain_kwargs)
             self.model_results[channel["id"]] = data
             if data.get("error_type") == "evidence_error":
                 return []
@@ -349,7 +365,7 @@ async def plan(query: str, validation: str, *, allow_remote: bool = False, mode:
 async def search(
     query: str, *, validation: str, fallback: str, providers: str,
     timeout_seconds: float, platform: str = "", model: str = "", stream: bool | None = None, extra_sources: int = 0,
-    research_plan: dict | None = None, single_pass: bool = True,
+    research_plan: dict | None = None, single_pass: bool = True, include_domains: list[str] | None = None,
 ) -> dict:
     from . import service as svc
 
@@ -382,7 +398,7 @@ async def search(
                                 results_per_channel=min(settings.results_per_channel, results))
         elif single_pass:
             settings = replace(settings, max_rounds=1, max_channels=1, filter_results=False, synthesis_mode="false")
-        inventory = available_channels(svc, query, [], providers, include_cooldown=True)
+        inventory = available_channels(svc, query, [], providers, include_cooldown=True, include_domains=include_domains)
         skipped = []
         initial = []
         for channel in inventory:
@@ -397,12 +413,14 @@ async def search(
             if skipped:
                 return {**failed(skipped[-1]["error_type"], skipped[-1]["error"]),
                         "provider_attempts": skipped, "provider_notices": svc._provider_notices(skipped)}
+            if include_domains:
+                return failed("parameter_error", "No configured channel supports --include-domains with this --providers selection. Use Messages, Exa, or Zhipu (one domain only).")
             return failed("config_error", "No enabled configured channels match this question and --providers")
     except ValueError as exc:
         return failed("parameter_error", str(exc))
 
     client = JevClient(settings, budget.deadline, verify=svc.config.ssl_verify_enabled)
-    executor = ChannelExecutor(svc, client, model=model, stream=stream, platform=platform, count=min(extra_sources or settings.results_per_channel, 20), research=is_research, fallback=fallback)
+    executor = ChannelExecutor(svc, client, model=model, stream=stream, platform=platform, count=min(extra_sources or settings.results_per_channel, 20), research=is_research, fallback=fallback, include_domains=include_domains)
     evidence: list[dict] = []
     attempts: list[dict] = list(skipped)
     rounds: list[dict] = []
@@ -453,7 +471,7 @@ async def search(
             candidates = initial
             if is_research:
                 queries = candidate_queries(query, assessment, research_plan) if round_number > 1 or require_read else None
-                candidates = [item for item in available_channels(svc, query, evidence, providers, queries=queries) if item["id"] not in attempted]
+                candidates = [item for item in available_channels(svc, query, evidence, providers, queries=queries, include_domains=include_domains) if item["id"] not in attempted]
             if fallback == "off" and round_number > 1:
                 candidates = [item for item in candidates if require_read and item["operation"] == "fetch"
                               and not any(a.get("url") == item["url"] for a in attempts if a.get("operation") == "fetch")]

@@ -21,6 +21,7 @@
 | --- | --- | --- | --- | --- |
 | xAI Responses API | 主搜索，走 `web_search,x_search` 工具 | `XAI_API_KEY`、`XAI_API_URL`、`XAI_MODEL`、`XAI_TOOLS`、`XAI_REASONING_EFFORT` | [docs.x.ai](https://docs.x.ai/docs) | [xAI API keys](https://console.x.ai/team/default/api-keys) |
 | OpenAI-compatible Chat Completions / Responses | 主搜索，适合 OpenAI 官方或兼容中转；任一模式都不会发送 xAI search tools | `OPENAI_COMPATIBLE_API_URL`、`OPENAI_COMPATIBLE_API_KEY`、`OPENAI_COMPATIBLE_MODEL`、`OPENAI_COMPATIBLE_API_MODE`、`OPENAI_COMPATIBLE_FALLBACK_MODELS`、`OPENAI_COMPATIBLE_STREAM` | [OpenAI platform docs](https://platform.openai.com/docs) | [OpenAI API keys](https://platform.openai.com/api-keys) 或你的兼容服务商 |
+| Anthropic-compatible Messages | 主搜索，调用 `web_search_20250305` 并解析引用；使用 Bearer 鉴权的兼容服务 | `ANTHROPIC_API_URL`、`ANTHROPIC_API_KEY`、`ANTHROPIC_MODEL`、`ANTHROPIC_MAX_TOKENS`、`ANTHROPIC_API_VERSION`、`ANTHROPIC_STREAM`、`ANTHROPIC_WEB_SEARCH_MAX_USES` | [Messages 协议](https://docs.anthropic.com/en/api/messages) | 你的兼容服务商 |
 | Exa | 官方文档、API、论文、产品页、可信网页的低噪声发现 | `EXA_API_KEY` | [Exa docs](https://docs.exa.ai/) | [Exa API keys](https://dashboard.exa.ai/api-keys) |
 | Context7 | SDK、库、框架、API 文档兜底 | `CONTEXT7_API_KEY`、`CONTEXT7_BASE_URL` | [Context7 docs](https://context7.com/docs) | [Context7](https://context7.com/) |
 | 智谱 Web Search API | 中文、国内、时效、域名过滤类来源发现 | `ZHIPU_API_KEY`、`ZHIPU_API_URL`、`ZHIPU_SEARCH_ENGINE` | [智谱联网搜索文档](https://docs.bigmodel.cn/cn/guide/tools/web-search) | [智谱 API keys](https://open.bigmodel.cn/usercenter/apikeys) |
@@ -33,6 +34,23 @@
 | TypeSafe / Jev | 可选语义路由和证据判断 | `TYPESAFE_API_KEY`、`TYPESAFE_API_URL`、`TYPESAFE_MODEL` | [TypeSafe API](https://docs.typesafe.ai/api) | 参见 TypeSafe 文档 |
 | AnySearch | 实验垂直搜索验收入口，不是默认兜底 | `ANYSEARCH_API_URL`、`ANYSEARCH_API_KEY`、`ANYSEARCH_TIMEOUT_SECONDS` | [AnySearch 文档](https://www.anysearch.com/docs) | [AnySearch API keys](https://www.anysearch.com/console/api-keys) |
 | Sciverse | 显式实验学术检索、语义论文检索、正文片段和引用/参考文献关系，不是默认兜底 | `SCIVERSE_API_TOKEN`、`SCIVERSE_API_URL`、`SCIVERSE_TIMEOUT_SECONDS` | [Sciverse Agent Tools](https://github.com/opendatalab/Sciverse-Agent-Tools) | Sciverse 控制台 / token 提供方 |
+
+## Messages 兼容服务
+
+新增独立 `anthropic-messages` 服务商，不复用或修改 `OPENAI_COMPATIBLE_*`。通过 App 或 `config set` 保存到现有 `config.json`：
+
+```sh
+smart-search config set ANTHROPIC_API_URL "http://your-relay:8317/v1"
+smart-search config set ANTHROPIC_API_KEY "your-relay-key"
+smart-search config set ANTHROPIC_MODEL "gemini-3.8-flash-high"
+smart-search config set ANTHROPIC_MAX_TOKENS "2048"
+smart-search config set ANTHROPIC_WEB_SEARCH_MAX_USES "5"
+smart-search search "搜索北京天气" --providers anthropic-messages --include-domains weather.com.cn --format json
+```
+
+地址支持 `/v1` 基础地址或完整 `/v1/messages`，不会重复追加。默认版本 `2023-06-01`、非流式；`ANTHROPIC_STREAM=true` 或单次 `search --stream` 启用 SSE。仅搜索请求附带 `web_search_20250305`；非流式正文与 SSE 文本、引用和工具结果均会解析，来源按 URL 去重。工具错误、输出截断（`max_tokens`）、未完成的工具轮次（`pause_turn`）明确报错，不当作完整答案。域名限制使用单次 `search --include-domains DOMAIN...`，支持空格或逗号分隔，不保存到配置，也不会从自然语言或 `site:` 自动提取。指定后仅选择支持结构化过滤的 Messages、Exa 或单域名智谱渠道；其他渠道不会作为无限制兜底，没有匹配渠道会明确报错。`--platform` 只是提示词，不等于域名过滤。`ANTHROPIC_ENABLED=false` 禁用该服务商。`providers test anthropic-messages` 会执行真实联网搜索，可能计费。
+
+鉴权按兼容中转协议使用 `Authorization: Bearer` 和 `anthropic-version`，不是 Anthropic 官方 `x-api-key` 鉴权方式。
 
 ## 路由与兼容
 

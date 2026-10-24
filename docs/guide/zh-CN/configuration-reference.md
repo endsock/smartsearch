@@ -19,7 +19,15 @@
 | `OPENAI_COMPATIBLE_FALLBACK_MODELS` | 逗号分隔。主模型不可用时按顺序往下试。 | `csv` | 未设置 |
 | `OPENAI_COMPATIBLE_API_MODE` | 大多数服务用 chat-completions。 | `chat-completions, responses` | `chat-completions` |
 | `OPENAI_COMPATIBLE_STREAM` | 部分服务只在流式下才肯长时间思考。 | `bool` | `false` |
+| `ANTHROPIC_API_URL` | 独立的 Anthropic 兼容接口；填写包含 /v1 的基础地址或完整 /v1/messages 地址。 | `url` | 未设置 |
+| `ANTHROPIC_API_KEY` | 向你的兼容服务商获取；使用 Authorization: Bearer 鉴权。 | `secret` | 未设置 |
+| `ANTHROPIC_MODEL` | 按兼容服务商提供的模型名填写，必须配置。 | `text` | 未设置 |
+| `ANTHROPIC_MAX_TOKENS` | 正整数；达到上限导致截断会明确报错。 | `int` | `2048` |
+| `ANTHROPIC_API_VERSION` | 发送到 anthropic-version 请求头。 | `text` | `2023-06-01` |
+| `ANTHROPIC_STREAM` | 启用 Messages SSE；流式协议失败时可回退非流式。 | `bool` | `false` |
+| `ANTHROPIC_WEB_SEARCH_MAX_USES` | 单次请求允许 web_search_20250305 工具调用的次数，正整数。 | `int` | `5` |
 | `XAI_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
+| `ANTHROPIC_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `OPENAI_COMPATIBLE_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 
 ## 数据源
